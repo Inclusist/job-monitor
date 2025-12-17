@@ -1,0 +1,103 @@
+search_config:
+  # Job titles to search for
+  keywords:
+    # Leadership roles
+    - "Head of Data Science"
+    - "Head of AI"
+    - "Head of Machine Learning"
+    - "AI Team Lead"
+    - "Machine Learning Lead"
+    - "Principal Data Scientist"
+    - "Lead Data Scientist"
+    - "Senior Data Scientist"
+    - "AI Engineering Manager"
+    - "Data Science Manager"
+    
+    # German terms
+    - "Leiter Data Science"
+    - "KI-Teamleiter"
+    - "Leiter Künstliche Intelligenz"
+  
+  # Locations to search
+  locations:
+    - "Germany"
+    - "Berlin, Germany"
+    - "Munich, Germany"
+    - "Hamburg, Germany"
+    - "Wolfsburg, Germany"
+    - "Remote, Germany"
+    - "Deutschland"
+  
+  # Company-specific searches
+  company_keywords:
+    - "Volkswagen Data Science"
+    - "AUTO1 Machine Learning"
+    - "BMW AI"
+    - "Siemens Data Science"
+    - "SAP Machine Learning"
+    - "Zalando Data Science"
+    - "Mercedes-Benz AI"
+    - "Bosch Machine Learning"
+
+  # Industries of interest
+  industries:
+    - "Automotive"
+    - "E-commerce"
+    - "Finance"
+    - "Technology"
+
+preferences:
+  # Minimum match score to include in digest (0-100)
+  min_match_score: 60
+  
+  # Score threshold for high priority (0-100)
+  high_priority_threshold: 85
+  
+  # Maximum jobs to include in daily digest
+  max_jobs_per_digest: 20
+  
+  # Include jobs you've already applied to in digest
+  include_applied_jobs: false
+  
+  # Days to keep job data before archiving
+  archive_after_days: 90
+
+schedule:
+  # Time for daily search (24-hour format)
+  daily_search_time: "08:00"
+  
+  # Day for weekly summary (Monday, Tuesday, etc.)
+  weekly_summary_day: "Sunday"
+  weekly_summary_time: "18:00"
+
+# Your profile information for Claude analysis
+profile:
+  name: "Prabhu Shankar Ramachandran"
+  current_role: "Team Lead - Data Science at XING"
+  location: "Wolfsburg, Germany"
+  
+  key_experience:
+    - "Leading 8+ data scientists and engineers across 5 European locations"
+    - "Pioneered XING's first LLM-based production model"
+    - "Leading ontology automation using LLMs and dynamic knowledge graphs"
+    - "Founded C&S Financial Services - built Forex trading algorithms"
+    - "10+ years in data science and machine learning"
+  
+  technical_skills:
+    - "LLMs and Generative AI"
+    - "Machine Learning and Deep Learning"
+    - "Python, R, Spark, Scala"
+    - "AWS and Azure AI"
+    - "Knowledge Graphs and Embedded Vectors"
+    - "Team Leadership and Product Strategy"
+  
+  languages:
+    - "English (C1)"
+    - "German (B2)"
+    - "Tamil (Native)"
+  
+  preferences:
+    - "Leadership roles with team management"
+    - "AI/ML focused positions"
+    - "International or remote-friendly environments"
+    - "Innovative companies in automotive, tech, or finance"

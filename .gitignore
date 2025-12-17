@@ -1,0 +1,48 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data files (includes CVs, databases, logs)
+data/
+!data/.gitkeep
+
+# CV files specifically (already covered by data/ but explicit)
+# data/cvs/
+# data/jobs.db
+
+# API credentials
+credentials.json
+token.pickle
+*.json
+
+# Temporary files
+*.tmp
+*.bak
