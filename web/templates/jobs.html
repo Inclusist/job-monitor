@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Jobs - Job Monitor{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <h2>Matched Jobs</h2>
+            <p>{{ jobs|length }} job{{ 's' if jobs|length != 1 else '' }} found</p>
+        </div>
+        <div>
+            <a href="{{ url_for('run_search') }}" class="btn">🔍 Run New Search</a>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <form method="GET" style="display: flex; gap: 1rem; align-items: end;">
+        <div class="form-group" style="flex: 1; margin-bottom: 0;">
+            <label for="priority">Filter by Priority</label>
+            <select id="priority" name="priority" style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;">
+                <option value="">All Priorities</option>
+                <option value="high" {% if priority == 'high' %}selected{% endif %}>High</option>
+                <option value="medium" {% if priority == 'medium' %}selected{% endif %}>Medium</option>
+                <option value="low" {% if priority == 'low' %}selected{% endif %}>Low</option>
+            </select>
+        </div>
+        <div class="form-group" style="flex: 1; margin-bottom: 0;">
+            <label for="min_score">Min Score</label>
+            <input type="number" id="min_score" name="min_score" value="{{ min_score or '' }}" min="0" max="100" placeholder="0-100" style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;">
+        </div>
+        <button type="submit" class="btn">Apply Filters</button>
+        {% if priority or min_score %}
+        <a href="{{ url_for('jobs') }}" class="btn btn-secondary">Clear</a>
+        {% endif %}
+    </form>
+</div>
+
+{% if not jobs %}
+<div class="alert alert-info">
+    <strong>No jobs found.</strong> Try running a new search or adjusting your filters.
+</div>
+{% else %}
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Job Title</th>
+                <th>Company</th>
+                <th>Location</th>
+                <th>Score</th>
+                <th>Priority</th>
+                <th>Posted</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in jobs %}
+            <tr>
+                <td>
+                    <strong>{{ job.title }}</strong>
+                </td>
+                <td>{{ job.company }}</td>
+                <td>{{ job.location }}</td>
+                <td>
+                    <span style="font-weight: bold; color: {% if job.match_score >= 85 %}#155724{% elif job.match_score >= 70 %}#856404{% else %}#721c24{% endif %};">
+                        {{ job.match_score }}
+                    </span>
+                </td>
+                <td>
+                    <span class="badge badge-{{ job.priority }}">
+                        {{ job.priority|capitalize }}
+                    </span>
+                </td>
+                <td>{{ job.posted_date[:10] if job.posted_date else 'Unknown' }}</td>
+                <td>
+                    <a href="{{ url_for('job_detail', job_id=job.id) }}" class="btn" style="padding: 0.5rem 1rem; font-size: 0.875rem;">View</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% endif %}
+
+{% if not user or not stats.primary_cv_name %}
+<div class="alert alert-info">
+    <strong>💡 Tip:</strong> Upload your CV for more accurate job matching! <a href="{{ url_for('upload_cv') }}" style="color: #0c5460; text-decoration: underline;">Upload now</a>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}{{ job.title }} - Job Monitor{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1.5rem;">
+        <div>
+            <h2>{{ job.title }}</h2>
+            <p style="font-size: 1.1rem; color: #666; margin-top: 0.5rem;">{{ job.company }}</p>
+        </div>
+        <div style="text-align: right;">
+            <div style="font-size: 2.5rem; font-weight: bold; color: {% if job.match_score >= 85 %}#155724{% elif job.match_score >= 70 %}#856404{% else %}#721c24{% endif %};">
+                {{ job.match_score }}
+            </div>
+            <span class="badge badge-{{ job.priority }}">{{ job.priority|capitalize }} Priority</span>
+        </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+        <div>
+            <p style="color: #666; font-size: 0.875rem;">Location</p>
+            <p style="font-weight: 500;">{{ job.location }}</p>
+        </div>
+        <div>
+            <p style="color: #666; font-size: 0.875rem;">Posted</p>
+            <p style="font-weight: 500;">{{ job.posted_date[:10] if job.posted_date else 'Unknown' }}</p>
+        </div>
+        <div>
+            <p style="color: #666; font-size: 0.875rem;">Salary</p>
+            <p style="font-weight: 500;">{{ job.salary or 'Not specified' }}</p>
+        </div>
+        <div>
+            <p style="color: #666; font-size: 0.875rem;">Source</p>
+            <p style="font-weight: 500;">{{ job.source|capitalize }}</p>
+        </div>
+    </div>
+
+    <div style="margin-bottom: 2rem;">
+        <a href="{{ job.url }}" target="_blank" class="btn">🔗 View Job Posting</a>
+        <a href="{{ url_for('jobs') }}" class="btn btn-secondary" style="margin-left: 1rem;">← Back to Jobs</a>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Match Analysis</h3>
+    <p style="font-size: 1.1rem; line-height: 1.8; color: #555; margin-top: 1rem;">
+        {{ job.match_reasoning or job.reasoning or 'No reasoning provided' }}
+    </p>
+</div>
+
+{% if job.key_alignments %}
+<div class="card">
+    <h3>✅ Key Alignments</h3>
+    <ul style="margin-left: 1.5rem; margin-top: 1rem;">
+        {% for alignment in job.key_alignments %}
+        <li style="margin-bottom: 0.75rem; color: #155724;">
+            <strong>{{ alignment }}</strong>
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+{% if job.potential_gaps %}
+<div class="card">
+    <h3>⚠️ Potential Gaps</h3>
+    <ul style="margin-left: 1.5rem; margin-top: 1rem;">
+        {% for gap in job.potential_gaps %}
+        <li style="margin-bottom: 0.75rem; color: #856404;">
+            {{ gap }}
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+<div class="card">
+    <h3>Job Description</h3>
+    <div style="margin-top: 1rem; line-height: 1.8; color: #555; white-space: pre-wrap;">{{ job.description }}</div>
+</div>
+
+<div class="card">
+    <h3>Actions</h3>
+    <div style="display: flex; gap: 1rem;">
+        <a href="{{ job.url }}" target="_blank" class="btn">Apply Now</a>
+        <button class="btn btn-secondary" onclick="if(confirm('Mark this job as reviewed?')) window.location.href='{{ url_for('update_job_status', job_id=job.id, status='reviewed') }}'">
+            Mark as Reviewed
+        </button>
+    </div>
+</div>
+{% endblock %}

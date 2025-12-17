@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Job Monitor{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Welcome to Job Monitor 🚀</h2>
+    <p>AI-powered job search with intelligent CV matching using Claude AI.</p>
+</div>
+
+{% if user %}
+<div class="card">
+    <h2>Your Account</h2>
+    <p><strong>Email:</strong> {{ user.email }}</p>
+    <p><strong>Name:</strong> {{ user.name or 'Not set' }}</p>
+    <p><strong>Current Role:</strong> {{ user.current_role or 'Not set' }}</p>
+</div>
+{% endif %}
+
+<div class="grid">
+    <div class="stat-card">
+        <h3>{{ stats.total_cvs or 0 }}</h3>
+        <p>CV{{ 's' if stats.total_cvs != 1 else '' }} Uploaded</p>
+    </div>
+    <div class="stat-card">
+        <h3>{{ stats.total_jobs or 0 }}</h3>
+        <p>Job{{ 's' if stats.total_jobs != 1 else '' }} Tracked</p>
+    </div>
+    <div class="stat-card">
+        <h3>{{ stats.high_priority or 0 }}</h3>
+        <p>High Priority Match{{ 'es' if stats.high_priority != 1 else '' }}</p>
+    </div>
+</div>
+
+<div class="card" style="margin-top: 2rem;">
+    <h2>Quick Actions</h2>
+    <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+        {% if not user or not stats.primary_cv_name %}
+            <a href="{{ url_for('upload_cv') }}" class="btn">📄 Upload Your CV</a>
+        {% else %}
+            <a href="{{ url_for('view_profile') }}" class="btn">👤 View Profile</a>
+        {% endif %}
+        <a href="{{ url_for('jobs') }}" class="btn btn-secondary">💼 Browse Jobs</a>
+    </div>
+</div>
+
+{% if not user or not stats.primary_cv_name %}
+<div class="alert alert-info" style="margin-top: 2rem;">
+    <strong>💡 Tip:</strong> Upload your CV to get started with AI-powered job matching! The system will extract your skills, experience, and qualifications automatically.
+</div>
+{% endif %}
+{% endblock %}
