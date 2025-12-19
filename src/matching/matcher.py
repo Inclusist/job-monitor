@@ -116,29 +116,35 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                 if jsearch_key:
                     jsearch = JSearchCollector(jsearch_key)
                     
-                    # Fetch jobs for each keyword/location combination
-                    total_fetched = 0
-                    for keyword in keywords[:3]:  # Limit to 3 keywords
-                        for location in locations[:2]:  # Limit to 2 locations
-                            matching_status[user_id].update({
-                                'message': f'Fetching {keyword} jobs in {location}...'
-                            })
-                            
-                            jobs = jsearch.search_jobs(
-                                query=keyword,
-                                location=location,
-                                results_wanted=30,  # 30 jobs per search
-                                hours_old=72  # Last 3 days
-                            )
-                            
-                            # Add jobs to database
-                            for job in jobs:
-                                job_db_inst.add_job(job)
-                                total_fetched += 1
-                            
-                            print(f"  ✓ Fetched {len(jobs)} {keyword} jobs in {location}")
+                    # Combine keywords with OR to reduce API calls
+                    keywords_limited = keywords[:3]  # Limit to 3 keywords
+                    combined_query = " OR ".join(keywords_limited) if len(keywords_limited) > 1 else keywords_limited[0]
                     
-                    print(f"✓ Fetched {total_fetched} initial jobs from JSearch")
+                    # Fetch jobs for each location with combined query
+                    total_fetched = 0
+                    for location in locations[:2]:  # Limit to 2 locations
+                        matching_status[user_id].update({
+                            'message': f'Fetching jobs in {location}...'
+                        })
+                        
+                        # Request more results since we're combining keywords
+                        results_per_location = 90  # 3x more since we're combining 3 keywords
+                        
+                        jobs = jsearch.search_jobs(
+                            query=combined_query,
+                            location=location,
+                            results_wanted=results_per_location,
+                            hours_old=72  # Last 3 days
+                        )
+                        
+                        # Add jobs to database
+                        for job in jobs:
+                            job_db_inst.add_job(job)
+                            total_fetched += 1
+                        
+                        print(f"  ✓ Fetched {len(jobs)} jobs in {location} (query: {combined_query})")
+                    
+                    print(f"✓ Fetched {total_fetched} initial jobs from JSearch (2 requests instead of {len(keywords_limited) * len(locations[:2])})")
                 else:
                     print("⚠️  No JSEARCH_API_KEY found, will use existing jobs only")
                     
