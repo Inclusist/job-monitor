@@ -189,7 +189,7 @@
             <tbody>
                 {% for fb in feedback_history %}
                 <tr style="border-bottom: 1px solid #e0e0e0;">
-                    <td style="padding: 1rem;">{{ fb.created_date[:10] }}</td>
+                    <td style="padding: 1rem;">{{ fb.created_date.strftime('%Y-%m-%d') if fb.created_date is not string else fb.created_date[:10] }}</td>
                     <td style="padding: 1rem;">
                         <strong>{{ fb.job_title }}</strong><br>
                         <span style="color: #666; font-size: 0.9rem;">{{ fb.job_company }}</span>

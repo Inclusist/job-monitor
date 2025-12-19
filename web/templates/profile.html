@@ -13,7 +13,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
                     <strong>{{ cv_item.file_name }}</strong>
-                    <span style="color: #666; font-size: 0.9rem; margin-left: 0.5rem;">{{ cv_item.uploaded_date[:10] }}</span>
+                    <span style="color: #666; font-size: 0.9rem; margin-left: 0.5rem;">{{ cv_item.uploaded_date.strftime('%Y-%m-%d') if cv_item.uploaded_date is not string else cv_item.uploaded_date[:10] }}</span>
                     {% if cv_item.is_primary %}
                     <span class="badge" style="background: #28a745; color: white; margin-left: 0.5rem;">Primary</span>
                     {% endif %}
@@ -47,7 +47,7 @@
 <div class="card">
     <h2>Your Profile</h2>
     <p><strong>CV File:</strong> {{ cv.file_name }}</p>
-    <p><strong>Uploaded:</strong> {{ cv.uploaded_date[:10] }}</p>
+    <p><strong>Uploaded:</strong> {{ cv.uploaded_date.strftime('%Y-%m-%d') if cv.uploaded_date is not string else cv.uploaded_date[:10] }}</p>
     {% if cv.is_primary %}
     <span class="badge badge-primary">Primary CV</span>
     {% endif %}
