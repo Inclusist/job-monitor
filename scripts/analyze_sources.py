@@ -11,14 +11,14 @@ from dotenv import load_dotenv
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from database.operations import JobDatabase
+from database.factory import get_database
 from collectors.source_filter import SourceFilter
 
 
 def analyze_sources(db_path: str):
     """Analyze job sources in the database"""
     
-    db = JobDatabase(db_path)
+    db = get_database()  # Auto-detects SQLite or PostgreSQL
     source_filter = SourceFilter()
     
     # Get all jobs
@@ -119,7 +119,7 @@ def analyze_sources(db_path: str):
 def delete_low_quality_jobs(db_path: str, dry_run: bool = True):
     """Delete jobs from blacklisted sources"""
     
-    db = JobDatabase(db_path)
+    db = get_database()  # Auto-detects SQLite or PostgreSQL
     source_filter = SourceFilter()
     
     conn = db._get_connection()

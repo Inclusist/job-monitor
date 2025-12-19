@@ -33,21 +33,26 @@ def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
 
 def deduplicate_jobs(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Deduplicate jobs based on job_id
+    Deduplicate jobs based on job_id or external_id.
+    Ensures all jobs have a job_id field.
     
     Args:
         jobs: List of job dictionaries
         
     Returns:
-        Deduplicated list of jobs
+        Deduplicated list of jobs with job_id normalized
     """
     seen = set()
     unique_jobs = []
     
     for job in jobs:
-        job_id = job.get('job_id')
+        # Try multiple ID fields for different sources
+        job_id = job.get('job_id') or job.get('external_id') or job.get('url')
         if job_id and job_id not in seen:
             seen.add(job_id)
+            # Ensure job_id is set for database consistency
+            if not job.get('job_id') and job.get('external_id'):
+                job['job_id'] = job['external_id']
             unique_jobs.append(job)
     
     return unique_jobs
@@ -55,20 +60,27 @@ def deduplicate_jobs(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 def filter_new_jobs(jobs: List[Dict[str, Any]], db) -> List[Dict[str, Any]]:
     """
-    Filter out jobs that already exist in database
+    Filter out jobs that already exist in database OR have been deleted
     
     Args:
         jobs: List of job dictionaries
         db: JobDatabase instance
         
     Returns:
-        List of new jobs only
+        List of new jobs only (excluding previously deleted jobs)
     """
     new_jobs = []
     
+    # Get list of deleted job_ids to exclude
+    deleted_job_ids = db.get_deleted_job_ids()
+    
     for job in jobs:
-        if not db.job_exists(job.get('job_id')):
+        job_id = job.get('job_id')
+        # Skip if job already exists OR was previously deleted
+        if not db.job_exists(job_id) and job_id not in deleted_job_ids:
             new_jobs.append(job)
+        elif job_id in deleted_job_ids:
+            print(f"  Skipping previously deleted job: {job.get('title')} at {job.get('company')}")
     
     return new_jobs
 

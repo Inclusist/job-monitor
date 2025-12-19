@@ -1,3 +1,28 @@
+# Bulk fetch configuration for daily job ingestion
+bulk_fetch:
+  # Countries to search in (country-level search includes all cities)
+  # NOTE: Choose EITHER countries OR specific cities, not both!
+  # Country-level already includes all cities in that country
+  countries: []
+  
+  # Specific cities/regions to search
+  # Will make one API call per location listed here
+  locations:
+    - "Berlin"
+    - "Hamburg"
+  
+  # Include remote-only jobs in bulk fetch
+  # This makes a separate API call for remote jobs
+  include_remote: true
+  
+  # Maximum jobs to fetch per bulk run
+  # Pro plan quota: 5000 jobs/month, 2500 requests/month
+  max_jobs: 1000
+  
+  # Time period for job postings
+  # Use "week" for initial 7-day load, then switch to "24h" for daily updates
+  date_posted: "week"
+
 search_config:
   # Job titles to search for
   keywords:
@@ -61,6 +86,17 @@ preferences:
   
   # Days to keep job data before archiving
   archive_after_days: 90
+  
+  # Source filtering settings
+  source_filtering:
+    # Enable filtering of low-quality job sources
+    enabled: true
+    
+    # Minimum quality score for job sources (1-3)
+    # 1 = Allow all sources (no filtering)
+    # 2 = Remove blacklisted spam sites (recommended)
+    # 3 = Only allow whitelisted trusted sources (very strict)
+    min_quality: 2
 
 schedule:
   # Time for daily search (24-hour format)

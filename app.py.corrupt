@@ -6,7 +6,7 @@ Simple web UI for CV management and job viewing
 
 import os
 import sys
-from flask import Flask, render_template, request, redirect, url_for, flash, session, Response, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, session, Response
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
@@ -18,7 +18,7 @@ import threading
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from database.factory import get_database
+from database.operations import JobDatabase
 from database.cv_operations import CVManager
 from parsers.cv_parser import CVParser
 from analysis.cv_analyzer import CVAnalyzer
@@ -57,7 +57,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # Initialize components
 db_path = os.getenv('DATABASE_PATH', 'data/jobs.db')
 cv_manager = CVManager(db_path)
-job_db = get_database()  # Auto-detects SQLite or PostgreSQL based on DATABASE_URL
+job_db = JobDatabase(db_path)
 parser = CVParser()
 
 # Initialize CV analyzer
@@ -405,15 +405,15 @@ def jobs():
     # Get filter parameters
     priority = request.args.get('priority', '')
     status = request.args.get('status', '')
-    min_score = request.args.get('min_score', type=int, default=0)  # Show all matches by default
+    min_score = request.args.get('min_score', type=int, default=70)  # Default to 70% Claude score
 
     # Get jobs for user from user_job_matches
     try:
-        # Query user_job_matches - show semantic matches too
+        # Query user_job_matches with Claude scores
         matches = job_db.get_user_job_matches(
             user_id=user['id'],
-            min_semantic_score=min_score if min_score else 0,
-            limit=1000
+            min_claude_score=min_score if min_score else 0,
+            limit=200
         )
         
         # Filter by priority if specified
@@ -1360,8 +1360,244 @@ matching_status = {}
 
 def run_background_filtering(user_id: int):
     """Run semantic filtering and Claude analysis in background"""
-    from src.matching.matcher import run_background_matching
-    run_background_matching(user_id, matching_status)
+    try:
+        # Initialize status tracking
+        matching_status[user_id] = {
+            'status': 'running',
+            'stage': 'initializing',
+            'progress': 0,
+            'message': 'Starting job matching...',
+            'matches_found': 0,
+            'jobs_analyzed': 0
+        }
+        
+        print(f"\n{'='*60}")
+        print(f"🔄 Starting background job matching for user {user_id}")
+        print(f"{'='*60}\n")
+        
+        # Step 1: Semantic filtering
+        print("📊 Step 1: Running semantic similarity filter...")
+        from sentence_transformers import SentenceTransformer
+        
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        job_db_inst = JobDatabase()
+        cv_manager_inst = CVManager()
+        
+        # Get user's CV profile
+        primary_cv = cv_manager_inst.get_primary_cv(user_id)
+        if not primary_cv:
+            print(f"❌ No primary CV found for user {user_id}")
+            return
+        
+        profile = cv_manager_inst.get_cv_profile(primary_cv['id'])
+        if not profile:
+            print(f"❌ No CV profile found for user {user_id}")
+            return
+        
+        # Build CV text representation
+        matching_status[user_id].update({
+            'stage': 'loading_model',
+            'progress': 10,
+            'message': 'Loading AI models...'
+        })
+        
+        cv_text = filter_module.build_cv_text(profile)
+        cv_embedding = model.encode(cv_text, show_progress_bar=False)
+        
+        # Get unfiltered jobs
+        matching_status[user_id].update({
+            'stage': 'fetching_jobs',
+            'progress': 20,
+            'message': 'Fetching jobs to analyze...'
+        })
+        
+        jobs_to_filter = job_db_inst.get_unfiltered_jobs_for_user(user_id)
+        print(f"Found {len(jobs_to_filter)} jobs to filter")
+        
+        if not jobs_to_filter:
+            print("✓ No new jobs to filter")
+            matching_status[user_id] = {
+                'status': 'completed',
+                'stage': 'done',
+                'progress': 100,
+                'message': 'No new jobs to filter',
+                'matches_found': 0,
+                'jobs_analyzed': 0
+            }
+            return
+        
+        # Get user preferences for keyword boosting
+        user = cv_manager_inst.get_user_by_id(user_id)
+        preferences = user.get('preferences', {})
+        config_keywords = preferences.get('search_keywords', [])
+        
+        # Filter jobs
+        matching_status[user_id].update({
+            'stage': 'semantic_filtering',
+            'progress': 30,
+            'message': f'Analyzing {len(jobs_to_filter)} jobs with semantic similarity...',
+            'total_jobs': len(jobs_to_filter)
+        })
+        
+        matches = []
+        for idx, job in enumerate(jobs_to_filter):
+            job_text = filter_module.build_job_text(job)
+            job_embedding = model.encode(job_text, show_progress_bar=False)
+            
+            similarity = filter_module.cosine_similarity(cv_embedding, job_embedding)
+            boosted_score, matched_keywords = filter_module.apply_keyword_boosts(
+                similarity, job, config_keywords
+            )
+            
+            if boosted_score >= 0.5:  # 50% threshold
+                matches.append({
+                    'job': job,
+                    'score': int(boosted_score * 100),
+                    'matched_keywords': matched_keywords
+                })
+            
+            # Update progress during filtering
+            if (idx + 1) % 10 == 0 or idx == len(jobs_to_filter) - 1:
+                progress = 30 + int((idx + 1) / len(jobs_to_filter) * 20)  # 30-50%
+                matching_status[user_id].update({
+                    'progress': progress,
+                    'message': f'Filtered {idx + 1}/{len(jobs_to_filter)} jobs, {len(matches)} matches so far...'
+                })
+        
+        print(f"✓ Found {len(matches)} matches above 50% threshold")
+        
+        # Save semantic matches
+        matching_status[user_id].update({
+            'stage': 'saving_matches',
+            'progress': 55,
+            'message': f'Saving {len(matches)} matches to database...',
+            'matches_found': len(matches)
+        })
+        
+        for match in matches:
+            job = match['job']
+            match_reasoning = f"Matched keywords: {', '.join(match['matched_keywords'][:5])}" if match['matched_keywords'] else "Semantic similarity"
+            job_db_inst.add_user_job_match(
+                user_id=user_id,
+                job_id=job['id'],
+                semantic_score=match['score'],
+                match_reasoning=match_reasoning
+            )
+        
+        cv_manager_inst.update_filter_run_time(user_id)
+        print(f"✓ Saved {len(matches)} semantic matches to database")
+        
+        # Step 2: Claude analysis on high-scoring matches (>= 70%)
+        high_score_matches = [m for m in matches if m['score'] >= 0.7]
+        
+        if high_score_matches and analyzer:
+            print(f"\n🤖 Step 2: Running Claude analysis on {len(high_score_matches)} high-scoring jobs...")
+            
+            matching_status[user_id].update({
+                'stage': 'claude_analysis',
+                'progress': 60,
+                'message': f'Running AI analysis on {min(len(high_score_matches), 20)} top matches...'
+            })
+            
+            for idx, match in enumerate(high_score_matches[:20]):  # Limit to top 20
+                job = match['job']
+                
+                try:
+                    # Analyze with Claude
+                    analysis = analyzer.analyze_job_match(
+                        cv_profile=profile,
+                        job_title=job.get('title', ''),
+                        job_description=job.get('description', ''),
+                        company=job.get('company', '')
+                    )
+                    
+                    if analysis and 'match_score' in analysis:
+                        job_db_inst.add_user_job_match(
+                            user_id=user_id,
+                            job_id=job['id'],
+                            claude_score=analysis['match_score'],
+                            priority=analysis.get('priority', 'medium'),
+                            reasoning=analysis.get('reasoning', ''),
+                            key_alignments=analysis.get('key_alignments', []),
+                            potential_gaps=analysis.get('potential_gaps', [])
+                        )
+                        print(f"  ✓ {job.get('title', 'Unknown')[:50]} - Claude: {analysis['match_score']}%")
+                        
+                        # Update progress
+                        progress = 60 + int((idx + 1) / min(len(high_score_matches), 20) * 35)
+                        matching_status[user_id].update({
+                            'progress': progress,
+                            'message': f'AI analyzed {idx + 1}/{min(len(high_score_matches), 20)} jobs...',
+                            'jobs_analyzed': idx + 1
+        # Mark as completed
+        matching_status[user_id] = {
+            'status': 'completed',
+            'stage': 'done',
+            'progress': 100,
+            'message': f'✅ Matching complete! Found {len(matches)} matches, analyzed {len(high_score_matches[:20])} with AI',
+            'matches_found': len(matches),
+            'jobs_analyzed': len(high_score_matches[:20])
+        }
+        
+    except Exception as e:
+        print(f"❌ Error in background filtering: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Mark as error
+        matching_status[user_id] = {
+            'status': 'error',
+            'stage': 'error',
+            'progress': 0,
+            'message': f'❌ Error: {str(e)}',
+            'matches_found': 0,
+            'jobs_analyzed': 0
+        }
+        }
+        
+    except Exception as e:
+        print(f"❌ Error in background filtering: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Mark as error
+        if user_id in locals():
+            matching_status[user_id] = {
+                'status': 'error',
+                'stage': 'error',
+                'progress': 0,
+                'message': f'❌ Error: {str(e)}',
+                'matches_found': 0,
+                'jobs_analyzed': 0
+            }
+                    if analysis and 'match_score' in analysis:
+                        job_db_inst.add_user_job_match(
+                            user_id=user_id,
+                            job_id=job['id'],
+                            claude_score=analysis['match_score'],
+                            priority=analysis.get('priority', 'medium'),
+                            reasoning=analysis.get('reasoning', ''),
+                            key_alignments=analysis.get('key_alignments', []),
+                            potential_gaps=analysis.get('potential_gaps', [])
+                        )
+                        print(f"  ✓ {job.get('title', 'Unknown')[:50]} - Claude: {analysis['match_score']}%")
+                    
+                except Exception as e:
+                    print(f"  ⚠ Error analyzing job {job['id']}: {e}")
+                    continue
+            
+            print(f"✓ Claude analysis complete")
+        
+        print(f"\n{'='*60}")
+        print(f"✅ Background job matching complete for user {user_id}")
+        print(f"   Semantic matches: {len(matches)}")
+        print(f"   Claude analyzed: {len(high_score_matches[:20])}")
+        print(f"{'='*60}\n")
+        
+    except Exception as e:
+        print(f"❌ Error in background filtering: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 @app.route('/run-job-matching', methods=['POST'])
@@ -1506,8 +1742,4 @@ if __name__ == '__main__':
     print("Press Ctrl+C to stop")
     print("="*60)
 
-    # Use environment variables for production
-    port = int(os.environ.get('PORT', 8080))
-    debug = os.environ.get('FLASK_ENV') != 'production'
-    
-    app.run(debug=debug, host='0.0.0.0', port=port)
+    app.run(debug=True, host='0.0.0.0', port=8080)

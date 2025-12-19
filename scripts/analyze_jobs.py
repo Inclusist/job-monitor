@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.database.operations import JobDatabase
+from src.database.factory import get_database
 from src.database.cv_operations import CVManager
 from src.analysis.claude_analyzer import ClaudeJobAnalyzer
 
@@ -53,7 +53,7 @@ def analyze_jobs(min_score: int = 50, max_jobs: int = None,
         return
     
     # Connect to databases
-    job_db = JobDatabase()
+    job_db = get_database()  # Auto-detects SQLite or PostgreSQL
     cv_db = CVManager()
     
     # Get user and CV profile

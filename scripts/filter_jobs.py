@@ -20,7 +20,7 @@ from datetime import datetime
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.database.operations import JobDatabase
+from src.database.factory import get_database
 from src.database.cv_operations import CVManager
 
 
@@ -232,7 +232,7 @@ def filter_jobs(threshold: float = 0.5, user_email: str = None, dry_run: bool = 
     model = load_sentence_transformer()
     
     # Connect to databases
-    job_db = JobDatabase()
+    job_db = get_database()  # Auto-detects SQLite or PostgreSQL
     cv_db = CVManager()
     
     # Get user and CV profile

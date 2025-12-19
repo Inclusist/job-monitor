@@ -14,7 +14,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.collectors.arbeitsagentur import ArbeitsagenturCollector
-from src.database.operations import JobDatabase
+from src.database.factory import get_database
 
 # Configure logging
 logging.basicConfig(
@@ -49,7 +49,7 @@ def fetch_arbeitsagentur_jobs(
     
     # Initialize collector and database
     collector = ArbeitsagenturCollector()
-    db = JobDatabase()
+    db = get_database()  # Auto-detects SQLite or PostgreSQL
     
     # Search and parse jobs
     try:

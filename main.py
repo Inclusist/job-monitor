@@ -12,10 +12,11 @@ from dotenv import load_dotenv
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from database.operations import JobDatabase
+from database.factory import get_database
 from database.cv_operations import CVManager
 from analysis.claude_analyzer import ClaudeJobAnalyzer
 from collectors.indeed import IndeedCollector
+from collectors.jsearch import JSearchCollector
 from utils.helpers import (
     setup_logging,
     load_config,
@@ -49,7 +50,7 @@ def main():
         
         # Initialize database
         db_path = os.getenv('DATABASE_PATH', 'data/jobs.db')
-        db = JobDatabase(db_path)
+        db = get_database()  # Auto-detects SQLite or PostgreSQL
         logger.info(f"Database initialized: {db_path}")
 
         # Initialize CV Manager
@@ -84,29 +85,100 @@ def main():
         
         # Initialize collectors
         indeed_publisher_id = os.getenv('INDEED_PUBLISHER_ID')
-        if not indeed_publisher_id or indeed_publisher_id == 'your_publisher_id_here':
-            logger.error("INDEED_PUBLISHER_ID not configured in .env file")
-            logger.info("Please sign up at https://www.indeed.com/publisher")
+        jsearch_api_key = os.getenv('JSEARCH_API_KEY')
+        
+        collectors_initialized = []
+        
+        # Initialize Indeed if configured
+        indeed = None
+        if indeed_publisher_id and indeed_publisher_id != 'your_publisher_id_here':
+            indeed = IndeedCollector(indeed_publisher_id)
+            collectors_initialized.append("Indeed")
+            logger.info("Indeed collector initialized")
+        
+        # Initialize JSearch if configured
+        jsearch = None
+        if jsearch_api_key and jsearch_api_key != 'your_rapidapi_key_for_jsearch':
+            # Get source filtering configuration
+            source_config = config.get('preferences', {}).get('source_filtering', {})
+            enable_filtering = source_config.get('enabled', True)
+            min_quality = source_config.get('min_quality', 2)
+            
+            jsearch = JSearchCollector(
+                jsearch_api_key, 
+                enable_filtering=enable_filtering,
+                min_quality=min_quality
+            )
+            collectors_initialized.append("JSearch (LinkedIn, Google Jobs, Indeed)")
+            logger.info(f"JSearch collector initialized (filtering={'ON' if enable_filtering else 'OFF'}, min_quality={min_quality})")
+        
+        if not collectors_initialized:
+            logger.error("No job collectors configured!")
+            logger.info("Please configure at least one of:")
+            logger.info("  - INDEED_PUBLISHER_ID: https://www.indeed.com/publisher")
+            logger.info("  - JSEARCH_API_KEY: https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch")
             return
         
-        indeed = IndeedCollector(indeed_publisher_id)
-        logger.info("Indeed collector initialized")
+        logger.info(f"Active collectors: {', '.join(collectors_initialized)}")
         
-        # Collect jobs from Indeed
-        logger.info("Starting job collection from Indeed...")
+        # Collect jobs
+        logger.info("Starting job collection...")
         search_config = config['search_config']
+        all_jobs = []
         
-        indeed_jobs = indeed.search_multiple(
-            queries=search_config['keywords'],
-            locations=search_config['locations'],
-            days_back=1,  # Jobs from last 24 hours
-            limit=25
-        )
+        # Collect from Indeed
+        if indeed:
+            logger.info("Collecting from Indeed...")
+            indeed_jobs = indeed.search_multiple(
+                queries=search_config['keywords'],
+                locations=search_config['locations'],
+                days_back=1,  # Jobs from last 24 hours
+                limit=25
+            )
+            logger.info(f"  → Collected {len(indeed_jobs)} jobs from Indeed")
+            all_jobs.extend(indeed_jobs)
         
-        logger.info(f"Collected {len(indeed_jobs)} jobs from Indeed")
+        # Collect from JSearch
+        if jsearch:
+            logger.info("Collecting from JSearch (LinkedIn, Google Jobs)...")
+            jsearch_jobs = []
+            
+            # Map country codes for locations
+            country_map = {
+                'Germany': 'de',
+                'Berlin, Germany': 'de',
+                'Munich, Germany': 'de',
+                'Hamburg, Germany': 'de',
+                'Wolfsburg, Germany': 'de',
+                'Remote, Germany': 'de',
+                'Deutschland': 'de'
+            }
+            
+            # Search for each keyword + location combination
+            for keyword in search_config['keywords'][:5]:  # Limit to avoid rate limits
+                for location in search_config['locations'][:3]:  # Limit locations
+                    country = country_map.get(location, 'de')
+                    
+                    jobs = jsearch.search_jobs(
+                        query=keyword,
+                        location=location,
+                        num_pages=1,
+                        date_posted="week",
+                        country=country
+                    )
+                    jsearch_jobs.extend(jobs)
+                    
+                    # Small delay to respect rate limits
+                    import time
+                    time.sleep(0.5)
+            
+            logger.info(f"  → Collected {len(jsearch_jobs)} jobs from JSearch")
+            all_jobs.extend(jsearch_jobs)
         
-        # Combine all jobs (for now just Indeed, will add LinkedIn later)
-        all_jobs = indeed_jobs
+        logger.info(f"Total collected: {len(all_jobs)} jobs")
+        
+        # Combine all jobs (from all sources)
+        # Remove the old Indeed-only collection code
         
         # Deduplicate
         all_jobs = deduplicate_jobs(all_jobs)
@@ -129,7 +201,12 @@ def main():
             db.close()
             return
         
-        analyzer = ClaudeJobAnalyzer(anthropic_key, model="claude-3-5-haiku-20241022")
+        analyzer = ClaudeJobAnalyzer(
+            anthropic_key, 
+            model="claude-3-haiku-20240307",
+            db=db,
+            user_email=user_email
+        )
 
         # Use CV profile if available, otherwise fallback to config.yaml
         if cv_profile:
@@ -140,7 +217,15 @@ def main():
             logger.info("Using config.yaml profile (no CV uploaded)")
             logger.info("💡 Tip: Upload your CV with: python scripts/cv_cli.py upload --email your@email.com --file your_cv.pdf")
 
-        logger.info("Claude analyzer initialized (using Haiku model for cost efficiency)")
+        logger.info("Claude analyzer initialized (using Haiku model + feedback learning)")
+        
+        # Show learning status
+        if analyzer.learner:
+            prefs = analyzer.learner.analyze_user_preferences(user_email)
+            if prefs['has_feedback']:
+                logger.info(f"📊 Learning from {prefs['total_feedback']} feedback items (agreement: {prefs['agreement_rate']:.1f}%)")
+            else:
+                logger.info("💡 No feedback yet. Rate jobs to improve matching over time!")
         
         # Analyze jobs
         logger.info("Starting job analysis with Claude...")

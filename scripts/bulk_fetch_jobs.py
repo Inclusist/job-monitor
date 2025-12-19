@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from collectors.activejobs import ActiveJobsCollector
-from database.operations import JobDatabase
+from database.factory import get_database
 from utils.helpers import deduplicate_jobs, filter_new_jobs
 
 # Load environment variables
@@ -152,7 +152,7 @@ def fetch_and_store_jobs(max_jobs=None, date_posted=None, locations=None,
     # Store in database
     print()
     print("💾 Connecting to database...")
-    job_db = JobDatabase()
+    job_db = get_database()  # Auto-detects SQLite or PostgreSQL
     
     print("🔍 Filtering new jobs (not already in database)...")
     new_jobs = filter_new_jobs(unique_jobs, job_db)
