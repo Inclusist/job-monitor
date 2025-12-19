@@ -84,6 +84,68 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
         cv_text = filter_module.build_cv_text(profile)
         cv_embedding = model.encode(cv_text, show_progress_bar=False)
         
+        # Check if user has any existing matches
+        existing_matches = job_db_inst.get_user_job_matches(user_id, min_score=0, limit=1)
+        
+        # If no matches yet, fetch initial jobs from JSearch
+        if not existing_matches:
+            matching_status[user_id].update({
+                'stage': 'initial_fetch',
+                'progress': 15,
+                'message': 'First time setup: Fetching initial jobs from JSearch...'
+            })
+            print("\n🔍 First time user - fetching initial jobs from JSearch...")
+            
+            try:
+                from collectors.jsearch import JSearchCollector
+                
+                # Get user preferences for search
+                user = cv_manager_inst.get_user_by_id(user_id)
+                preferences = user.get('preferences', {})
+                keywords = preferences.get('search_keywords', [])
+                locations = preferences.get('preferred_locations', [])
+                
+                # Build search query from CV if no preferences set
+                if not keywords:
+                    keywords = [profile.get('expertise_summary', '').split()[0]] if profile.get('expertise_summary') else ['software engineer']
+                if not locations:
+                    locations = ['Germany']
+                
+                # Initialize JSearch collector
+                jsearch_key = os.environ.get('JSEARCH_API_KEY')
+                if jsearch_key:
+                    jsearch = JSearchCollector(jsearch_key)
+                    
+                    # Fetch jobs for each keyword/location combination
+                    total_fetched = 0
+                    for keyword in keywords[:3]:  # Limit to 3 keywords
+                        for location in locations[:2]:  # Limit to 2 locations
+                            matching_status[user_id].update({
+                                'message': f'Fetching {keyword} jobs in {location}...'
+                            })
+                            
+                            jobs = jsearch.search_jobs(
+                                query=keyword,
+                                location=location,
+                                results_wanted=30,  # 30 jobs per search
+                                hours_old=72  # Last 3 days
+                            )
+                            
+                            # Add jobs to database
+                            for job in jobs:
+                                job_db_inst.add_job(job)
+                                total_fetched += 1
+                            
+                            print(f"  ✓ Fetched {len(jobs)} {keyword} jobs in {location}")
+                    
+                    print(f"✓ Fetched {total_fetched} initial jobs from JSearch")
+                else:
+                    print("⚠️  No JSEARCH_API_KEY found, will use existing jobs only")
+                    
+            except Exception as e:
+                print(f"⚠️  Error fetching initial jobs: {e}")
+                # Continue with existing jobs if fetch fails
+        
         # Get unfiltered jobs
         matching_status[user_id].update({
             'stage': 'fetching_jobs',
