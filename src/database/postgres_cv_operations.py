@@ -77,8 +77,8 @@ class PostgresCVManager:
             logger.error(f"Error registering user: {e}")
             return None
     
-    def authenticate_user(self, email: str, password: str) -> Optional[int]:
-        """Authenticate user and return user ID"""
+    def authenticate_user(self, email: str, password: str) -> Optional[Dict]:
+        """Authenticate user and return user dict (compatible with SQLite CVManager)"""
         conn = None
         cursor = None
         try:
@@ -100,7 +100,8 @@ class PostgresCVManager:
             self._return_connection(conn)
             
             if password_match:
-                return user['id']
+                # Return full user dict like SQLite version does
+                return self.get_user_by_id(user['id'])
             
             return None
             
