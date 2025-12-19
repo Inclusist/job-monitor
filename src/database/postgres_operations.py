@@ -534,8 +534,19 @@ class PostgresDatabase:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             
             query = """
-                SELECT ujm.*, j.title, j.company, j.location, j.url, j.description,
-                       j.salary, j.source, j.posted_date
+                SELECT 
+                    ujm.*,
+                    j.id as job_table_id,
+                    j.job_id,
+                    j.source, 
+                    j.title, 
+                    j.company, 
+                    j.location as job_location,
+                    j.description, 
+                    j.url, 
+                    j.posted_date, 
+                    j.salary,
+                    j.discovered_date
                 FROM user_job_matches ujm
                 JOIN jobs j ON ujm.job_id = j.id
                 WHERE ujm.user_id = %s
@@ -554,7 +565,7 @@ class PostgresDatabase:
                 query += " AND ujm.status = %s"
                 params.append(status)
             
-            query += " ORDER BY COALESCE(ujm.claude_score, ujm.semantic_score) DESC, ujm.last_updated DESC"
+            query += " ORDER BY COALESCE(ujm.claude_score, ujm.semantic_score) DESC, ujm.claude_date DESC, ujm.semantic_date DESC"
             query += " LIMIT %s"
             params.append(limit)
             
