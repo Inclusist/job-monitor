@@ -233,7 +233,10 @@ def migrate_cv_profiles(sqlite_db: CVManager, postgres_db: PostgresDatabase) -> 
                 postgres_db._return_connection(pg_conn)
                 continue
             
-            # Insert CV profile
+            # Insert CV profile - map SQLite fields to PostgreSQL fields
+            # Use parsed_date as both created_date and last_updated
+            parsed_date = profile.get('parsed_date', datetime.now().isoformat())
+            
             pg_cursor.execute("""
                 INSERT INTO cv_profiles (
                     cv_id, user_id, technical_skills, soft_skills, languages,
@@ -249,15 +252,15 @@ def migrate_cv_profiles(sqlite_db: CVManager, postgres_db: PostgresDatabase) -> 
                 profile.get('soft_skills'),
                 profile.get('languages'),
                 profile.get('education'),
-                profile.get('work_history'),
-                profile.get('achievements'),
+                profile.get('work_experience'),  # SQLite uses work_experience, not work_history
+                profile.get('career_highlights'),  # Map career_highlights to achievements
                 profile.get('expertise_summary'),
-                profile.get('career_level'),
-                profile.get('preferred_roles'),
+                None,  # career_level not in SQLite
+                None,  # preferred_roles not in SQLite
                 profile.get('industries'),
-                profile.get('raw_analysis'),
-                profile['created_date'],
-                profile['last_updated']
+                profile.get('full_text'),  # Map full_text to raw_analysis
+                parsed_date,
+                parsed_date
             ))
             
             pg_conn.commit()
