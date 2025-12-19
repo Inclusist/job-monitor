@@ -587,11 +587,23 @@ class PostgresCVManager:
         return self.get_user_cv_profile(user_id)
     
     def get_user_search_preferences(self, user_id: int) -> Dict:
-        """Get user search preferences"""
+        """
+        Get user's search preferences (keywords, locations)
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            Dict with 'keywords' and 'locations' lists
+        """
         user = self.get_user_by_id(user_id)
         if user and user.get('preferences'):
-            return user['preferences']
-        return {}
+            prefs = user['preferences']
+            return {
+                'keywords': prefs.get('search_keywords', []),
+                'locations': prefs.get('search_locations', [])
+            }
+        return {'keywords': [], 'locations': []}
     
     def add_cv(self, user_id: int, file_name: str, file_path: str,
                file_type: str, file_size: int, file_hash: str,
