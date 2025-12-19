@@ -56,8 +56,24 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Initialize components
 db_path = os.getenv('DATABASE_PATH', 'data/jobs.db')
-cv_manager = CVManager(db_path)
 job_db = get_database()  # Auto-detects SQLite or PostgreSQL based on DATABASE_URL
+
+# Initialize CV Manager - use PostgreSQL if DATABASE_URL is set, otherwise SQLite
+database_url = os.getenv('DATABASE_URL')
+if database_url and database_url.startswith('postgres'):
+    from src.database.postgres_cv_operations import PostgresCVManager
+    # Reuse the connection pool from job_db if it's PostgreSQL
+    if hasattr(job_db, 'connection_pool'):
+        cv_manager = PostgresCVManager(job_db.connection_pool)
+        print("✓ Using PostgreSQL for user/CV operations")
+    else:
+        # Fallback to SQLite if job_db is not PostgreSQL
+        cv_manager = CVManager(db_path)
+        print("✓ Using SQLite for user/CV operations")
+else:
+    cv_manager = CVManager(db_path)
+    print("✓ Using SQLite for user/CV operations")
+
 parser = CVParser()
 
 # Initialize CV analyzer
