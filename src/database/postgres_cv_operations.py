@@ -329,6 +329,13 @@ class PostgresCVManager:
                             profile_dict[field] = json.loads(profile_dict[field])
                         except:
                             profile_dict[field] = []
+                
+                # Map PostgreSQL field names to template-expected names
+                if 'work_history' in profile_dict:
+                    profile_dict['work_experience'] = profile_dict['work_history']
+                if 'achievements' in profile_dict:
+                    profile_dict['career_highlights'] = profile_dict['achievements']
+                
                 return profile_dict
             
             return None
@@ -488,6 +495,13 @@ class PostgresCVManager:
                             profile_dict[field] = json.loads(profile_dict[field])
                         except:
                             profile_dict[field] = []
+                
+                # Map PostgreSQL field names to template-expected names
+                if 'work_history' in profile_dict:
+                    profile_dict['work_experience'] = profile_dict['work_history']
+                if 'achievements' in profile_dict:
+                    profile_dict['career_highlights'] = profile_dict['achievements']
+                
                 return profile_dict
             
             return None
