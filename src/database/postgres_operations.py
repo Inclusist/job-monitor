@@ -123,6 +123,66 @@ class PostgresDatabase:
                 )
             """)
             
+            # Users table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    email TEXT UNIQUE NOT NULL,
+                    password_hash TEXT,
+                    name TEXT,
+                    current_role TEXT,
+                    location TEXT,
+                    created_date TIMESTAMP NOT NULL,
+                    last_updated TIMESTAMP NOT NULL,
+                    is_active INTEGER DEFAULT 1,
+                    preferences TEXT,
+                    last_filter_run TIMESTAMP,
+                    preferences_updated TIMESTAMP
+                )
+            """)
+            
+            # CVs table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS cvs (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    file_name TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    file_type TEXT NOT NULL,
+                    file_size INTEGER,
+                    file_hash TEXT,
+                    uploaded_date TIMESTAMP NOT NULL,
+                    is_primary INTEGER DEFAULT 0,
+                    version INTEGER DEFAULT 1,
+                    status TEXT DEFAULT 'active',
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+            
+            # CV Profiles table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS cv_profiles (
+                    id SERIAL PRIMARY KEY,
+                    cv_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    technical_skills TEXT,
+                    soft_skills TEXT,
+                    languages TEXT,
+                    education TEXT,
+                    work_history TEXT,
+                    achievements TEXT,
+                    expertise_summary TEXT,
+                    career_level TEXT,
+                    preferred_roles TEXT,
+                    industries TEXT,
+                    raw_analysis TEXT,
+                    created_date TIMESTAMP NOT NULL,
+                    last_updated TIMESTAMP NOT NULL,
+                    FOREIGN KEY (cv_id) REFERENCES cvs(id) ON DELETE CASCADE,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+            
             # User-Job matches table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS user_job_matches (
@@ -140,7 +200,8 @@ class PostgresDatabase:
                     status TEXT DEFAULT 'new',
                     created_date TIMESTAMP NOT NULL,
                     last_updated TIMESTAMP NOT NULL,
-                    CONSTRAINT unique_user_job UNIQUE(user_id, job_id)
+                    CONSTRAINT unique_user_job UNIQUE(user_id, job_id),
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 )
             """)
             
