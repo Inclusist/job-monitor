@@ -605,6 +605,28 @@ class PostgresCVManager:
             }
         return {'keywords': [], 'locations': []}
     
+    def update_user_search_preferences(self, user_id: int, keywords: List[str] = None, 
+                                      locations: List[str] = None):
+        """
+        Update user's search preferences
+        
+        Args:
+            user_id: User ID
+            keywords: List of job search keywords
+            locations: List of locations to search
+        """
+        user = self.get_user_by_id(user_id)
+        if not user:
+            return
+        
+        preferences = user.get('preferences') or {}
+        if keywords is not None:
+            preferences['search_keywords'] = keywords
+        if locations is not None:
+            preferences['search_locations'] = locations
+        
+        self.update_user_preferences(user_id, preferences)
+    
     def add_cv(self, user_id: int, file_name: str, file_path: str,
                file_type: str, file_size: int, file_hash: str,
                version: int = 1) -> Optional[int]:
