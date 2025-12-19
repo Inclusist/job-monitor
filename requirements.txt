@@ -36,6 +36,7 @@ chardet==5.2.0          # Character encoding detection
 flask==3.0.0
 werkzeug==3.0.1
 flask-login==0.6.3
+bcrypt>=4.0.1  # Password hashing for user authentication
 gunicorn==21.2.0  # Production WSGI server
 
 # Optional - for future enhancements
