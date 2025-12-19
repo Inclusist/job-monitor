@@ -443,12 +443,20 @@ def jobs():
             # Check discovery date
             discovered = match.get('discovered_date')
             if discovered:
+                # Handle both string (SQLite) and datetime (PostgreSQL) formats
                 if isinstance(discovered, str):
-                    discovered_date = datetime.fromisoformat(discovered.replace('Z', '+00:00')).date()
+                    try:
+                        discovered_date = datetime.fromisoformat(discovered.replace('Z', '+00:00')).date()
+                    except (ValueError, AttributeError):
+                        discovered_date = None
+                elif hasattr(discovered, 'date'):
+                    # It's already a datetime object (PostgreSQL)
+                    discovered_date = discovered.date()
                 else:
-                    discovered_date = discovered.date() if hasattr(discovered, 'date') else discovered
+                    # It's already a date object
+                    discovered_date = discovered
                 
-                if discovered_date == today:
+                if discovered_date and discovered_date == today:
                     new_jobs.append(match)
                 else:
                     previous_jobs.append(match)
