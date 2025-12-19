@@ -579,6 +579,113 @@ class PostgresCVManager:
             return user['preferences']
         return {}
     
+    def add_cv(self, user_id: int, file_name: str, file_path: str,
+               file_type: str, file_size: int, file_hash: str,
+               version: int = 1) -> Optional[int]:
+        """
+        Add a new CV to the database
+
+        Args:
+            user_id: User ID
+            file_name: Original filename
+            file_path: Relative path to stored file
+            file_type: pdf, docx, or txt
+            file_size: Size in bytes
+            file_hash: SHA-256 hash
+            version: CV version number
+
+        Returns:
+            CV ID if successful
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            now = datetime.now()
+
+            cursor.execute("""
+                INSERT INTO cvs (
+                    user_id, file_name, file_path, file_type, file_size,
+                    file_hash, uploaded_date, version, status
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'active')
+                RETURNING id
+            """, (
+                user_id, file_name, file_path, file_type, file_size,
+                file_hash, now, version
+            ))
+
+            cv_id = cursor.fetchone()[0]
+            conn.commit()
+            cursor.close()
+            self._return_connection(conn)
+            return cv_id
+
+        except Exception as e:
+            logger.error(f"Error adding CV: {e}")
+            if 'cursor' in locals():
+                cursor.close()
+            if 'conn' in locals():
+                conn.rollback()
+                self._return_connection(conn)
+            return None
+
+    def add_cv_profile(self, cv_id: int, user_id: int, profile_data: Dict) -> int:
+        """
+        Add parsed CV profile data
+
+        Args:
+            cv_id: CV ID
+            user_id: User ID
+            profile_data: Parsed profile dictionary
+
+        Returns:
+            Profile ID
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            now = datetime.now()
+
+            cursor.execute("""
+                INSERT INTO cv_profiles (
+                    cv_id, user_id, technical_skills, soft_skills, languages,
+                    education, work_history, achievements,
+                    expertise_summary, career_level, preferred_roles, industries,
+                    raw_analysis, created_date, last_updated
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (
+                cv_id,
+                user_id,
+                json.dumps(profile_data.get('technical_skills', [])),
+                json.dumps(profile_data.get('soft_skills', [])),
+                json.dumps(profile_data.get('languages', [])),
+                json.dumps(profile_data.get('education', [])),
+                json.dumps(profile_data.get('work_experience', profile_data.get('work_history', []))),
+                json.dumps(profile_data.get('career_highlights', profile_data.get('achievements', []))),
+                profile_data.get('expertise_summary'),
+                profile_data.get('career_level'),
+                json.dumps(profile_data.get('preferred_roles', [])),
+                json.dumps(profile_data.get('industries', [])),
+                json.dumps(profile_data.get('full_text', profile_data.get('raw_analysis', {}))),
+                now,
+                now
+            ))
+
+            profile_id = cursor.fetchone()[0]
+            conn.commit()
+            cursor.close()
+            self._return_connection(conn)
+            return profile_id
+
+        except Exception as e:
+            logger.error(f"Error adding CV profile: {e}")
+            if 'cursor' in locals():
+                cursor.close()
+            if 'conn' in locals():
+                conn.rollback()
+                self._return_connection(conn)
+            return None
+    
     def check_duplicate_hash(self, user_id: int, file_hash: str) -> Optional[Dict]:
         """Check if CV with same hash already exists"""
         try:
