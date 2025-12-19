@@ -648,10 +648,10 @@ class PostgresCVManager:
             cursor.execute("""
                 INSERT INTO cv_profiles (
                     cv_id, user_id, technical_skills, soft_skills, languages,
-                    education, work_history, achievements,
+                    education, work_history, achievements, total_years_experience,
                     expertise_summary, career_level, preferred_roles, industries,
                     raw_analysis, created_date, last_updated
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             """, (
                 cv_id,
@@ -662,6 +662,7 @@ class PostgresCVManager:
                 json.dumps(profile_data.get('education', [])),
                 json.dumps(profile_data.get('work_experience', profile_data.get('work_history', []))),
                 json.dumps(profile_data.get('career_highlights', profile_data.get('achievements', []))),
+                profile_data.get('total_years_experience', 0),
                 profile_data.get('expertise_summary'),
                 profile_data.get('career_level'),
                 json.dumps(profile_data.get('preferred_roles', [])),

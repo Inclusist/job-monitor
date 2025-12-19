@@ -171,6 +171,7 @@ class PostgresDatabase:
                     education TEXT,
                     work_history TEXT,
                     achievements TEXT,
+                    total_years_experience REAL,
                     expertise_summary TEXT,
                     career_level TEXT,
                     preferred_roles TEXT,
