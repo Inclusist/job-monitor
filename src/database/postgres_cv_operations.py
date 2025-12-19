@@ -218,6 +218,43 @@ class PostgresCVManager:
             logger.error(f"Error updating preferences: {e}")
             return False
     
+    def should_refilter(self, user_id: int) -> tuple:
+        """
+        Check if user needs re-filtering based on last run and preferences
+        
+        Returns:
+            (should_refilter, reason)
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("""
+                SELECT last_filter_run, preferences_updated
+                FROM users WHERE id = %s
+            """, (user_id,))
+            row = cursor.fetchone()
+            
+            cursor.close()
+            self._return_connection(conn)
+            
+            if not row:
+                return (True, "User not found")
+            
+            last_filter = row['last_filter_run']
+            prefs_updated = row['preferences_updated']
+            
+            if not last_filter:
+                return (True, "Never filtered")
+            
+            if prefs_updated and prefs_updated > last_filter:
+                return (True, "Preferences changed since last filter")
+            
+            return (False, "Up to date")
+            
+        except Exception as e:
+            logger.error(f"Error checking refilter status: {e}")
+            return (True, "Error checking status")
+    
     def save_cv(self, user_id: int, file_name: str, file_path: str, file_type: str, 
                 file_size: int = None, file_hash: str = None) -> Optional[int]:
         """Save CV file information"""
