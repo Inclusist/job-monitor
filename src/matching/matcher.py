@@ -5,6 +5,7 @@ import os
 import importlib.util
 from pathlib import Path
 from typing import Dict, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.database.operations import JobDatabase
 from src.database.cv_operations import CVManager
@@ -116,35 +117,61 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                 if jsearch_key:
                     jsearch = JSearchCollector(jsearch_key)
                     
-                    # Combine keywords with OR to reduce API calls
-                    keywords_limited = keywords[:3]  # Limit to 3 keywords
-                    combined_query = " OR ".join(keywords_limited) if len(keywords_limited) > 1 else keywords_limited[0]
+                    # Prioritize keywords: user preferences are already in priority order
+                    # Split into 2 batches for concurrent calls
+                    mid_point = max(1, len(keywords) // 2)
+                    batch1_keywords = keywords[:mid_point]
+                    batch2_keywords = keywords[mid_point:] if len(keywords) > mid_point else []
                     
-                    # Fetch jobs for each location with combined query
-                    total_fetched = 0
-                    for location in locations[:2]:  # Limit to 2 locations
-                        matching_status[user_id].update({
-                            'message': f'Fetching jobs in {location}...'
-                        })
+                    def fetch_batch(batch_keywords, location, batch_num):
+                        """Fetch jobs for a batch of keywords in a location"""
+                        if not batch_keywords:
+                            return []
                         
-                        # Request more results since we're combining keywords
-                        results_per_location = 90  # 3x more since we're combining 3 keywords
+                        combined_query = " OR ".join(batch_keywords) if len(batch_keywords) > 1 else batch_keywords[0]
+                        print(f"  🔍 Batch {batch_num} in {location}: {combined_query}")
                         
+                        # Request 100 results per batch per location (max 200 per location)
                         jobs = jsearch.search_jobs(
                             query=combined_query,
                             location=location,
-                            results_wanted=results_per_location,
+                            results_wanted=100,
                             hours_old=72  # Last 3 days
                         )
-                        
-                        # Add jobs to database
-                        for job in jobs:
-                            job_db_inst.add_job(job)
-                            total_fetched += 1
-                        
-                        print(f"  ✓ Fetched {len(jobs)} jobs in {location} (query: {combined_query})")
+                        return jobs
                     
-                    print(f"✓ Fetched {total_fetched} initial jobs from JSearch (2 requests instead of {len(keywords_limited) * len(locations[:2])})")
+                    # Fetch jobs concurrently across all batches and locations
+                    total_fetched = 0
+                    locations_limited = locations[:2]  # Limit to 2 locations
+                    
+                    with ThreadPoolExecutor(max_workers=4) as executor:
+                        matching_status[user_id].update({
+                            'message': f'Fetching jobs concurrently (2 batches × {len(locations_limited)} locations)...'
+                        })
+                        
+                        # Submit all fetch tasks
+                        futures = []
+                        for location in locations_limited:
+                            futures.append(executor.submit(fetch_batch, batch1_keywords, location, 1))
+                            if batch2_keywords:
+                                futures.append(executor.submit(fetch_batch, batch2_keywords, location, 2))
+                        
+                        # Collect results as they complete
+                        for future in as_completed(futures):
+                            try:
+                                jobs = future.result()
+                                # Add jobs to database
+                                for job in jobs:
+                                    job_db_inst.add_job(job)
+                                    total_fetched += 1
+                                print(f"  ✓ Fetched {len(jobs)} jobs from batch")
+                            except Exception as e:
+                                print(f"  ⚠️  Batch fetch error: {e}")
+                    
+                    print(f"✓ Fetched {total_fetched} initial jobs from JSearch")
+                    print(f"  📊 Keyword batches: Batch 1: {', '.join(batch1_keywords)}")
+                    if batch2_keywords:
+                        print(f"  📊 Keyword batches: Batch 2: {', '.join(batch2_keywords)}")
                 else:
                     print("⚠️  No JSEARCH_API_KEY found, will use existing jobs only")
                     
