@@ -30,5 +30,5 @@ RUN mkdir -p data temp_uploads data/logs
 # Expose port
 EXPOSE 8080
 
-# Run the application
-CMD ["python", "app.py"]
+# Run the application with Gunicorn (production server)
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "4", "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-", "app:app"]
