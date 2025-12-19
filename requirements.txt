@@ -10,9 +10,8 @@ lxml>=5.0.0
 
 # Database
 # sqlite3 is built-in to Python
-# PostgreSQL (commented out to reduce build time - uncomment when upgrading to Hobby plan)
-# psycopg2-binary>=2.9.9  # PostgreSQL adapter (use >=2.9.9 for Python 3.13 support)
-# sqlalchemy>=2.0.23  # Database abstraction
+psycopg2-binary>=2.9.9  # PostgreSQL adapter (use >=2.9.9 for Python 3.13 support)
+sqlalchemy>=2.0.23  # Database abstraction
 
 # AI/ML
 anthropic>=0.40.0
