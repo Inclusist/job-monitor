@@ -381,6 +381,24 @@ class PostgresDatabase:
             cursor.close()
             self._return_connection(conn)
     
+    def get_deleted_job_ids(self) -> set:
+        """
+        Get set of job_ids that have been deleted/hidden
+        Used to prevent re-adding deleted jobs in future searches
+        
+        Returns:
+            Set of job_id strings for deleted jobs
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT job_id FROM jobs WHERE status = 'deleted'")
+            deleted_ids = {row[0] for row in cursor.fetchall()}
+            return deleted_ids
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
     def update_job_status(self, job_id: str, status: str, notes: str = None):
         """Update job status and optionally add notes"""
         conn = self._get_connection()
