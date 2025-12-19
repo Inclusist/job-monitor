@@ -577,3 +577,29 @@ class PostgresCVManager:
         if user and user.get('preferences'):
             return user['preferences']
         return {}
+    
+    def check_duplicate_hash(self, user_id: int, file_hash: str) -> Optional[Dict]:
+        """Check if CV with same hash already exists"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            cursor.execute("""
+                SELECT * FROM cvs
+                WHERE user_id = %s AND file_hash = %s AND status = 'active'
+            """, (user_id, file_hash))
+            
+            row = cursor.fetchone()
+            
+            cursor.close()
+            self._return_connection(conn)
+            
+            return dict(row) if row else None
+            
+        except Exception as e:
+            if 'cursor' in locals():
+                cursor.close()
+            if 'conn' in locals():
+                self._return_connection(conn)
+            logger.error(f"Error checking duplicate hash: {e}")
+            return None
