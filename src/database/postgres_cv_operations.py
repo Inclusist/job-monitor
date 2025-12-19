@@ -79,6 +79,8 @@ class PostgresCVManager:
     
     def authenticate_user(self, email: str, password: str) -> Optional[int]:
         """Authenticate user and return user ID"""
+        conn = None
+        cursor = None
         try:
             conn = self._get_connection()
             cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -86,23 +88,33 @@ class PostgresCVManager:
             cursor.execute("SELECT id, password_hash FROM users WHERE email = %s", (email,))
             user = cursor.fetchone()
             
-            cursor.close()
-            self._return_connection(conn)
-            
             if not user:
+                cursor.close()
+                self._return_connection(conn)
                 return None
             
             # Check password
-            if bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8')):
+            password_match = bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8'))
+            
+            cursor.close()
+            self._return_connection(conn)
+            
+            if password_match:
                 return user['id']
             
             return None
             
         except Exception as e:
-            if 'cursor' in locals():
-                cursor.close()
-            if 'conn' in locals():
-                self._return_connection(conn)
+            if cursor:
+                try:
+                    cursor.close()
+                except:
+                    pass
+            if conn:
+                try:
+                    self._return_connection(conn)
+                except:
+                    pass
             logger.error(f"Error authenticating user: {e}")
             return None
     
