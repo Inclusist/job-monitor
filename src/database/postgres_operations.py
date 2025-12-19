@@ -566,6 +566,206 @@ class PostgresDatabase:
             cursor.close()
             self._return_connection(conn)
     
+    def get_jobs_discovered_today(self) -> List[Dict]:
+        """Get jobs discovered today (excludes deleted jobs)"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("""
+                SELECT * FROM jobs 
+                WHERE DATE(discovered_date) = CURRENT_DATE AND status != 'deleted'
+                ORDER BY COALESCE(match_score, 0) DESC
+            """)
+            results = [dict(row) for row in cursor.fetchall()]
+            return results
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
+    def get_jobs_discovered_before_today(self, limit: int = 50) -> List[Dict]:
+        """Get jobs discovered before today (excludes deleted jobs)"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("""
+                SELECT * FROM jobs 
+                WHERE DATE(discovered_date) < CURRENT_DATE AND status != 'deleted'
+                ORDER BY COALESCE(match_score, 0) DESC, discovered_date DESC
+                LIMIT %s
+            """, (limit,))
+            results = [dict(row) for row in cursor.fetchall()]
+            return results
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
+    def get_deleted_jobs(self, limit: int = 50) -> List[Dict]:
+        """Get all deleted/hidden jobs"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("""
+                SELECT * FROM jobs 
+                WHERE status = 'deleted'
+                ORDER BY last_updated DESC
+                LIMIT %s
+            """, (limit,))
+            results = [dict(row) for row in cursor.fetchall()]
+            return results
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
+    def permanently_delete_job(self, job_id: int) -> bool:
+        """Permanently remove a job from the database"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM jobs WHERE id = %s', (job_id,))
+            conn.commit()
+            cursor.close()
+            self._return_connection(conn)
+            return True
+        except Exception as e:
+            if 'conn' in locals():
+                conn.rollback()
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error permanently deleting job: {e}")
+            return False
+    
+    def add_search_record(self, source: str, search_term: str, location: str, 
+                         results_count: int, execution_time: float):
+        """Log a search operation"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO search_history (
+                    search_date, source, search_term, location, results_count, execution_time
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+            """, (
+                datetime.now(),
+                source,
+                search_term,
+                location,
+                results_count,
+                execution_time
+            ))
+            conn.commit()
+            cursor.close()
+            self._return_connection(conn)
+        except Exception as e:
+            if 'conn' in locals():
+                conn.rollback()
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error adding search record: {e}")
+    
+    def add_feedback(self, job_id: int, user_email: str, feedback_type: str, 
+                     match_score_original: int, match_score_user: Optional[int] = None,
+                     feedback_reason: Optional[str] = None) -> bool:
+        """Add user feedback on a job match score"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                INSERT INTO job_feedback (
+                    job_id, user_email, feedback_type, match_score_original,
+                    match_score_user, feedback_reason, created_date
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                job_id, user_email, feedback_type, match_score_original,
+                match_score_user, feedback_reason, datetime.now()
+            ))
+            
+            conn.commit()
+            cursor.close()
+            self._return_connection(conn)
+            return True
+            
+        except Exception as e:
+            if 'conn' in locals():
+                conn.rollback()
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error adding feedback: {e}")
+            return False
+    
+    def get_user_feedback(self, user_email: str, limit: int = 50) -> List[Dict]:
+        """Get user's feedback history"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            cursor.execute("""
+                SELECT 
+                    f.id, f.job_id, f.feedback_type, f.match_score_original,
+                    f.match_score_user, f.feedback_reason, f.created_date,
+                    j.title, j.company, j.location, j.description,
+                    j.key_alignments, j.potential_gaps
+                FROM job_feedback f
+                JOIN jobs j ON f.job_id = j.id
+                WHERE f.user_email = %s
+                ORDER BY f.created_date DESC
+                LIMIT %s
+            """, (user_email, limit))
+            
+            results = [dict(row) for row in cursor.fetchall()]
+            return results
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
+    def get_shortlisted_jobs(self, user_email: str = 'default@localhost') -> List[Dict]:
+        """Get jobs marked as shortlisted by user"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("""
+                SELECT * FROM jobs 
+                WHERE status = 'shortlisted'
+                ORDER BY match_score DESC, discovered_date DESC
+            """)
+            results = [dict(row) for row in cursor.fetchall()]
+            return results
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
+    def get_unfiltered_jobs_for_user(self, user_id: int) -> List[Dict]:
+        """Get jobs that haven't been matched/filtered for this user yet"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("""
+                SELECT j.* FROM jobs j
+                LEFT JOIN user_job_matches ujm ON j.id = ujm.job_id AND ujm.user_id = %s
+                WHERE ujm.id IS NULL AND j.status != 'deleted'
+                ORDER BY j.discovered_date DESC
+            """, (user_id,))
+            results = [dict(row) for row in cursor.fetchall()]
+            return results
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
+    def count_new_jobs_since(self, user_id: int, since_date: str) -> int:
+        """Count new jobs discovered since a specific date"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) FROM jobs 
+                WHERE discovered_date >= %s AND status != 'deleted'
+            """, (since_date,))
+            count = cursor.fetchone()[0]
+            return count
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
     def close(self):
         """Close all connections in the pool"""
         if hasattr(self, 'connection_pool'):
