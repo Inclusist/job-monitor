@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block title %}Generate Cover Letter - {{ job.title }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>✍️ Generate Cover Letter</h2>
+    <p style="color: #666; margin-top: 0.5rem;">
+        For: <strong>{{ job.title }}</strong> at <strong>{{ job.company }}</strong>
+    </p>
+</div>
+
+<form method="POST" action="{{ url_for('create_cover_letter', job_id=job.id) }}">
+    <div class="card">
+        <h3>🌍 Language</h3>
+        <p style="color: #666; font-size: 0.95rem; margin-bottom: 1rem;">
+            Choose the language for your cover letter
+        </p>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <label style="padding: 1rem; border: 2px solid #e0e0e0; border-radius: 8px; cursor: pointer; transition: all 0.3s;" 
+                   onmouseover="this.style.borderColor='#667eea'" 
+                   onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='#e0e0e0'">
+                <input type="radio" name="language" value="english" checked 
+                       style="margin-right: 0.5rem; width: 20px; height: 20px;"
+                       onchange="this.closest('label').style.borderColor='#667eea'; this.closest('label').style.background='#f0f4ff'">
+                <div>
+                    <div style="font-weight: 600; font-size: 1.1rem;">🇬🇧 English</div>
+                    <div style="color: #666; font-size: 0.9rem;">Professional business English</div>
+                </div>
+            </label>
+            
+            <label style="padding: 1rem; border: 2px solid #e0e0e0; border-radius: 8px; cursor: pointer; transition: all 0.3s;" 
+                   onmouseover="this.style.borderColor='#667eea'" 
+                   onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='#e0e0e0'">
+                <input type="radio" name="language" value="german" 
+                       style="margin-right: 0.5rem; width: 20px; height: 20px;"
+                       onchange="this.closest('label').style.borderColor='#667eea'; this.closest('label').style.background='#f0f4ff'">
+                <div>
+                    <div style="font-weight: 600; font-size: 1.1rem;">🇩🇪 German</div>
+                    <div style="color: #666; font-size: 0.9rem;">Formal German (Sie form)</div>
+                </div>
+            </label>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>🎨 Style</h3>
+        <p style="color: #666; font-size: 0.95rem; margin-bottom: 1rem;">
+            Choose a style that matches the company culture and role
+        </p>
+        
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem;">
+            {% for style_id, style_info in styles.items() %}
+            <label style="padding: 1.25rem; border: 2px solid #e0e0e0; border-radius: 8px; cursor: pointer; transition: all 0.3s;" 
+                   onmouseover="this.style.borderColor='#667eea'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)'" 
+                   onmouseout="if(!this.querySelector('input').checked) { this.style.borderColor='#e0e0e0'; this.style.transform='translateY(0)'; this.style.boxShadow='none'; }">
+                <input type="radio" name="style" value="{{ style_id }}" {% if style_id == 'professional' %}checked{% endif %}
+                       style="margin-right: 0.75rem; width: 20px; height: 20px; margin-top: 0.25rem; float: left;"
+                       onchange="this.closest('label').style.borderColor='#667eea'; this.closest('label').style.background='#f0f4ff'">
+                <div style="overflow: hidden;">
+                    <div style="font-weight: 600; font-size: 1.05rem; margin-bottom: 0.5rem;">{{ style_info.name }}</div>
+                    <div style="color: #666; font-size: 0.9rem; margin-bottom: 0.5rem;">{{ style_info.description }}</div>
+                    <div style="color: #667eea; font-size: 0.85rem; font-style: italic;">Best for: {{ style_info.best_for }}</div>
+                </div>
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h3 style="margin: 0; color: white;">Ready to generate?</h3>
+                <p style="margin-top: 0.5rem; opacity: 0.9;">
+                    Claude will create a personalized cover letter based on your CV and the job requirements
+                </p>
+            </div>
+            <button type="submit" class="btn" style="background: white; color: #667eea; font-size: 1.1rem; padding: 0.8rem 2rem;">
+                ✨ Generate Cover Letter
+            </button>
+        </div>
+    </div>
+</form>
+
+<div class="card">
+    <a href="{{ url_for('job_detail', job_id=job.id) }}" class="btn btn-secondary">← Back to Job</a>
+</div>
+
+<script>
+// Handle radio button styling
+document.querySelectorAll('input[type="radio"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        // Reset all labels in the same group
+        const name = this.name;
+        document.querySelectorAll(`input[name="${name}"]`).forEach(r => {
+            const label = r.closest('label');
+            if (r !== this) {
+                label.style.borderColor = '#e0e0e0';
+                label.style.background = 'white';
+                label.style.transform = 'translateY(0)';
+                label.style.boxShadow = 'none';
+            }
+        });
+        
+        // Highlight selected
+        const label = this.closest('label');
+        label.style.borderColor = '#667eea';
+        label.style.background = '#f0f4ff';
+    });
+});
+
+// Set initial state
+document.querySelectorAll('input[type="radio"]:checked').forEach(radio => {
+    const label = radio.closest('label');
+    label.style.borderColor = '#667eea';
+    label.style.background = '#f0f4ff';
+});
+</script>
+
+{% endblock %}

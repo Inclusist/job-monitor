@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (will be on volume)
+data/jobs.db
+data/logs/*.log
+temp_uploads/*
+
+# Git
+.git/
+.gitignore
+
+# Backups
+*.bak
+*.bak2
+*.bak3
+*.corrupt
+
+# Model cache (will download on first run)
+.cache/

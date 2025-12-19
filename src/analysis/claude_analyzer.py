@@ -11,17 +11,31 @@ import time
 
 
 class ClaudeJobAnalyzer:
-    def __init__(self, api_key: str, model: str = "claude-3-5-haiku-20241022"):
+    def __init__(self, api_key: str, model: str = "claude-3-5-haiku-20241022", 
+                 db=None, user_email: str = 'default@localhost'):
         """
         Initialize Claude analyzer
         
         Args:
             api_key: Anthropic API key
             model: Model to use (haiku for cost efficiency, sonnet for better quality)
+            db: JobDatabase instance for feedback learning (optional)
+            user_email: User email for personalized learning
         """
         self.client = Anthropic(api_key=api_key)
         self.model = model
         self.profile = None
+        self.db = db
+        self.user_email = user_email
+        self.learning_context = None
+        
+        # Initialize feedback learner if database is provided
+        if db:
+            from src.analysis.feedback_learner import FeedbackLearner
+            self.learner = FeedbackLearner(db)
+            self.learning_context = self.learner.generate_learning_context(user_email)
+        else:
+            self.learner = None
     
     def set_profile(self, profile: Dict[str, Any]):
         """Set user profile for analysis (from config.yaml)"""
@@ -201,11 +215,18 @@ class ClaudeJobAnalyzer:
 {job.get('description', 'No description available')[:2000]}
 """
         
+        # Add learning context if available
+        learning_section = ""
+        if self.learning_context:
+            learning_section = self.learning_context
+        
         prompt = f"""You are an expert career advisor. Analyze this job posting against the candidate's profile and provide a detailed assessment.
 
 {profile_summary}
 
 {job_details}
+
+{learning_section}
 
 **Analysis Task:**
 Evaluate this job opportunity and provide your assessment in the following JSON format:

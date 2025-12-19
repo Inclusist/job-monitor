@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+
+{% block title %}Search Preferences - Job Monitor{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>🔍 Search Preferences</h2>
+    <p>Configure what jobs you want to search for. These preferences are unique to your profile.</p>
+    
+    <button id="getAiSuggestions" class="btn" style="background: #667eea; margin-top: 1rem;">
+        🤖 Get AI Suggestions Based on My CV
+    </button>
+    <div id="aiLoadingMessage" style="display: none; margin-top: 1rem; padding: 1rem; background: #f0f0ff; border-radius: 8px;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <div style="font-size: 1.5rem;">⏳</div>
+            <div>
+                <strong>Claude is analyzing your CV...</strong>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem; color: #666;">Generating personalized job title and location suggestions</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <form method="POST" action="{{ url_for('update_search_preferences') }}">
+        <div class="form-group">
+            <label for="keywords">Job Keywords</label>
+            <p style="color: #666; font-size: 0.9rem; margin-bottom: 0.5rem;">
+                Enter job titles or roles you're interested in, one per line
+            </p>
+            <textarea id="keywords" name="keywords" rows="10" 
+                      style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px; font-family: monospace;"
+                      placeholder="Senior Data Scientist&#10;Machine Learning Engineer&#10;AI Team Lead&#10;Head of Data Science">{{ keywords }}</textarea>
+        </div>
+
+        <div class="form-group">
+            <label for="locations">Locations</label>
+            <p style="color: #666; font-size: 0.9rem; margin-bottom: 0.5rem;">
+                Enter locations to search in, one per line
+            </p>
+            <textarea id="locations" name="locations" rows="8" 
+                      style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px; font-family: monospace;"
+                      placeholder="Berlin, Germany&#10;Munich, Germany&#10;Remote, Germany&#10;Hamburg, Germany">{{ locations }}</textarea>
+        </div>
+
+        <div style="display: flex; gap: 1rem;">
+            <button type="submit" class="btn">💾 Save Preferences</button>
+            <a href="{{ url_for('view_profile') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<script>
+document.getElementById('getAiSuggestions').addEventListener('click', async function() {
+    const button = this;
+    const loadingMsg = document.getElementById('aiLoadingMessage');
+    const keywordsTextarea = document.getElementById('keywords');
+    const locationsTextarea = document.getElementById('locations');
+    
+    // Disable button and show loading
+    button.disabled = true;
+    button.style.opacity = '0.6';
+    loadingMsg.style.display = 'block';
+    
+    try {
+        const response = await fetch('{{ url_for("get_suggestions") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            alert('Error: ' + data.error);
+            return;
+        }
+        
+        const suggestions = data.suggestions;
+        
+        // Populate keywords textarea
+        if (suggestions.job_titles && suggestions.job_titles.length > 0) {
+            keywordsTextarea.value = suggestions.job_titles.join('\n');
+            keywordsTextarea.style.border = '2px solid #28a745';
+            setTimeout(() => {
+                keywordsTextarea.style.border = '2px solid #e0e0e0';
+            }, 2000);
+        }
+        
+        // Populate locations textarea
+        if (suggestions.locations && suggestions.locations.length > 0) {
+            locationsTextarea.value = suggestions.locations.join('\n');
+            locationsTextarea.style.border = '2px solid #28a745';
+            setTimeout(() => {
+                locationsTextarea.style.border = '2px solid #e0e0e0';
+            }, 2000);
+        }
+        
+        // Show success message
+        loadingMsg.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <div style="font-size: 1.5rem;">✅</div>
+                <div>
+                    <strong>Suggestions loaded!</strong>
+                    <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem; color: #666;">
+                        ${suggestions.reasoning || 'AI has analyzed your profile and generated suggestions'}
+                    </p>
+                </div>
+            </div>
+        `;
+        loadingMsg.style.background = '#d4edda';
+        
+        setTimeout(() => {
+            loadingMsg.style.display = 'none';
+            loadingMsg.style.background = '#f0f0ff';
+        }, 5000);
+        
+    } catch (error) {
+        alert('Error fetching suggestions: ' + error.message);
+    } finally {
+        button.disabled = false;
+        button.style.opacity = '1';
+    }
+});
+</script>
+
+{% if has_preferences %}
+<div class="card" style="background: #e7f3ff; border-left: 4px solid #007bff;">
+    <h3>💡 Using Your Custom Preferences</h3>
+    <p>You have configured custom search preferences. When you run a search, the system will use your keywords and locations instead of the default configuration.</p>
+    
+    {% if default_config %}
+    <details style="margin-top: 1rem;">
+        <summary style="cursor: pointer; color: #007bff; font-weight: 500;">View Default Configuration</summary>
+        <div style="margin-top: 1rem; padding: 1rem; background: white; border-radius: 4px;">
+            <p><strong>Default Keywords:</strong></p>
+            <ul>
+                {% for keyword in default_config.keywords[:5] %}
+                <li>{{ keyword }}</li>
+                {% endfor %}
+                {% if default_config.keywords|length > 5 %}
+                <li><em>...and {{ default_config.keywords|length - 5 }} more</em></li>
+                {% endif %}
+            </ul>
+            
+            <p style="margin-top: 1rem;"><strong>Default Locations:</strong></p>
+            <ul>
+                {% for location in default_config.locations[:5] %}
+                <li>{{ location }}</li>
+                {% endfor %}
+                {% if default_config.locations|length > 5 %}
+                <li><em>...and {{ default_config.locations|length - 5 }} more</em></li>
+                {% endif %}
+            </ul>
+        </div>
+    </details>
+    {% endif %}
+</div>
+{% else %}
+<div class="card" style="background: #fff3cd; border-left: 4px solid #ffc107;">
+    <h3>⚠️ No Custom Preferences Set</h3>
+    <p>You haven't configured custom search preferences yet. The system will use the default configuration from <code>config.yaml</code> when you run searches.</p>
+    <p style="margin-top: 0.5rem;">Save your preferences above to get personalized job searches!</p>
+</div>
+{% endif %}
+
+<div class="card">
+    <h3>Tips for Better Results</h3>
+    <ul>
+        <li><strong>Be specific:</strong> "Senior Python Developer" is better than just "Developer"</li>
+        <li><strong>Include variations:</strong> Add both English and local language terms</li>
+        <li><strong>Try different formats:</strong> "Head of Data Science" vs "Data Science Manager"</li>
+        <li><strong>Location format:</strong> Use "City, Country" format for best results</li>
+        <li><strong>Remote work:</strong> Add "Remote, [Country]" to find remote opportunities</li>
+    </ul>
+</div>
+
+{% endblock %}

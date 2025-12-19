@@ -45,10 +45,26 @@
             margin-left: 2rem;
             font-weight: 500;
             transition: opacity 0.3s;
+            position: relative;
         }
 
         .navbar nav a:hover {
             opacity: 0.8;
+        }
+        
+        .navbar nav a.active {
+            opacity: 1;
+        }
+        
+        .navbar nav a.active::after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: white;
+            border-radius: 2px;
         }
 
         .container {
@@ -228,10 +244,21 @@
         <div class="container">
             <h1>🤖 Job Monitor</h1>
             <nav>
+                {% if current_user.is_authenticated %}
                 <a href="{{ url_for('index') }}">Home</a>
                 <a href="{{ url_for('upload_cv') }}">Upload CV</a>
                 <a href="{{ url_for('view_profile') }}">My Profile</a>
+                <a href="{{ url_for('search_preferences') }}" title="Configure search keywords & locations">⚙️ Search</a>
                 <a href="{{ url_for('jobs') }}">Jobs</a>
+                <a href="{{ url_for('dashboard') }}" style="background: rgba(255,255,255,0.2); padding: 0.5rem 1rem; border-radius: 6px;">📋 Dashboard</a>
+                <a href="{{ url_for('learning_insights') }}" title="See what the AI learned">🧠</a>
+                <span style="opacity: 0.8; margin-left: 1rem;">|</span>
+                <span style="opacity: 0.9; margin-left: 0.5rem;">{{ current_user.email }}</span>
+                <a href="{{ url_for('logout') }}" style="margin-left: 0.5rem;">Logout</a>
+                {% else %}
+                <a href="{{ url_for('login') }}">Login</a>
+                <a href="{{ url_for('register') }}">Register</a>
+                {% endif %}
             </nav>
         </div>
     </div>

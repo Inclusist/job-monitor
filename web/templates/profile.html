@@ -3,6 +3,39 @@
 {% block title %}My Profile - Job Monitor{% endblock %}
 
 {% block content %}
+
+{% if all_cvs and all_cvs|length > 1 %}
+<div class="card">
+    <h3>Your CVs ({{ all_cvs|length }})</h3>
+    <div style="margin-top: 1rem;">
+        {% for cv_item in all_cvs %}
+        <div style="padding: 1rem; margin-bottom: 0.5rem; border: 1px solid #e0e0e0; border-radius: 4px; {% if cv_item.is_primary %}background: #e8f4f8;{% endif %}">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <strong>{{ cv_item.file_name }}</strong>
+                    <span style="color: #666; font-size: 0.9rem; margin-left: 0.5rem;">{{ cv_item.uploaded_date[:10] }}</span>
+                    {% if cv_item.is_primary %}
+                    <span class="badge" style="background: #28a745; color: white; margin-left: 0.5rem;">Primary</span>
+                    {% endif %}
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    {% if not cv_item.is_primary %}
+                    <form method="POST" action="{{ url_for('set_primary_cv', cv_id=cv_item.id) }}" style="display: inline;">
+                        <button type="submit" class="btn" style="background: #28a745; color: white; padding: 0.3rem 0.8rem; font-size: 0.9rem;">Set as Primary</button>
+                    </form>
+                    {% endif %}
+                    <form method="POST" action="{{ url_for('delete_cv', cv_id=cv_item.id) }}" onsubmit="return confirm('Delete {{ cv_item.file_name }}?');" style="display: inline;">
+                        <button type="submit" class="btn" style="background: #dc3545; color: white; padding: 0.3rem 0.8rem; font-size: 0.9rem;">Delete</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    <a href="{{ url_for('upload_cv') }}" class="btn" style="background: #667eea; margin-top: 1rem;">📄 Upload New CV</a>
+</div>
+{% endif %}
+
 {% if not profile %}
 <div class="card">
     <h2>No CV Uploaded</h2>
@@ -18,6 +51,14 @@
     {% if cv.is_primary %}
     <span class="badge badge-primary">Primary CV</span>
     {% endif %}
+    
+    <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+        <a href="{{ url_for('upload_cv') }}" class="btn" style="background: #667eea;">📄 Upload New CV</a>
+        <a href="{{ url_for('search_preferences') }}" class="btn" style="background: #28a745;">🔍 Search Preferences</a>
+        <form method="POST" action="{{ url_for('delete_cv', cv_id=cv.id) }}" onsubmit="return confirm('Are you sure you want to delete this CV? This action cannot be undone.');" style="display: inline;">
+            <button type="submit" class="btn" style="background: #dc3545; color: white;">🗑️ Delete CV</button>
+        </form>
+    </div>
 </div>
 
 <div class="card">

@@ -8,7 +8,7 @@ from anthropic import Anthropic
 
 
 class CVAnalyzer:
-    def __init__(self, api_key: str, model: str = "claude-3-5-sonnet-20241022"):
+    def __init__(self, api_key: str, model: str = "claude-3-haiku-20240307"):
         """
         Initialize CV Analyzer with Claude API
 

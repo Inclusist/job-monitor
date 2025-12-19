@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block title %}Cover Letter - {{ job.title }}{% endblock %}
+
+{% block content %}
+<div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <h2 style="color: white; margin: 0;">✅ Cover Letter Generated!</h2>
+            <p style="margin-top: 0.5rem; opacity: 0.9;">
+                {{ result.style }} style in {{ result.language }}
+            </p>
+        </div>
+        <button onclick="copyToClipboard()" class="btn" style="background: white; color: #667eea;">
+            📋 Copy to Clipboard
+        </button>
+    </div>
+</div>
+
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1.5rem;">
+        <div>
+            <h3 style="margin: 0;">{{ job.title }}</h3>
+            <p style="color: #666; margin-top: 0.25rem;">{{ job.company }} • {{ job.location }}</p>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="background: #f8f9fa;">
+    <div id="coverLetterText" style="white-space: pre-wrap; line-height: 1.8; font-size: 1.05rem; color: #333; font-family: Georgia, serif;">{{ result.cover_letter }}</div>
+</div>
+
+<div class="card">
+    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+        <button onclick="copyToClipboard()" class="btn" style="background: #28a745;">
+            📋 Copy to Clipboard
+        </button>
+        <button onclick="downloadAsText()" class="btn" style="background: #17a2b8;">
+            💾 Download as .txt
+        </button>
+        <button onclick="window.print()" class="btn" style="background: #6c757d;">
+            🖨️ Print
+        </button>
+        <a href="{{ url_for('generate_cover_letter_page', job_id=job.id) }}" class="btn" style="background: #ffc107; color: #000;">
+            🔄 Generate Another
+        </a>
+        <a href="{{ url_for('job_detail', job_id=job.id) }}" class="btn btn-secondary">
+            ← Back to Job
+        </a>
+    </div>
+</div>
+
+<div id="copyNotification" style="display: none; position: fixed; top: 20px; right: 20px; background: #28a745; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 1000;">
+    ✅ Copied to clipboard!
+</div>
+
+<script>
+function copyToClipboard() {
+    const text = document.getElementById('coverLetterText').innerText;
+    navigator.clipboard.writeText(text).then(function() {
+        showNotification();
+    }, function(err) {
+        alert('Failed to copy: ' + err);
+    });
+}
+
+function showNotification() {
+    const notification = document.getElementById('copyNotification');
+    notification.style.display = 'block';
+    setTimeout(function() {
+        notification.style.display = 'none';
+    }, 2000);
+}
+
+function downloadAsText() {
+    const text = document.getElementById('coverLetterText').innerText;
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'cover_letter_{{ job.company|replace(" ", "_") }}_{{ job.title|replace(" ", "_") }}.txt';
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+}
+
+// Print styles
+window.onbeforeprint = function() {
+    document.body.style.background = 'white';
+    document.querySelectorAll('.card').forEach(card => {
+        if (!card.contains(document.getElementById('coverLetterText'))) {
+            card.style.display = 'none';
+        }
+    });
+};
+
+window.onafterprint = function() {
+    document.body.style.background = '';
+    document.querySelectorAll('.card').forEach(card => {
+        card.style.display = '';
+    });
+};
+</script>
+
+<style>
+@media print {
+    .navbar, .btn, button, a.btn {
+        display: none !important;
+    }
+    #coverLetterText {
+        font-size: 12pt;
+        line-height: 1.6;
+        color: black;
+    }
+    .card {
+        box-shadow: none;
+        border: none;
+        padding: 0;
+    }
+}
+</style>
+
+{% endblock %}

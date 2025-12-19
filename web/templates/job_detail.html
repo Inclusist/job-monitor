@@ -38,8 +38,90 @@
 
     <div style="margin-bottom: 2rem;">
         <a href="{{ job.url }}" target="_blank" class="btn">🔗 View Job Posting</a>
+        <a href="{{ url_for('generate_cover_letter_page', job_id=job.id) }}" class="btn" style="background: #28a745; margin-left: 1rem;">✍️ Generate Cover Letter</a>
+        
+        {% if job.status != 'shortlisted' %}
+        <form method="POST" action="{{ url_for('shortlist_job', job_id=job.id) }}" style="display: inline; margin-left: 1rem;">
+            <button type="submit" class="btn" style="background: #007bff;">⭐ Add to Dashboard</button>
+        </form>
+        {% else %}
+        <form method="POST" action="{{ url_for('remove_shortlist', job_id=job.id) }}" style="display: inline; margin-left: 1rem;">
+            <button type="submit" class="btn btn-secondary">✓ On Dashboard</button>
+        </form>
+        {% endif %}
+        
         <a href="{{ url_for('jobs') }}" class="btn btn-secondary" style="margin-left: 1rem;">← Back to Jobs</a>
     </div>
+</div>
+
+<div class="card">
+    <h3>📊 How accurate is this match score?</h3>
+    <p style="color: #666; margin-bottom: 1rem;">
+        Your feedback helps improve future job recommendations. 
+        <strong>Adding a reason helps the AI learn faster!</strong>
+        <a href="{{ url_for('learning_insights') }}" style="color: #667eea; text-decoration: underline;">See what it learned</a>
+    </p>
+    
+    <form method="POST" action="{{ url_for('job_feedback', job_id=job.id) }}" id="feedbackForm">
+        <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+            <button type="submit" name="feedback_type" value="agree" class="btn" style="background: #28a745; flex: 1; min-width: 150px;">
+                👍 Accurate
+            </button>
+            <button type="button" class="btn" style="background: #ffc107; flex: 1; min-width: 150px;" onclick="showFeedbackDetails('too_high')">
+                📉 Score Too High
+            </button>
+            <button type="button" class="btn" style="background: #17a2b8; flex: 1; min-width: 150px;" onclick="showFeedbackDetails('too_low')">
+                📈 Score Too Low
+            </button>
+            <button type="button" class="btn btn-secondary" style="flex: 1; min-width: 150px;" onclick="showFeedbackDetails('disagree')">
+                👎 Poor Match
+            </button>
+        </div>
+        
+        <div id="feedbackDetails" style="display: none; margin-top: 1.5rem; padding: 1.5rem; background: #f8f9fa; border-radius: 8px;">
+            <input type="hidden" name="feedback_type" id="feedbackType" value="">
+            
+            <div class="form-group">
+                <label for="user_score">What score would you give? (0-100)</label>
+                <input type="number" id="user_score" name="user_score" min="0" max="100" 
+                       placeholder="Your score" 
+                       style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;">
+            </div>
+            
+            <div class="form-group">
+                <label for="feedback_reason">
+                    Why? (Optional but highly recommended!)
+                    <span style="color: #666; font-weight: normal; font-size: 0.9rem;">
+                        - The more specific, the better Claude learns
+                    </span>
+                </label>
+                <textarea id="feedback_reason" name="feedback_reason" rows="3" 
+                          placeholder="E.g., 'Too much travel required, I need remote work' or 'Perfect automotive + leadership combo!' or 'Not senior enough, need team management responsibilities'..."
+                          style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;"></textarea>
+                <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">
+                    💡 Tip: Specific reasons like "Location doesn't work" or "Need more ML engineering" help Claude learn your preferences better than just disagreeing.
+                </p>
+            </div>
+            
+            <div style="display: flex; gap: 1rem;">
+                <button type="submit" class="btn">Submit Feedback</button>
+                <button type="button" class="btn btn-secondary" onclick="hideFeedbackDetails()">Cancel</button>
+            </div>
+        </div>
+    </form>
+    
+    <script>
+        function showFeedbackDetails(type) {
+            document.getElementById('feedbackType').value = type;
+            document.getElementById('feedbackDetails').style.display = 'block';
+        }
+        
+        function hideFeedbackDetails() {
+            document.getElementById('feedbackDetails').style.display = 'none';
+            document.getElementById('user_score').value = '';
+            document.getElementById('feedback_reason').value = '';
+        }
+    </script>
 </div>
 
 <div class="card">
@@ -82,11 +164,24 @@
 
 <div class="card">
     <h3>Actions</h3>
-    <div style="display: flex; gap: 1rem;">
-        <a href="{{ job.url }}" target="_blank" class="btn">Apply Now</a>
-        <button class="btn btn-secondary" onclick="if(confirm('Mark this job as reviewed?')) window.location.href='{{ url_for('update_job_status', job_id=job.id, status='reviewed') }}'">
-            Mark as Reviewed
-        </button>
+    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+        <a href="{{ job.url }}" target="_blank" class="btn" style="background: #007bff;">🚀 Apply Now</a>
+        
+        <form method="POST" action="{{ url_for('update_job_status', job_id=job.id, status='reviewed') }}" style="display: inline; margin: 0;">
+            <button type="submit" class="btn btn-secondary">✓ Mark as Reviewed</button>
+        </form>
+        
+        <form method="POST" action="{{ url_for('delete_job', job_id=job.id) }}" 
+              onsubmit="return confirm('Hide this job permanently? It will not appear in future searches.');"
+              style="display: inline; margin: 0;">
+            <button type="submit" class="btn" style="background: #dc3545;">
+                🗑️ Hide Job Forever
+            </button>
+        </form>
     </div>
+    
+    <p style="margin-top: 1rem; color: #666; font-size: 0.9rem;">
+        💡 Hiding a job marks it as "not interested" and prevents it from showing up in future searches, even if the same job is posted again.
+    </p>
 </div>
 {% endblock %}

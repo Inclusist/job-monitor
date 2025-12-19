@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}Hidden Jobs - Job Monitor{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <h2>🗑️ Hidden Jobs</h2>
+            <p>Jobs you've marked as "not interested" - they won't appear in future searches</p>
+        </div>
+        <div>
+            <a href="{{ url_for('jobs') }}" class="btn">← Back to Jobs</a>
+        </div>
+    </div>
+</div>
+
+{% if not jobs %}
+<div class="alert alert-info">
+    <strong>No hidden jobs.</strong> When you hide a job, it will appear here.
+    <p style="margin-top: 0.5rem;">Hidden jobs are permanently excluded from future searches.</p>
+</div>
+{% else %}
+
+<div class="card" style="background: #fff3cd; border-left: 4px solid #ffc107;">
+    <p style="margin: 0; color: #856404;">
+        <strong>{{ jobs|length }} job{{ 's' if jobs|length != 1 else '' }} hidden</strong> - 
+        These jobs will not appear in future searches. You can restore them if needed.
+    </p>
+</div>
+
+<div class="card">
+    <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr style="background: #f8f9fa; border-bottom: 2px solid #e0e0e0;">
+                <th style="padding: 1rem; text-align: left;">Job Title</th>
+                <th style="padding: 1rem; text-align: left;">Company</th>
+                <th style="padding: 1rem; text-align: left;">Location</th>
+                <th style="padding: 1rem; text-align: center;">Score</th>
+                <th style="padding: 1rem; text-align: left;">Hidden Date</th>
+                <th style="padding: 1rem; text-align: center;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in jobs %}
+            <tr style="border-bottom: 1px solid #e0e0e0;">
+                <td style="padding: 1rem;">
+                    <strong>{{ job.title }}</strong>
+                </td>
+                <td style="padding: 1rem;">{{ job.company }}</td>
+                <td style="padding: 1rem;">{{ job.location }}</td>
+                <td style="padding: 1rem; text-align: center; font-weight: bold; color: #666;">
+                    {{ job.match_score }}
+                </td>
+                <td style="padding: 1rem;">{{ job.last_updated[:10] if job.last_updated else 'Unknown' }}</td>
+                <td style="padding: 1rem; text-align: center;">
+                    <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                        <a href="{{ url_for('job_detail', job_id=job.id) }}" 
+                           class="btn" 
+                           style="padding: 0.5rem 1rem; font-size: 0.875rem;">
+                            👁️ View
+                        </a>
+                        
+                        <form method="POST" action="{{ url_for('restore_job', job_id=job.id) }}" style="display: inline; margin: 0;">
+                            <button type="submit" 
+                                    class="btn" 
+                                    style="padding: 0.5rem 1rem; font-size: 0.875rem; background: #28a745;">
+                                ↩️ Restore
+                            </button>
+                        </form>
+                        
+                        <form method="POST" action="{{ url_for('permanent_delete', job_id=job.id) }}" 
+                              onsubmit="return confirm('⚠️ Permanently delete this job from the database? This cannot be undone!');"
+                              style="display: inline; margin: 0;">
+                            <button type="submit" 
+                                    class="btn" 
+                                    style="padding: 0.5rem 1rem; font-size: 0.875rem; background: #dc3545;">
+                                ❌ Delete
+                            </button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% endif %}
+
+<div class="card" style="background: #e7f3ff; border-left: 4px solid #007bff;">
+    <h3 style="margin-top: 0;">💡 About Hidden Jobs</h3>
+    <ul style="line-height: 2; margin-bottom: 0;">
+        <li><strong>Hidden jobs are excluded from future searches</strong> - Even if the exact same job appears again, it won't be added</li>
+        <li><strong>Restore</strong> - Move the job back to "new" status and allow it in future searches</li>
+        <li><strong>Permanent Delete</strong> - Remove the job completely from the database (cannot be undone)</li>
+        <li><strong>Job matching</strong> - Jobs are identified by title + company + location, so the same role from the same company won't reappear</li>
+    </ul>
+</div>
+
+{% endblock %}

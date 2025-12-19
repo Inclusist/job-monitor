@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block title %}Smart Job Search - Job Monitor{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>🤖 AI-Powered Job Search</h2>
+    <p>Let Claude analyze your CV and suggest relevant job titles and locations for your search.</p>
+    
+    <button id="getSuggestions" class="btn" style="background: #667eea; margin-top: 1rem;">
+        Get Personalized Suggestions
+    </button>
+</div>
+
+<div id="loadingMessage" style="display: none; text-align: center; margin: 2rem 0;">
+    <div style="font-size: 2rem; margin-bottom: 1rem;">⏳</div>
+    <p>Claude is analyzing your CV and generating suggestions...</p>
+    <p style="color: #666; font-size: 0.9rem;">This may take 10-20 seconds</p>
+</div>
+
+<div id="suggestionsContainer" style="display: none;">
+    <form method="POST" action="{{ url_for('run_custom_search') }}" id="searchForm">
+        <div class="card">
+            <h3>📋 Suggested Job Titles</h3>
+            <p id="reasoningText" style="color: #666; margin-bottom: 1rem; font-size: 0.95rem;"></p>
+            
+            <div style="margin-bottom: 0.5rem;">
+                <button type="button" id="selectAllTitles" class="btn" style="background: #28a745; padding: 0.3rem 0.8rem; font-size: 0.9rem; margin-right: 0.5rem;">Select All</button>
+                <button type="button" id="deselectAllTitles" class="btn" style="background: #6c757d; padding: 0.3rem 0.8rem; font-size: 0.9rem;">Deselect All</button>
+            </div>
+            
+            <div id="jobTitlesList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0.5rem; margin-top: 1rem;">
+                <!-- Job titles will be populated here -->
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>🌍 Suggested Locations</h3>
+            
+            <div style="margin-bottom: 0.5rem;">
+                <button type="button" id="selectAllLocations" class="btn" style="background: #28a745; padding: 0.3rem 0.8rem; font-size: 0.9rem; margin-right: 0.5rem;">Select All</button>
+                <button type="button" id="deselectAllLocations" class="btn" style="background: #6c757d; padding: 0.3rem 0.8rem; font-size: 0.9rem;">Deselect All</button>
+            </div>
+            
+            <div id="locationsList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem; margin-top: 1rem;">
+                <!-- Locations will be populated here -->
+            </div>
+        </div>
+
+        <div class="card" style="background: #f8f9fa; border: 2px solid #667eea;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h3 style="margin: 0;">Ready to search?</h3>
+                    <p style="color: #666; font-size: 0.9rem; margin-top: 0.5rem;">
+                        Selected: <span id="selectedCount">0</span> job titles × <span id="selectedLocCount">0</span> locations = 
+                        <strong><span id="totalSearches">0</span> searches</strong>
+                    </p>
+                </div>
+                <button type="submit" class="btn" style="background: #667eea; font-size: 1.1rem; padding: 0.8rem 2rem;">
+                    🔍 Run Job Search
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<script>
+document.getElementById('getSuggestions').addEventListener('click', async function() {
+    const button = this;
+    button.disabled = true;
+    button.textContent = 'Loading...';
+    
+    document.getElementById('loadingMessage').style.display = 'block';
+    document.getElementById('suggestionsContainer').style.display = 'none';
+    
+    try {
+        const response = await fetch('/get-suggestions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            const suggestions = data.suggestions;
+            
+            // Populate job titles
+            const titlesContainer = document.getElementById('jobTitlesList');
+            titlesContainer.innerHTML = '';
+            suggestions.job_titles.forEach((title, index) => {
+                const div = document.createElement('div');
+                div.style.padding = '0.5rem';
+                div.style.border = '1px solid #e0e0e0';
+                div.style.borderRadius = '4px';
+                div.innerHTML = `
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" name="job_titles[]" value="${title}" 
+                               class="job-title-checkbox" checked 
+                               style="margin-right: 0.5rem; width: 18px; height: 18px;">
+                        <span style="font-size: 0.95rem;">${title}</span>
+                    </label>
+                `;
+                titlesContainer.appendChild(div);
+            });
+            
+            // Populate locations
+            const locationsContainer = document.getElementById('locationsList');
+            locationsContainer.innerHTML = '';
+            suggestions.locations.forEach((location, index) => {
+                const div = document.createElement('div');
+                div.style.padding = '0.5rem';
+                div.style.border = '1px solid #e0e0e0';
+                div.style.borderRadius = '4px';
+                div.innerHTML = `
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" name="locations[]" value="${location}" 
+                               class="location-checkbox" checked 
+                               style="margin-right: 0.5rem; width: 18px; height: 18px;">
+                        <span style="font-size: 0.95rem;">${location}</span>
+                    </label>
+                `;
+                locationsContainer.appendChild(div);
+            });
+            
+            // Show reasoning
+            document.getElementById('reasoningText').textContent = suggestions.reasoning;
+            
+            // Show suggestions
+            document.getElementById('loadingMessage').style.display = 'none';
+            document.getElementById('suggestionsContainer').style.display = 'block';
+            
+            // Setup event listeners
+            setupSelectionButtons();
+            updateCounts();
+            
+        } else {
+            alert('Error: ' + (data.error || 'Failed to get suggestions'));
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    } finally {
+        button.disabled = false;
+        button.textContent = 'Get Personalized Suggestions';
+        document.getElementById('loadingMessage').style.display = 'none';
+    }
+});
+
+function setupSelectionButtons() {
+    document.getElementById('selectAllTitles').addEventListener('click', () => {
+        document.querySelectorAll('.job-title-checkbox').forEach(cb => cb.checked = true);
+        updateCounts();
+    });
+    
+    document.getElementById('deselectAllTitles').addEventListener('click', () => {
+        document.querySelectorAll('.job-title-checkbox').forEach(cb => cb.checked = false);
+        updateCounts();
+    });
+    
+    document.getElementById('selectAllLocations').addEventListener('click', () => {
+        document.querySelectorAll('.location-checkbox').forEach(cb => cb.checked = true);
+        updateCounts();
+    });
+    
+    document.getElementById('deselectAllLocations').addEventListener('click', () => {
+        document.querySelectorAll('.location-checkbox').forEach(cb => cb.checked = false);
+        updateCounts();
+    });
+    
+    // Update counts when checkboxes change
+    document.querySelectorAll('.job-title-checkbox, .location-checkbox').forEach(cb => {
+        cb.addEventListener('change', updateCounts);
+    });
+}
+
+function updateCounts() {
+    const titleCount = document.querySelectorAll('.job-title-checkbox:checked').length;
+    const locationCount = document.querySelectorAll('.location-checkbox:checked').length;
+    const totalSearches = titleCount * locationCount;
+    
+    document.getElementById('selectedCount').textContent = titleCount;
+    document.getElementById('selectedLocCount').textContent = locationCount;
+    document.getElementById('totalSearches').textContent = Math.min(totalSearches, 15) + (totalSearches > 15 ? ' (max)' : '');
+}
+</script>
+
+{% endblock %}

@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+
+{% block title %}AI Learning Insights - Job Monitor{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <h2>🧠 AI Learning Insights</h2>
+            <p>See what the AI has learned from your feedback</p>
+        </div>
+        <div>
+            <a href="{{ url_for('jobs') }}" class="btn btn-secondary">← Back to Jobs</a>
+        </div>
+    </div>
+</div>
+
+{% if not preferences.has_feedback %}
+<div class="alert alert-info">
+    <h3 style="margin-top: 0;">No Learning Data Yet</h3>
+    <p>Start rating job matches to help the AI learn your preferences!</p>
+    <p style="margin-top: 1rem;">Go to any job detail page and use the feedback buttons:</p>
+    <ul style="margin-left: 2rem; margin-top: 0.5rem;">
+        <li>👍 Accurate - You agree with the score</li>
+        <li>📉 Score Too High - The job isn't as good as Claude thinks</li>
+        <li>📈 Score Too Low - The job is better than Claude thinks</li>
+        <li>👎 Poor Match - This job isn't relevant at all</li>
+    </ul>
+</div>
+{% else %}
+
+<div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+    <h3 style="color: white; margin-top: 0;">📊 Learning Summary</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; margin-top: 1.5rem;">
+        <div>
+            <div style="font-size: 2.5rem; font-weight: bold;">{{ preferences.total_feedback }}</div>
+            <div style="opacity: 0.9;">Feedback Items</div>
+        </div>
+        <div>
+            <div style="font-size: 2.5rem; font-weight: bold;">{{ "%.0f"|format(preferences.agreement_rate) }}%</div>
+            <div style="opacity: 0.9;">Agreement Rate</div>
+        </div>
+        {% if preferences.scoring_calibration.needs_calibration %}
+        <div>
+            <div style="font-size: 2.5rem; font-weight: bold;">
+                {% if preferences.scoring_calibration.score_bias > 0 %}
+                -{{ "%.0f"|format(preferences.scoring_calibration.score_bias) }}
+                {% else %}
+                +{{ "%.0f"|format(preferences.scoring_calibration.score_bias|abs) }}
+                {% endif %}
+            </div>
+            <div style="opacity: 0.9;">Score Adjustment</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if preferences.scoring_calibration.needs_calibration %}
+<div class="card" style="border-left: 4px solid #ffc107;">
+    <h3>⚖️ Score Calibration</h3>
+    {% if preferences.scoring_calibration.score_bias > 0 %}
+    <p style="font-size: 1.1rem; color: #856404;">
+        <strong>Claude tends to score {{ "%.0f"|format(preferences.scoring_calibration.score_bias) }} points too high for your taste.</strong>
+    </p>
+    <p style="color: #666;">
+        The AI is learning to be more conservative. Future job scores will be adjusted downward based on your feedback.
+    </p>
+    {% else %}
+    <p style="font-size: 1.1rem; color: #004085;">
+        <strong>Claude tends to score {{ "%.0f"|format(preferences.scoring_calibration.score_bias|abs) }} points too low for your taste.</strong>
+    </p>
+    <p style="color: #666;">
+        The AI is learning to be more generous. Future job scores will be adjusted upward based on your feedback.
+    </p>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if preferences.liked_job_examples %}
+<div class="card" style="border-left: 4px solid #28a745;">
+    <h3>✅ Jobs You Found Highly Relevant</h3>
+    <p style="color: #666; margin-bottom: 1.5rem;">Claude will prioritize jobs similar to these:</p>
+    
+    {% for job in preferences.liked_job_examples %}
+    <div style="padding: 1rem; background: #f8f9fa; border-radius: 8px; margin-bottom: 1rem;">
+        <h4 style="margin: 0 0 0.5rem 0; color: #155724;">{{ job.title }} at {{ job.company }}</h4>
+        <p style="margin: 0.5rem 0; color: #666;">📍 {{ job.location }} | 🎯 Score: {{ job.score }}</p>
+        
+        {% if job.alignments %}
+        <div style="margin-top: 0.75rem;">
+            <strong style="color: #155724;">Why it matched:</strong>
+            <p style="margin: 0.25rem 0 0 0; color: #666;">{{ job.alignments[:200] }}...</p>
+        </div>
+        {% endif %}
+        
+        {% if job.feedback_reason %}
+        <div style="margin-top: 0.75rem; padding: 0.75rem; background: white; border-radius: 6px;">
+            <strong>💭 Your feedback:</strong> <em>"{{ job.feedback_reason }}"</em>
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if preferences.disliked_job_examples %}
+<div class="card" style="border-left: 4px solid #dc3545;">
+    <h3>❌ Jobs You Found Less Relevant</h3>
+    <p style="color: #666; margin-bottom: 1.5rem;">Claude will avoid jobs with these characteristics:</p>
+    
+    {% for job in preferences.disliked_job_examples %}
+    <div style="padding: 1rem; background: #f8f9fa; border-radius: 8px; margin-bottom: 1rem;">
+        <h4 style="margin: 0 0 0.5rem 0; color: #721c24;">{{ job.title }} at {{ job.company }}</h4>
+        <p style="margin: 0.5rem 0; color: #666;">📍 {{ job.location }} | 🎯 Score: {{ job.score }}</p>
+        
+        {% if job.feedback_reason %}
+        <div style="margin-top: 0.75rem; padding: 0.75rem; background: white; border-radius: 6px;">
+            <strong>💭 Your feedback:</strong> <em>"{{ job.feedback_reason }}"</em>
+        </div>
+        {% endif %}
+        
+        {% if job.gaps %}
+        <div style="margin-top: 0.75rem;">
+            <strong style="color: #721c24;">Issues identified:</strong>
+            <p style="margin: 0.25rem 0 0 0; color: #666;">{{ job.gaps[:200] }}...</p>
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if preferences.key_preferences.valued_aspects or preferences.key_preferences.dealbreakers %}
+<div class="card">
+    <h3>🎯 Extracted Preferences</h3>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1rem;">
+        {% if preferences.key_preferences.valued_aspects %}
+        <div>
+            <h4 style="color: #28a745; margin-top: 0;">You Value:</h4>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                {% for aspect in preferences.key_preferences.valued_aspects %}
+                <span style="background: #d4edda; color: #155724; padding: 0.5rem 1rem; border-radius: 20px; font-size: 0.9rem;">
+                    {{ aspect }}
+                </span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        
+        {% if preferences.key_preferences.dealbreakers %}
+        <div>
+            <h4 style="color: #dc3545; margin-top: 0;">You Avoid:</h4>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                {% for dealbreaker in preferences.key_preferences.dealbreakers %}
+                <span style="background: #f8d7da; color: #721c24; padding: 0.5rem 1rem; border-radius: 20px; font-size: 0.9rem;">
+                    {{ dealbreaker }}
+                </span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<div class="card" style="background: #f8f9fa;">
+    <h3>📝 What Claude Sees</h3>
+    <p style="color: #666; margin-bottom: 1rem;">This learning context is automatically added to every job analysis:</p>
+    <div style="background: white; padding: 1.5rem; border-radius: 8px; border: 2px solid #e0e0e0;">
+        <pre style="white-space: pre-wrap; font-family: 'Courier New', monospace; font-size: 0.9rem; margin: 0; color: #333;">{{ learning_context or "No learning context yet - start rating jobs!" }}</pre>
+    </div>
+</div>
+
+{% if feedback_history %}
+<div class="card">
+    <h3>📋 Recent Feedback History</h3>
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background: #f8f9fa; border-bottom: 2px solid #e0e0e0;">
+                    <th style="padding: 1rem; text-align: left;">Date</th>
+                    <th style="padding: 1rem; text-align: left;">Job</th>
+                    <th style="padding: 1rem; text-align: center;">Original Score</th>
+                    <th style="padding: 1rem; text-align: center;">Your Score</th>
+                    <th style="padding: 1rem; text-align: left;">Feedback</th>
+                    <th style="padding: 1rem; text-align: left;">Reason</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for fb in feedback_history %}
+                <tr style="border-bottom: 1px solid #e0e0e0;">
+                    <td style="padding: 1rem;">{{ fb.created_date[:10] }}</td>
+                    <td style="padding: 1rem;">
+                        <strong>{{ fb.job_title }}</strong><br>
+                        <span style="color: #666; font-size: 0.9rem;">{{ fb.job_company }}</span>
+                    </td>
+                    <td style="padding: 1rem; text-align: center; font-weight: bold;">{{ fb.match_score_original }}</td>
+                    <td style="padding: 1rem; text-align: center; font-weight: bold;">
+                        {{ fb.match_score_user if fb.match_score_user else '-' }}
+                    </td>
+                    <td style="padding: 1rem;">
+                        {% if fb.feedback_type == 'agree' %}
+                        <span style="color: #28a745;">👍 Accurate</span>
+                        {% elif fb.feedback_type == 'too_high' %}
+                        <span style="color: #ffc107;">📉 Too High</span>
+                        {% elif fb.feedback_type == 'too_low' %}
+                        <span style="color: #17a2b8;">📈 Too Low</span>
+                        {% elif fb.feedback_type == 'disagree' %}
+                        <span style="color: #dc3545;">👎 Poor Match</span>
+                        {% endif %}
+                    </td>
+                    <td style="padding: 1rem; font-style: italic; color: #666; max-width: 300px;">
+                        {{ fb.feedback_reason if fb.feedback_reason else '-' }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% endif %}
+
+<div class="card" style="background: #e7f3ff; border-left: 4px solid #007bff;">
+    <h3 style="margin-top: 0;">💡 How to Improve Learning</h3>
+    <ul style="line-height: 2; margin-bottom: 0;">
+        <li><strong>Be specific in your reasons</strong> - Instead of "not interested", explain why (e.g., "Too much travel" or "Not enough leadership")</li>
+        <li><strong>Rate diverse jobs</strong> - Give feedback on both high and low scores to help calibration</li>
+        <li><strong>Provide your own score</strong> - This helps the AI understand your exact standards</li>
+        <li><strong>Rate consistently</strong> - The more feedback you provide, the better the AI learns</li>
+        <li><strong>Update your CV</strong> - Keep your profile current for the most accurate matches</li>
+    </ul>
+</div>
+
+{% endblock %}
