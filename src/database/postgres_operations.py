@@ -130,7 +130,7 @@ class PostgresDatabase:
                     email TEXT UNIQUE NOT NULL,
                     password_hash TEXT,
                     name TEXT,
-                    current_role TEXT,
+                    user_role TEXT,
                     location TEXT,
                     created_date TIMESTAMP NOT NULL,
                     last_updated TIMESTAMP NOT NULL,

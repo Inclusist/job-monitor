@@ -68,7 +68,7 @@ def migrate_users(sqlite_db: CVManager, postgres_db: PostgresDatabase) -> tuple:
             # Insert user
             pg_cursor.execute("""
                 INSERT INTO users (
-                    email, password_hash, name, current_role, location,
+                    email, password_hash, name, user_role, location,
                     created_date, last_updated, is_active, preferences,
                     last_filter_run, preferences_updated
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -77,7 +77,7 @@ def migrate_users(sqlite_db: CVManager, postgres_db: PostgresDatabase) -> tuple:
                 user['email'],
                 user['password_hash'],
                 user['name'],
-                user.get('current_role'),
+                user.get('current_role'),  # Map current_role to user_role
                 user.get('location'),
                 user['created_date'],
                 user['last_updated'],
