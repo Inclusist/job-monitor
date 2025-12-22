@@ -25,6 +25,21 @@ Comprehensive test suite with cost-effective API usage controls using pytest mar
 - Uses pytest markers for flexible cost control
 - `pytest -m quick -v` (recommended for daily use)
 
+### CV Lifecycle (`test_cv_lifecycle.py`) ⚡ NEW
+- **Tests**: 5 | **Cost**: $0
+- **CRITICAL**: Would have caught production delete/re-upload bug
+- Tests CV state transitions: active → deleted → re-upload
+- Tests duplicate prevention across all states
+- `pytest tests/test_cv_lifecycle.py -v`
+
+### Matcher Tests (`test_matcher.py`) ⚡ NEW
+- **Tests**: 7 | **Cost**: $0 (unless API fetch needed)
+- **CRITICAL**: Would have caught SQLite vs PostgreSQL parameter mismatch
+- Tests actual background matching process
+- Tests parameter compatibility (min_score vs min_semantic_score)
+- Tests status updates and database operations
+- `pytest tests/test_matcher.py -v`
+
 ### Full Workflow (`test_full_workflow.py`)
 - **Tests**: 1 | **Cost**: ~$0.02
 - Complete workflow with Claude analysis (5 jobs max, Haiku model)
@@ -97,16 +112,18 @@ Tests automatically skip if `RAPIDAPI_KEY` is not set.
 
 ## Cost Breakdown
 
-| Test Suite | Tests | Jobs | API Calls | Cost |
-|------------|-------|------|-----------|------|
-| Database Operations | 11 | 0 | 0 | $0 |
-| Error Handling | 14 | 0 | 0 | $0 |
-| Integration (mock) | 2 | 0 | 0 | $0 |
-| API Quick (`-m quick`) | 3 | ~60 | 3 | ~$0.002 |
-| API Standard (`-m "api and not expensive"`) | 14 | ~300 | 15 | ~$0.008 |
-| API Full (`-m api`) | 17 | ~700 | 18 | ~$0.01 |
-| Full Workflow | 1 | 5 | 6 | ~$0.02 |
-| **TOTAL (all tests)** | **48** | **~765** | **24** | **~$0.03** |
+| Test Suite | Tests | Jobs | API Calls | Cost | Critical Bugs Caught |
+|------------|-------|------|-----------|------|---------------------|
+| Database Operations | 11 | 0 | 0 | $0 | - |
+| Error Handling | 14 | 0 | 0 | $0 | - |
+| Integration (mock) | 2 | 0 | 0 | $0 | - |
+| **CV Lifecycle** ⚡ | **5** | **0** | **0** | **$0** | **Delete/re-upload bug** |
+| **Matcher Tests** ⚡ | **7** | **0** | **0** | **$0** | **Parameter mismatch** |
+| API Quick (`-m quick`) | 3 | ~60 | 3 | ~$0.002 | - |
+| API Standard (`-m "api and not expensive"`) | 14 | ~300 | 15 | ~$0.008 | - |
+| API Full (`-m api`) | 17 | ~700 | 18 | ~$0.01 | - |
+| Full Workflow | 1 | 5 | 6 | ~$0.02 | - |
+| **TOTAL (all tests)** | **60** | **~765** | **24** | **~$0.03** | **2 production bugs** |
 ```
 DATABASE_URL=postgresql://...
 ANTHROPIC_API_KEY=sk-ant-...
