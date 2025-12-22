@@ -153,7 +153,7 @@ def get_user_context():
 
     # Combine stats
     stats = {
-        'total_cvs': user_stats.get('total_cvs', 0),
+        'total_cvs': user_stats.get('cv_count', 0),  # Fixed: was total_cvs, should be cv_count
         'primary_cv_name': user_stats.get('primary_cv_name'),
         'total_jobs': job_stats.get('total_jobs', 0),
         'high_priority': job_stats.get('by_priority', {}).get('high', 0)
