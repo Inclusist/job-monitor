@@ -153,6 +153,10 @@ class PostgresCVManager:
             logger.error(f"Error getting user: {e}")
             return None
     
+    def get_user(self, user_id: int) -> Optional[Dict]:
+        """Get user by ID (alias for get_user_by_id)"""
+        return self.get_user_by_id(user_id)
+    
     def get_user_by_email(self, email: str) -> Optional[Dict]:
         """Get user by email"""
         try:
@@ -643,7 +647,7 @@ class PostgresCVManager:
         return {'keywords': [], 'locations': []}
     
     def update_user_search_preferences(self, user_id: int, keywords: List[str] = None, 
-                                      locations: List[str] = None):
+                                      locations: List[str] = None) -> bool:
         """
         Update user's search preferences
         
@@ -651,10 +655,32 @@ class PostgresCVManager:
             user_id: User ID
             keywords: List of job search keywords
             locations: List of locations to search
+            
+        Returns:
+            True if successful, False otherwise
         """
         user = self.get_user_by_id(user_id)
         if not user:
-            return
+            return False
+        
+        # Validate inputs
+        if keywords is not None:
+            if not isinstance(keywords, list):
+                logger.error(f"Keywords must be a list, got {type(keywords)}")
+                return False
+            if len(keywords) == 0:
+                logger.warning("Empty keywords list provided")
+            # Remove empty strings and duplicates
+            keywords = list(set([k.strip() for k in keywords if k and k.strip()]))
+        
+        if locations is not None:
+            if not isinstance(locations, list):
+                logger.error(f"Locations must be a list, got {type(locations)}")
+                return False
+            if len(locations) == 0:
+                logger.warning("Empty locations list provided")
+            # Remove empty strings and duplicates
+            locations = list(set([l.strip() for l in locations if l and l.strip()]))
         
         preferences = user.get('preferences') or {}
         if keywords is not None:
@@ -663,6 +689,7 @@ class PostgresCVManager:
             preferences['search_locations'] = locations
         
         self.update_user_preferences(user_id, preferences)
+        return True
     
     def add_cv(self, user_id: int, file_name: str, file_path: str,
                file_type: str, file_size: int, file_hash: str,
@@ -680,11 +707,37 @@ class PostgresCVManager:
             version: CV version number
 
         Returns:
-            CV ID if successful
+            CV ID if successful, None if duplicate or error
         """
+        # Validate inputs
+        if not file_name or not file_path:
+            logger.error("file_name and file_path are required")
+            return None
+        
+        if file_type not in ['pdf', 'docx', 'txt']:
+            logger.error(f"Invalid file_type: {file_type}. Must be pdf, docx, or txt")
+            return None
+        
+        if file_size and file_size > 10 * 1024 * 1024:  # 10MB limit
+            logger.error(f"File size {file_size} exceeds 10MB limit")
+            return None
+        
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
+            
+            # Check for duplicate by file_hash
+            if file_hash:
+                cursor.execute("""
+                    SELECT id FROM cvs 
+                    WHERE user_id = %s AND file_hash = %s AND status != 'archived'
+                """, (user_id, file_hash))
+                if cursor.fetchone():
+                    cursor.close()
+                    self._return_connection(conn)
+                    logger.warning(f"Duplicate CV detected for user {user_id} with hash {file_hash}")
+                    return None
+            
             now = datetime.now()
 
             cursor.execute("""
@@ -967,8 +1020,12 @@ class PostgresCVManager:
                 self._return_connection(conn)
             logger.error(f"Error archiving CV: {e}")
     
-    def update_cv_status(self, cv_id: int, status: str):
-        """Update CV status"""
+    def update_cv_status(self, cv_id: int, status: str) -> bool:
+        """Update CV status
+        
+        Returns:
+            True if successful, False otherwise
+        """
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
@@ -982,6 +1039,7 @@ class PostgresCVManager:
             conn.commit()
             cursor.close()
             self._return_connection(conn)
+            return True
             
         except Exception as e:
             if 'conn' in locals():
@@ -989,6 +1047,7 @@ class PostgresCVManager:
                 cursor.close()
                 self._return_connection(conn)
             logger.error(f"Error updating CV status: {e}")
+            return False
     
     def update_cv_profile(self, profile_id: int, profile_data: Dict):
         """Update CV profile data"""

@@ -321,6 +321,18 @@ class PostgresDatabase:
             cursor.close()
             self._return_connection(conn)
     
+    def get_job(self, job_id: int) -> Optional[Dict]:
+        """Get a single job by its database ID"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("SELECT * FROM jobs WHERE id = %s", (job_id,))
+            job = cursor.fetchone()
+            return dict(job) if job else None
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
     def get_jobs_by_date(self, date: str, status: str = None) -> List[Dict]:
         """Get jobs discovered on a specific date"""
         conn = self._get_connection()

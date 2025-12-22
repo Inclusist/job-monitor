@@ -417,6 +417,8 @@ def set_primary_cv(cv_id):
 def jobs():
     """Jobs dashboard"""
     user, stats = get_user_context()
+    
+    print(f"DEBUG: Current user email: {user.get('email')}, user_id: {user.get('id')}")
 
     # Get filter parameters
     priority = request.args.get('priority', '')
@@ -431,6 +433,26 @@ def jobs():
             min_semantic_score=min_score if min_score else 0,
             limit=1000
         )
+        
+        print(f"DEBUG: Retrieved {len(matches)} matches for user {user['id']}")
+        if matches:
+            print(f"DEBUG: First match keys: {list(matches[0].keys())}")
+            print(f"DEBUG: First match sample: job_id={matches[0].get('job_id')}, title={matches[0].get('title')}, discovered_date={matches[0].get('discovered_date')}")
+        else:
+            print(f"DEBUG: No matches found. Checking database directly...")
+            # Quick direct check
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            import os
+            db_url = os.getenv('DATABASE_URL')
+            if db_url:
+                conn = psycopg2.connect(db_url)
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
+                cursor.execute('SELECT COUNT(*) as count FROM user_job_matches WHERE user_id = %s', (user['id'],))
+                count = cursor.fetchone()['count']
+                print(f"DEBUG: Direct DB query shows {count} matches for user_id {user['id']}")
+                cursor.close()
+                conn.close()
         
         # Filter by priority if specified
         if priority:
@@ -1031,18 +1053,33 @@ def run_search_background(search_id, user):
         
         send_progress(95, f"Analysis complete! {len(analyzed_jobs)} jobs scored", 'success')
         
-        # Store jobs
+        # Store jobs and create user matches
         send_progress(96, "Saving jobs to database...")
         stored_count = 0
+        matched_count = 0
         for job in analyzed_jobs:
             job['user_id'] = user['id']
             job['cv_profile_id'] = cv_profile.get('id')
-            if job_db.add_job(job):
+            job_id = job_db.add_job(job)
+            if job_id:
                 stored_count += 1
+                # Create user_job_match entry
+                match_success = job_db.add_user_job_match(
+                    user_id=user['id'],
+                    job_id=job_id,
+                    claude_score=job.get('match_score'),
+                    priority=job.get('priority', 'medium'),
+                    match_reasoning=job.get('match_reasoning'),
+                    key_alignments=job.get('key_alignments', []),
+                    potential_gaps=job.get('potential_gaps', [])
+                )
+                if match_success:
+                    matched_count += 1
         
         categorized = categorize_jobs(analyzed_jobs)
         
-        send_progress(100, f"Stored {stored_count} new jobs", 'success')
+        send_progress(98, f"Stored {stored_count} jobs, created {matched_count} matches", 'success')
+        send_progress(100, f"Complete!", 'success')
         
         summary = f"Found {stored_count} new jobs: {len(categorized['high'])} high priority, {len(categorized['medium'])} medium, {len(categorized['low'])} low priority"
         send_complete(summary)
