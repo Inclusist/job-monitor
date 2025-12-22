@@ -726,11 +726,12 @@ class PostgresCVManager:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            # Check for duplicate by file_hash
+            # Check for duplicate by file_hash (only active CVs)
             if file_hash:
                 cursor.execute("""
                     SELECT id FROM cvs 
-                    WHERE user_id = %s AND file_hash = %s AND status != 'archived'
+                    WHERE user_id = %s AND file_hash = %s 
+                    AND status NOT IN ('archived', 'deleted')
                 """, (user_id, file_hash))
                 if cursor.fetchone():
                     cursor.close()
