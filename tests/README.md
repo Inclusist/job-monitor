@@ -1,88 +1,126 @@
-# Job Monitor Tests
+# Job Monitor Test Suite
 
-Comprehensive test suite for the Job Monitor application.
+Comprehensive test suite with cost-effective API usage controls using pytest markers.
 
 ## Test Files
 
-### `test_full_workflow.py`
-Complete end-to-end integration tests covering:
-- User registration and authentication
-- CV upload and parsing
-- Search preferences management  
-- **Limited job search** (5 jobs max to minimize API costs)
-- Job matching to user CV
-- Match retrieval and filtering
-- Statistics and reporting
+### Database Tests (`test_database_operations.py`)
+- **Tests**: 11 | **Cost**: $0 (no API calls)
+- PostgreSQL CRUD operations (users, CVs, profiles, jobs, matches)
+- `pytest tests/test_database_operations.py -v`
 
-**Cost Control**: Uses only 1 search query with 5 jobs maximum to minimize API usage.
+### Error Handling (`test_error_handling.py`)
+- **Tests**: 14 | **Cost**: $0
+- Input validation and error scenarios
+- `pytest tests/test_error_handling.py -v`
 
-### `test_database_operations.py`
-Database-specific tests without external API calls:
-- PostgreSQL CV operations (CRUD)
-- PostgreSQL job operations (CRUD)
-- User job matching
-- Method parity checks (SQLite vs PostgreSQL)
-- Data integrity validation
+### Integration (`test_integration.py`)
+- **Tests**: 2 | **Cost**: $0 (uses mock data)
+- End-to-end user journey validation
+- `pytest tests/test_integration.py -v`
 
-## Running Tests
+### API Collectors (`test_api_collectors.py`) ⚡ NEW
+- **Tests**: 17 | **Cost**: Variable (see markers below)
+- Live API testing: JSearch, ActiveJobs, Bundesagentur für Arbeit
+- Uses pytest markers for flexible cost control
+- `pytest -m quick -v` (recommended for daily use)
 
-### All Tests
+### Full Workflow (`test_full_workflow.py`)
+- **Tests**: 1 | **Cost**: ~$0.02
+- Complete workflow with Claude analysis (5 jobs max, Haiku model)
+- `pytest tests/test_full_workflow.py -v`
+
+## Pytest Markers (Cost Control)
+
+Tests are categorized with markers for flexible execution:
+
 ```bash
-pytest tests/ -v
+# Quick smoke tests - 3 tests, ~60 jobs, $0.002
+pytest -m quick -v
+
+# All API tests - 17 tests, ~700 jobs, $0.01  
+pytest -m api -v
+
+# Skip expensive tests - 14 tests, ~300 jobs, $0.008
+pytest -m "api and not expensive" -v
+
+# Integration test - all 3 APIs, ~135 jobs, $0.003
+pytest -m integration -v
+
+# Database only - no API costs
+pytest -m database -v
 ```
 
-### Specific Test File
+## Recommended Workflows
+
+**Daily Development** (quick validation):
 ```bash
-pytest tests/test_database_operations.py -v
+pytest -m quick -v  # 3 seconds, $0.002
 ```
 
-### Specific Test Class
+**Before Committing** (recommended):
 ```bash
-pytest tests/test_full_workflow.py::TestWorkflowIntegration -v
+pytest -m "not expensive" -v  # 30 seconds, ~$0.01
+# Or just database + error tests:
+pytest tests/test_database_operations.py tests/test_error_handling.py tests/test_integration.py -v
 ```
 
-### Specific Test
+**Pre-Deployment / Weekly** (full validation):
 ```bash
-pytest tests/test_full_workflow.py::TestWorkflowIntegration::test_02_cv_upload -v
+pytest -v  # Full suite, 60 seconds, ~$0.03
 ```
 
-### With Output
-```bash
-pytest tests/ -v -s
-```
-
-### Skip API-dependent tests
-```bash
-pytest tests/ -v -m "not api"
-```
-
-## Cost-Effective Testing
-
-The test suite is designed to minimize costs:
-
-1. **Limited API Calls**: Job search limited to 1 query, 5 jobs
-2. **Haiku Model**: Uses `claude-3-5-haiku-20241022` for cost efficiency
-3. **Database Tests**: Most tests use only database operations
-4. **Reusable Fixtures**: Users and CVs created once per test class
-
-**Estimated Cost per Full Test Run**:
-- JSearch API: ~1 call = minimal cost
-- Anthropic API: ~5 analyses with Haiku = $0.01-0.02
-
-## Requirements
+## API-Specific Testing
 
 ```bash
-pip install pytest pytest-cov
+# Test individual APIs
+pytest tests/test_api_collectors.py::TestArbeitsagenturCollector -v  # FREE, no key needed
+pytest tests/test_api_collectors.py::TestJSearchCollector -v         # RapidAPI
+pytest tests/test_api_collectors.py::TestActiveJobsCollector -v      # RapidAPI
 ```
 
 ## Environment Variables
 
 Required in `.env`:
+```bash
+# For JSearch & ActiveJobs (RapidAPI) 
+export RAPIDAPI_KEY="your_rapidapi_key"
+
+# Bundesagentur für Arbeit needs no key (always works)
+
+# For full workflow test
+DATABASE_URL=postgresql://...
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Tests automatically skip if `RAPIDAPI_KEY` is not set.
+
+## Cost Breakdown
+
+| Test Suite | Tests | Jobs | API Calls | Cost |
+|------------|-------|------|-----------|------|
+| Database Operations | 11 | 0 | 0 | $0 |
+| Error Handling | 14 | 0 | 0 | $0 |
+| Integration (mock) | 2 | 0 | 0 | $0 |
+| API Quick (`-m quick`) | 3 | ~60 | 3 | ~$0.002 |
+| API Standard (`-m "api and not expensive"`) | 14 | ~300 | 15 | ~$0.008 |
+| API Full (`-m api`) | 17 | ~700 | 18 | ~$0.01 |
+| Full Workflow | 1 | 5 | 6 | ~$0.02 |
+| **TOTAL (all tests)** | **48** | **~765** | **24** | **~$0.03** |
 ```
 DATABASE_URL=postgresql://...
 ANTHROPIC_API_KEY=sk-ant-...
 JSEARCH_API_KEY=...
 ```
+
+## Pytest Configuration
+
+See [pytest.ini](../pytest.ini) for marker definitions:
+- `quick`: Minimal API calls for smoke testing
+- `api`: All API-dependent tests  
+- `expensive`: High-usage tests (multiple pages)
+- `integration`: Multi-system integration tests
+- `database`: Database-only tests
 
 ## Test Coverage
 
@@ -94,24 +132,26 @@ open htmlcov/index.html
 
 ## Continuous Integration
 
-Tests can be run in CI/CD pipelines. For cost control in CI:
-
+For CI/CD pipelines (cost control):
 ```bash
-# Skip expensive API tests
-pytest tests/test_database_operations.py -v
+# Recommended: Quick tests only
+pytest -m quick -v
 
-# Or use environment flag
-SKIP_API_TESTS=1 pytest tests/ -v
+# Or skip all external APIs
+pytest -m "not api" -v
+
+# Full suite (weekly)
+pytest -v
 ```
 
 ## Test Data Cleanup
 
-Tests automatically clean up after themselves:
-- Test users are archived (not deleted to preserve data integrity)
-- Test CVs are set to 'archived' status
-- Jobs remain in database for audit purposes
-
-Manual cleanup if needed:
+Remove test data from database:
 ```bash
 python scripts/cleanup_test_data.py
+```
+
+Or use the test runner:
+```bash
+./run_tests.sh
 ```

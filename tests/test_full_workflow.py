@@ -23,7 +23,7 @@ from src.database.postgres_cv_operations import PostgresCVManager
 from src.database.postgres_operations import PostgresDatabase
 from src.analysis.cv_analyzer import CVAnalyzer
 from src.analysis.claude_analyzer import ClaudeJobAnalyzer
-from collectors.jsearch import JSearchCollector
+from src.collectors.jsearch import JSearchCollector
 
 
 @pytest.fixture(scope="module")
