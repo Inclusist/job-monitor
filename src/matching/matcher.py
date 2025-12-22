@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Dict, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from src.database.operations import JobDatabase
-from src.database.cv_operations import CVManager
+from src.database.postgres_operations import PostgresDatabase
+from src.database.postgres_cv_operations import PostgresCVManager
 from src.analysis.claude_analyzer import ClaudeJobAnalyzer
 
 
@@ -32,8 +32,20 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
         }
         
         # Initialize databases
-        job_db_inst = JobDatabase()
-        cv_manager_inst = CVManager()
+        db_url = os.getenv('DATABASE_URL')
+        if not db_url:
+            matching_status[user_id] = {
+                'status': 'error',
+                'stage': 'error',
+                'progress': 0,
+                'message': '❌ Database connection not configured.',
+                'matches_found': 0,
+                'jobs_analyzed': 0
+            }
+            return
+        
+        job_db_inst = PostgresDatabase(db_url)
+        cv_manager_inst = PostgresCVManager(job_db_inst.connection_pool)
         
         # Get user's primary CV and profile
         primary_cv = cv_manager_inst.get_primary_cv(user_id)

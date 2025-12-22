@@ -729,15 +729,22 @@ class PostgresCVManager:
             # Check for duplicate by file_hash (only active CVs)
             if file_hash:
                 cursor.execute("""
-                    SELECT id FROM cvs 
-                    WHERE user_id = %s AND file_hash = %s 
-                    AND status NOT IN ('archived', 'deleted')
+                    SELECT id, status FROM cvs 
+                    WHERE user_id = %s AND file_hash = %s
                 """, (user_id, file_hash))
-                if cursor.fetchone():
-                    cursor.close()
-                    self._return_connection(conn)
-                    logger.warning(f"Duplicate CV detected for user {user_id} with hash {file_hash}")
-                    return None
+                existing = cursor.fetchone()
+                if existing:
+                    existing_id, existing_status = existing
+                    logger.info(f"Found existing CV {existing_id} with status '{existing_status}' for user {user_id}")
+                    
+                    # Only block if it's an active CV
+                    if existing_status not in ('archived', 'deleted'):
+                        cursor.close()
+                        self._return_connection(conn)
+                        logger.warning(f"Duplicate active CV detected for user {user_id} with hash {file_hash}")
+                        return None
+                    else:
+                        logger.info(f"Existing CV is {existing_status}, allowing re-upload")
             
             now = datetime.now()
 
