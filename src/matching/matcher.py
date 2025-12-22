@@ -98,7 +98,7 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
         cv_embedding = model.encode(cv_text, show_progress_bar=False)
         
         # Check if user has any existing matches
-        existing_matches = job_db_inst.get_user_job_matches(user_id, min_score=0, limit=1)
+        existing_matches = job_db_inst.get_user_job_matches(user_id, min_semantic_score=0, limit=1)
         
         # If no matches yet, fetch initial jobs from JSearch
         if not existing_matches:
