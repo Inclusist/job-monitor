@@ -537,6 +537,90 @@ class PostgresDatabase:
             cursor.close()
             self._return_connection(conn)
     
+    def add_user_job_matches_batch(self, matches: List[Dict]) -> int:
+        """
+        Add multiple user-job matches in a single batch operation
+        
+        Args:
+            matches: List of dicts with keys: user_id, job_id, semantic_score, 
+                     match_reasoning, key_alignments, potential_gaps, priority
+        
+        Returns:
+            Number of matches successfully inserted/updated
+        """
+        if not matches:
+            return 0
+        
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            now = datetime.now()
+            
+            # Prepare batch data
+            values = []
+            for match in matches:
+                # Convert lists to comma-separated strings
+                key_alignments = match.get('key_alignments', [])
+                potential_gaps = match.get('potential_gaps', [])
+                key_alignments_str = ', '.join(key_alignments) if key_alignments else ''
+                potential_gaps_str = ', '.join(potential_gaps) if potential_gaps else ''
+                
+                values.append((
+                    match['user_id'],
+                    match['job_id'],
+                    match.get('semantic_score'),
+                    now if match.get('semantic_score') else None,
+                    match.get('claude_score'),
+                    now if match.get('claude_score') else None,
+                    match.get('priority', 'medium'),
+                    match.get('match_reasoning'),
+                    key_alignments_str,
+                    potential_gaps_str,
+                    now,
+                    now
+                ))
+            
+            # Use execute_values for efficient batch insert
+            from psycopg2.extras import execute_values
+            
+            execute_values(
+                cursor,
+                """
+                INSERT INTO user_job_matches (
+                    user_id, job_id, semantic_score, semantic_date,
+                    claude_score, claude_date, priority, match_reasoning,
+                    key_alignments, potential_gaps, created_date, last_updated
+                ) VALUES %s
+                ON CONFLICT (user_id, job_id) 
+                DO UPDATE SET
+                    semantic_score = COALESCE(EXCLUDED.semantic_score, user_job_matches.semantic_score),
+                    semantic_date = CASE WHEN EXCLUDED.semantic_score IS NOT NULL 
+                                       THEN EXCLUDED.semantic_date 
+                                       ELSE user_job_matches.semantic_date END,
+                    claude_score = COALESCE(EXCLUDED.claude_score, user_job_matches.claude_score),
+                    claude_date = CASE WHEN EXCLUDED.claude_score IS NOT NULL 
+                                     THEN EXCLUDED.claude_date 
+                                     ELSE user_job_matches.claude_date END,
+                    priority = EXCLUDED.priority,
+                    match_reasoning = COALESCE(EXCLUDED.match_reasoning, user_job_matches.match_reasoning),
+                    key_alignments = COALESCE(EXCLUDED.key_alignments, user_job_matches.key_alignments),
+                    potential_gaps = COALESCE(EXCLUDED.potential_gaps, user_job_matches.potential_gaps),
+                    last_updated = EXCLUDED.last_updated
+                """,
+                values
+            )
+            
+            conn.commit()
+            return len(matches)
+            
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error adding batch user job matches: {e}")
+            return 0
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
     def get_user_job_matches(self, user_id: int, min_semantic_score: int = None,
                             min_claude_score: int = None, limit: int = 200,
                             status: str = None) -> List[Dict]:

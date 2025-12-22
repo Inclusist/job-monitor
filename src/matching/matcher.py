@@ -258,7 +258,7 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
         
         print(f"✓ Found {len(matches)} matches above 30% threshold (max score: {max_score:.3f})")
         
-        # Save semantic matches to database
+        # Save semantic matches to database (batch insert for performance)
         matching_status[user_id].update({
             'stage': 'saving_matches',
             'progress': 55,
@@ -266,18 +266,22 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
             'matches_found': len(matches)
         })
         
+        # Prepare batch data
+        batch_matches = []
         for match in matches:
             job = match['job']
             match_reasoning = f"Matched keywords: {', '.join(match['matched_keywords'][:5])}" if match['matched_keywords'] else "Semantic similarity"
-            job_db_inst.add_user_job_match(
-                user_id=user_id,
-                job_id=job['id'],
-                semantic_score=match['score'],
-                match_reasoning=match_reasoning
-            )
+            batch_matches.append({
+                'user_id': user_id,
+                'job_id': job['id'],
+                'semantic_score': match['score'],
+                'match_reasoning': match_reasoning
+            })
         
+        # Batch insert all matches at once (much faster than individual inserts)
+        saved_count = job_db_inst.add_user_job_matches_batch(batch_matches)
         cv_manager_inst.update_filter_run_time(user_id)
-        print(f"✓ Saved {len(matches)} semantic matches to database")
+        print(f"✓ Saved {saved_count} semantic matches to database")
         
         # Step 2: Claude analysis on high-scoring matches (>= 70%)
         high_score_matches = [m for m in matches if m['score'] >= 70]
@@ -307,6 +311,9 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                 'message': f'Running AI analysis on {min(len(high_score_matches), 20)} top matches...'
             })
             
+            # Collect all Claude analyses first, then batch update
+            claude_batch_updates = []
+            
             for idx, match in enumerate(high_score_matches[:20]):  # Limit to top 20
                 job = match['job']
                 
@@ -325,20 +332,22 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                         if potential_gaps and isinstance(potential_gaps[0], dict):
                             potential_gaps = [str(item) for item in potential_gaps]
                         
-                        job_db_inst.add_user_job_match(
-                            user_id=user_id,
-                            job_id=job['id'],
-                            claude_score=analysis['match_score'],
-                            priority=analysis.get('priority', 'medium'),
-                            match_reasoning=analysis.get('reasoning', ''),
-                            key_alignments=key_alignments,
-                            potential_gaps=potential_gaps
-                        )
+                        # Add to batch
+                        claude_batch_updates.append({
+                            'user_id': user_id,
+                            'job_id': job['id'],
+                            'claude_score': analysis['match_score'],
+                            'priority': analysis.get('priority', 'medium'),
+                            'match_reasoning': analysis.get('reasoning', ''),
+                            'key_alignments': key_alignments,
+                            'potential_gaps': potential_gaps
+                        })
+                        
                         print(f"  ✓ {job.get('title', 'Unknown')[:50]} - Claude: {analysis['match_score']}%")
                         jobs_analyzed += 1
                         
                         # Update progress
-                        progress = 60 + int((idx + 1) / min(len(high_score_matches), 20) * 35)
+                        progress = 60 + int((idx + 1) / min(len(high_score_matches), 20) * 30)  # 60-90%
                         matching_status[user_id].update({
                             'progress': progress,
                             'message': f'AI analyzed {idx + 1}/{min(len(high_score_matches), 20)} jobs...',
@@ -348,6 +357,15 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                 except Exception as e:
                     print(f"  ⚠ Error analyzing job {job['id']}: {e}")
                     continue
+            
+            # Batch update all Claude analyses at once (much faster than individual updates)
+            if claude_batch_updates:
+                matching_status[user_id].update({
+                    'progress': 92,
+                    'message': f'Saving {len(claude_batch_updates)} AI analyses to database...'
+                })
+                updated_count = job_db_inst.add_user_job_matches_batch(claude_batch_updates)
+                print(f"✓ Saved {updated_count} Claude analyses to database")
             
             print(f"✓ Claude analysis complete")
         
