@@ -238,7 +238,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         {{ job.status|capitalize }}
                     </span>
                 </td>
-                <td>{{ job.posted_date[:10] if job.posted_date else 'Unknown' }}</td>
+                <td>{{ job.posted_date.strftime('%Y-%m-%d') if job.posted_date else 'Unknown' }}</td>
                 <td>
                     <div style="display: flex; gap: 0.5rem;">
                         <a href="{{ url_for('job_detail', job_id=job.job_table_id) }}" class="btn" style="padding: 0.5rem 1rem; font-size: 0.875rem;">View</a>
@@ -302,7 +302,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         {{ job.status|capitalize }}
                     </span>
                 </td>
-                <td>{{ job.posted_date[:10] if job.posted_date else 'Unknown' }}</td>
+                <td>{{ job.posted_date.strftime('%Y-%m-%d') if job.posted_date else 'Unknown' }}</td>
                 <td>
                     <div style="display: flex; gap: 0.5rem;">
                         <a href="{{ url_for('job_detail', job_id=job.job_table_id) }}" class="btn" style="padding: 0.5rem 1rem; font-size: 0.875rem;">View</a>
