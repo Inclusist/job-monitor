@@ -10,9 +10,15 @@
             <p style="font-size: 1.1rem; color: #666; margin-top: 0.5rem;">{{ job.company }}</p>
         </div>
         <div style="text-align: right;">
+            {% if job.match_score %}
             <div style="font-size: 2.5rem; font-weight: bold; color: {% if job.match_score >= 85 %}#155724{% elif job.match_score >= 70 %}#856404{% else %}#721c24{% endif %};">
                 {{ job.match_score }}
             </div>
+            {% else %}
+            <div style="font-size: 2.5rem; font-weight: bold; color: #999;">
+                N/A
+            </div>
+            {% endif %}
             <span class="badge badge-{{ job.priority }}">{{ job.priority|capitalize }} Priority</span>
         </div>
     </div>

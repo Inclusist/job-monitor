@@ -701,6 +701,14 @@ def job_detail(job_id):
         flash('Job not found', 'error')
         return redirect(url_for('jobs'))
 
+    # Set match_score from claude_score or semantic_score
+    if job.get('claude_score'):
+        job['match_score'] = job['claude_score']
+    elif job.get('semantic_score'):
+        job['match_score'] = job['semantic_score']
+    else:
+        job['match_score'] = None
+
     # Parse JSON fields if they're stored as strings
     if job.get('key_alignments') and isinstance(job['key_alignments'], str):
         try:
