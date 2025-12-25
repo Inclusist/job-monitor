@@ -252,6 +252,7 @@
                 <a href="{{ url_for('jobs') }}">Jobs</a>
                 <a href="{{ url_for('dashboard') }}" style="background: rgba(255,255,255,0.2); padding: 0.5rem 1rem; border-radius: 6px;">📋 Dashboard</a>
                 <a href="{{ url_for('learning_insights') }}" title="See what the AI learned">🧠</a>
+                <a href="{{ url_for('admin_stats') }}" title="Admin Dashboard" style="background: rgba(255,215,0,0.3); padding: 0.5rem 1rem; border-radius: 6px;">📊 Stats</a>
                 <span style="opacity: 0.8; margin-left: 1rem;">|</span>
                 <span style="opacity: 0.9; margin-left: 0.5rem;">{{ current_user.email }}</span>
                 <a href="{{ url_for('logout') }}" style="margin-left: 0.5rem;">Logout</a>

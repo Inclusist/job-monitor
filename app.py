@@ -27,6 +27,7 @@ from analysis.cover_letter_generator import CoverLetterGenerator
 from cv.cv_handler import CVHandler
 from collectors.adzuna import AdzunaCollector
 from collectors.activejobs import ActiveJobsCollector
+from utils.job_loader import trigger_new_user_job_load, trigger_preferences_update_job_load, get_default_preferences
 
 # Load environment variables
 load_dotenv()
@@ -191,9 +192,25 @@ def register():
         
         # Register user
         user_id = cv_manager.register_user(email, password, name)
-        
+
         if user_id:
             flash('Registration successful! Please log in.', 'success')
+
+            # Trigger automatic job loading for new user with default preferences
+            try:
+                defaults = get_default_preferences()
+                if defaults['keywords'] and defaults['locations']:
+                    trigger_new_user_job_load(
+                        user_id=user_id,
+                        keywords=defaults['keywords'],
+                        locations=defaults['locations'],
+                        job_db=job_db,
+                        cv_manager=cv_manager
+                    )
+                    flash('Loading initial jobs in the background...', 'info')
+            except Exception as e:
+                print(f"Error triggering job load for new user: {e}")
+
             return redirect(url_for('login'))
         else:
             flash('Email already registered', 'error')
@@ -1373,31 +1390,50 @@ def update_search_preferences():
     user, stats = get_user_context()
     
     try:
+        # Get OLD preferences before update (for detecting new combinations)
+        old_prefs = cv_manager.get_user_search_preferences(user['id'])
+        old_keywords = old_prefs.get('keywords', [])
+        old_locations = old_prefs.get('locations', [])
+
         # Get form data
         keywords_text = request.form.get('keywords', '').strip()
         locations_text = request.form.get('locations', '').strip()
-        
+
         # Convert newline-separated text to lists
         keywords = [k.strip() for k in keywords_text.split('\n') if k.strip()]
         locations = [l.strip() for l in locations_text.split('\n') if l.strip()]
-        
+
         # Validate
         if not keywords:
             flash('Please enter at least one job keyword', 'error')
             return redirect(url_for('search_preferences'))
-        
+
         if not locations:
             flash('Please enter at least one location', 'error')
             return redirect(url_for('search_preferences'))
-        
+
         # Update preferences
         cv_manager.update_user_search_preferences(
             user['id'],
             keywords=keywords,
             locations=locations
         )
-        
+
         flash(f'Search preferences updated! {len(keywords)} keywords and {len(locations)} locations saved.', 'success')
+
+        # Trigger job loading for NEW combinations only
+        try:
+            trigger_preferences_update_job_load(
+                user_id=user['id'],
+                old_keywords=old_keywords,
+                old_locations=old_locations,
+                new_keywords=keywords,
+                new_locations=locations,
+                job_db=job_db
+            )
+            flash('Loading jobs for new search combinations in the background...', 'info')
+        except Exception as load_error:
+            print(f"Error triggering job load for updated preferences: {load_error}")
         
         # Auto-trigger filtering if user has CV
         try:
@@ -1554,6 +1590,256 @@ def test_bulk_fetch():
     }
     
     return jsonify(result)
+
+
+@app.route('/admin/stats')
+@login_required
+def admin_stats():
+    """Admin stats dashboard"""
+    return render_template('admin_stats.html')
+
+
+@app.route('/api/stats')
+@login_required
+def api_stats():
+    """API endpoint for stats data"""
+    from datetime import datetime, timedelta
+    import requests
+    
+    stats = {}
+    
+    # 1. JOB DATABASE STATS
+    try:
+        # Jobs by source
+        jobs_by_source = job_db.execute_query("""
+            SELECT source, COUNT(*) as count
+            FROM jobs
+            GROUP BY source
+            ORDER BY count DESC
+        """)
+        stats['jobs_by_source'] = [{'source': row[0], 'count': row[1]} for row in jobs_by_source] if jobs_by_source else []
+        
+        # Jobs by date (last 30 days)
+        jobs_by_date = job_db.execute_query("""
+            SELECT DATE(discovered_date) as date, COUNT(*) as count
+            FROM jobs
+            WHERE discovered_date >= NOW() - INTERVAL '30 days'
+            GROUP BY DATE(discovered_date)
+            ORDER BY date DESC
+        """)
+        stats['jobs_by_date'] = [{'date': str(row[0]), 'count': row[1]} for row in jobs_by_date] if jobs_by_date else []
+        
+        # Total jobs
+        total_jobs = job_db.execute_query("SELECT COUNT(*) FROM jobs")
+        stats['total_jobs'] = total_jobs[0][0] if total_jobs else 0
+        
+        # Jobs today
+        jobs_today = job_db.execute_query("""
+            SELECT COUNT(*) FROM jobs 
+            WHERE DATE(discovered_date) = CURRENT_DATE
+        """)
+        stats['jobs_today'] = jobs_today[0][0] if jobs_today else 0
+        
+    except Exception as e:
+        print(f"Error fetching job stats: {e}")
+        stats['jobs_by_source'] = []
+        stats['jobs_by_date'] = []
+        stats['total_jobs'] = 0
+        stats['jobs_today'] = 0
+    
+    # 2. USER ACTIVITY STATS
+    try:
+        # Total users
+        total_users = job_db.execute_query("SELECT COUNT(*) FROM users")
+        stats['total_users'] = total_users[0][0] if total_users else 0
+        
+        # Total CVs
+        total_cvs = job_db.execute_query("SELECT COUNT(*) FROM cvs")
+        stats['total_cvs'] = total_cvs[0][0] if total_cvs else 0
+        
+        # Total matches
+        total_matches = job_db.execute_query("SELECT COUNT(*) FROM user_job_matches")
+        stats['total_matches'] = total_matches[0][0] if total_matches else 0
+        
+        # Matches today
+        matches_today = job_db.execute_query("""
+            SELECT COUNT(*) FROM user_job_matches 
+            WHERE DATE(matched_date) = CURRENT_DATE
+        """)
+        stats['matches_today'] = matches_today[0][0] if matches_today else 0
+        
+        # Match quality distribution
+        match_distribution = job_db.execute_query("""
+            SELECT 
+                CASE 
+                    WHEN semantic_score >= 85 THEN '85-100%'
+                    WHEN semantic_score >= 70 THEN '70-84%'
+                    WHEN semantic_score >= 50 THEN '50-69%'
+                    ELSE '30-49%'
+                END as range,
+                COUNT(*) as count
+            FROM user_job_matches
+            WHERE semantic_score IS NOT NULL
+            GROUP BY range
+            ORDER BY range DESC
+        """)
+        stats['match_distribution'] = [{'range': row[0], 'count': row[1]} for row in match_distribution] if match_distribution else []
+        
+    except Exception as e:
+        print(f"Error fetching user stats: {e}")
+        stats['total_users'] = 0
+        stats['total_cvs'] = 0
+        stats['total_matches'] = 0
+        stats['matches_today'] = 0
+        stats['match_distribution'] = []
+    
+    # 3. CLAUDE API USAGE
+    try:
+        # Total Claude analyses
+        claude_analyses = job_db.execute_query("""
+            SELECT COUNT(*) FROM user_job_matches 
+            WHERE claude_score IS NOT NULL
+        """)
+        stats['claude_analyses_total'] = claude_analyses[0][0] if claude_analyses else 0
+        
+        # Claude analyses today
+        claude_today = job_db.execute_query("""
+            SELECT COUNT(*) FROM user_job_matches 
+            WHERE claude_score IS NOT NULL 
+            AND DATE(matched_date) = CURRENT_DATE
+        """)
+        stats['claude_analyses_today'] = claude_today[0][0] if claude_today else 0
+        
+        # Estimated cost (assuming $0.03 per analysis)
+        stats['claude_estimated_cost'] = stats['claude_analyses_total'] * 0.03
+        
+    except Exception as e:
+        print(f"Error fetching Claude stats: {e}")
+        stats['claude_analyses_total'] = 0
+        stats['claude_analyses_today'] = 0
+        stats['claude_estimated_cost'] = 0
+    
+    # 4. TOP COMPANIES & LOCATIONS
+    try:
+        top_companies = job_db.execute_query("""
+            SELECT company, COUNT(*) as count
+            FROM jobs
+            GROUP BY company
+            ORDER BY count DESC
+            LIMIT 10
+        """)
+        stats['top_companies'] = [{'company': row[0], 'count': row[1]} for row in top_companies] if top_companies else []
+        
+        top_locations = job_db.execute_query("""
+            SELECT location, COUNT(*) as count
+            FROM jobs
+            WHERE location IS NOT NULL AND location != ''
+            GROUP BY location
+            ORDER BY count DESC
+            LIMIT 10
+        """)
+        stats['top_locations'] = [{'location': row[0], 'count': row[1]} for row in top_locations] if top_locations else []
+        
+    except Exception as e:
+        print(f"Error fetching top companies/locations: {e}")
+        stats['top_companies'] = []
+        stats['top_locations'] = []
+    
+    # 5. API QUOTA TRACKING
+    stats['api_quotas'] = {}
+    
+    # JSearch API quota
+    jsearch_key = os.getenv('JSEARCH_API_KEY')
+    if jsearch_key:
+        try:
+            # Try to get quota info from JSearch
+            response = requests.get(
+                'https://jsearch.p.rapidapi.com/quota',
+                headers={
+                    'X-RapidAPI-Key': jsearch_key,
+                    'X-RapidAPI-Host': 'jsearch.p.rapidapi.com'
+                },
+                timeout=5
+            )
+            if response.status_code == 200:
+                quota_data = response.json()
+                stats['api_quotas']['jsearch'] = {
+                    'available': True,
+                    'requests_remaining': quota_data.get('requests_remaining', 'Unknown'),
+                    'requests_limit': quota_data.get('requests_limit', 'Unknown'),
+                    'quota_data': quota_data
+                }
+            else:
+                stats['api_quotas']['jsearch'] = {
+                    'available': True,
+                    'requests_remaining': 'Unable to fetch',
+                    'requests_limit': 'Check RapidAPI dashboard',
+                    'error': f"Status {response.status_code}"
+                }
+        except Exception as e:
+            stats['api_quotas']['jsearch'] = {
+                'available': True,
+                'requests_remaining': 'Unable to fetch',
+                'requests_limit': 'Check RapidAPI dashboard',
+                'error': str(e)
+            }
+    else:
+        stats['api_quotas']['jsearch'] = {'available': False, 'message': 'API key not configured'}
+    
+    # Active Jobs API quota
+    activejobs_key = os.getenv('ACTIVEJOBS_API_KEY')
+    if activejobs_key:
+        try:
+            # Try to get quota info from Active Jobs DB
+            response = requests.get(
+                'https://active-jobs-db.p.rapidapi.com/quota',
+                headers={
+                    'X-RapidAPI-Key': activejobs_key,
+                    'X-RapidAPI-Host': 'active-jobs-db.p.rapidapi.com'
+                },
+                timeout=5
+            )
+            if response.status_code == 200:
+                quota_data = response.json()
+                stats['api_quotas']['activejobs'] = {
+                    'available': True,
+                    'requests_remaining': quota_data.get('requests_remaining', 'Unknown'),
+                    'requests_limit': quota_data.get('requests_limit', 'Unknown'),
+                    'quota_data': quota_data
+                }
+            else:
+                stats['api_quotas']['activejobs'] = {
+                    'available': True,
+                    'requests_remaining': 'Unable to fetch',
+                    'requests_limit': 'Check RapidAPI dashboard',
+                    'error': f"Status {response.status_code}"
+                }
+        except Exception as e:
+            stats['api_quotas']['activejobs'] = {
+                'available': True,
+                'requests_remaining': 'Unable to fetch',
+                'requests_limit': 'Check RapidAPI dashboard',
+                'error': str(e)
+            }
+    else:
+        stats['api_quotas']['activejobs'] = {'available': False, 'message': 'API key not configured'}
+    
+    # Arbeitsagentur (always available, free)
+    stats['api_quotas']['arbeitsagentur'] = {
+        'available': True,
+        'requests_remaining': 'Unlimited',
+        'requests_limit': 'Unlimited (Free)',
+        'message': 'Free German government API'
+    }
+    
+    # 6. SYSTEM STATS
+    stats['system'] = {
+        'timestamp': datetime.now().isoformat(),
+        'database': 'PostgreSQL (Railway)',
+        'environment': os.getenv('FLASK_ENV', 'development')
+    }
+    
+    return jsonify(stats)
 
 
 if __name__ == '__main__':
