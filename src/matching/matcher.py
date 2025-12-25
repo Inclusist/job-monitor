@@ -2,6 +2,7 @@
 Background job matching with semantic filtering and Claude analysis
 """
 import os
+import time
 import importlib.util
 from pathlib import Path
 from typing import Dict, Optional
@@ -83,6 +84,8 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
             'message': 'Loading AI models...'
         })
         
+        print("📥 Loading sentence transformer model...")
+        t_model_start = time.time()
         scripts_dir = Path(__file__).parent.parent.parent / 'scripts'
         filter_jobs_path = scripts_dir / 'filter_jobs.py'
         
@@ -92,10 +95,15 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
         
         # Load semantic model
         model = filter_module.load_sentence_transformer()
+        t_model = time.time() - t_model_start
+        print(f"✅ Model loaded ({t_model:.2f}s)")
         
         # Build CV embedding
+        t_cv_start = time.time()
         cv_text = filter_module.build_cv_text(profile)
         cv_embedding = model.encode(cv_text, show_progress_bar=False)
+        t_cv = time.time() - t_cv_start
+        print(f"✅ CV embedding created ({t_cv:.2f}s)")
         
         # Check if user has any existing matches
         existing_matches = job_db_inst.get_user_job_matches(user_id, min_semantic_score=0, limit=1)
@@ -110,7 +118,7 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
             print("\n🔍 First time user - fetching initial jobs from JSearch...")
             
             try:
-                from collectors.jsearch import JSearchCollector
+                from src.collectors.jsearch import JSearchCollector
                 
                 # Get user preferences for search
                 user = cv_manager_inst.get_user_by_id(user_id)
@@ -129,61 +137,115 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                 if jsearch_key:
                     jsearch = JSearchCollector(jsearch_key)
                     
-                    # Prioritize keywords: user preferences are already in priority order
-                    # Split into 2 batches for concurrent calls
-                    mid_point = max(1, len(keywords) // 2)
-                    batch1_keywords = keywords[:mid_point]
-                    batch2_keywords = keywords[mid_point:] if len(keywords) > mid_point else []
+                    # PROGRESSIVE FETCHING: Use ALL keywords, process in small batches
+                    # This allows results to appear progressively instead of waiting 30+ minutes
+                    batch_size = 2  # Process 2-3 keywords at a time
+                    keyword_batches = [keywords[i:i+batch_size] for i in range(0, len(keywords), batch_size)]
+                    total_searches = len(keyword_batches) * len(locations)
                     
-                    def fetch_batch(batch_keywords, location, batch_num):
-                        """Fetch jobs for a batch of keywords in a location"""
+                    print(f"  📊 Progressive search: {len(keywords)} keywords in {len(keyword_batches)} batches × {len(locations)} locations")
+                    print(f"  ⏱️  Estimated time: ~{total_searches * 3 / 60:.1f} minutes ({total_searches} API calls)")
+                    print(f"  💡 Results will stream in as each search completes\n")
+                    
+                    def fetch_batch(batch_keywords, location, batch_idx):
+                        """Fetch jobs for a batch of keywords (progressive results)"""
                         if not batch_keywords:
-                            return []
+                            return 0
                         
                         combined_query = " OR ".join(batch_keywords) if len(batch_keywords) > 1 else batch_keywords[0]
-                        print(f"  🔍 Batch {batch_num} in {location}: {combined_query}")
+                        batch_name = f"Batch {batch_idx+1}/{len(keyword_batches)}"
                         
-                        # Request 100 results per batch per location (max 200 per location)
-                        jobs = jsearch.search_jobs(
-                            query=combined_query,
-                            location=location,
-                            results_wanted=100,
-                            hours_old=72  # Last 3 days
-                        )
-                        return jobs
-                    
-                    # Fetch jobs concurrently across all batches and locations
-                    total_fetched = 0
-                    locations_limited = locations[:2]  # Limit to 2 locations
-                    
-                    with ThreadPoolExecutor(max_workers=4) as executor:
-                        matching_status[user_id].update({
-                            'message': f'Fetching jobs concurrently (2 batches × {len(locations_limited)} locations)...'
-                        })
+                        # Determine country code from location
+                        country_code = None
+                        if location:
+                            loc_lower = location.lower()
+                            # German-speaking countries
+                            if 'germany' in loc_lower or 'deutschland' in loc_lower or any(city in loc_lower for city in ['berlin', 'munich', 'hamburg', 'cologne', 'frankfurt']):
+                                country_code = 'de'
+                            elif 'austria' in loc_lower or 'österreich' in loc_lower or any(city in loc_lower for city in ['vienna', 'wien', 'salzburg']):
+                                country_code = 'at'
+                            elif 'switzerland' in loc_lower or 'schweiz' in loc_lower or any(city in loc_lower for city in ['zurich', 'geneva', 'basel']):
+                                country_code = 'ch'
+                            # Other European countries
+                            elif 'france' in loc_lower or any(city in loc_lower for city in ['paris', 'lyon', 'marseille']):
+                                country_code = 'fr'
+                            elif 'uk' in loc_lower or 'united kingdom' in loc_lower or 'england' in loc_lower or any(city in loc_lower for city in ['london', 'manchester', 'birmingham']):
+                                country_code = 'gb'
+                            elif 'spain' in loc_lower or 'españa' in loc_lower or any(city in loc_lower for city in ['madrid', 'barcelona', 'valencia']):
+                                country_code = 'es'
+                            elif 'netherlands' in loc_lower or 'holland' in loc_lower or any(city in loc_lower for city in ['amsterdam', 'rotterdam', 'utrecht']):
+                                country_code = 'nl'
+                            elif 'italy' in loc_lower or 'italia' in loc_lower or any(city in loc_lower for city in ['rome', 'milan', 'florence']):
+                                country_code = 'it'
+                            elif 'belgium' in loc_lower or 'belgique' in loc_lower or any(city in loc_lower for city in ['brussels', 'antwerp', 'bruges']):
+                                country_code = 'be'
+                            elif 'portugal' in loc_lower or any(city in loc_lower for city in ['lisbon', 'porto']):
+                                country_code = 'pt'
+                            # North America (default to US if nothing else matches)
+                            elif 'canada' in loc_lower or any(city in loc_lower for city in ['toronto', 'vancouver', 'montreal']):
+                                country_code = 'ca'
+                            elif 'usa' in loc_lower or 'united states' in loc_lower or 'america' in loc_lower:
+                                country_code = 'us'
                         
+                        print(f"  🔍 {batch_name} - {location} ({country_code}): {combined_query[:50]}...")
+                        t_start = time.time()
+                        
+                        try:
+                            # Fetch from API (5 pages = ~50 results per batch)
+                            jobs = jsearch.search_jobs(
+                                query=combined_query,
+                                location=location,
+                                num_pages=5,
+                                date_posted="week",
+                                country=country_code
+                            )
+                            
+                            # Add to database immediately
+                            new_jobs = 0
+                            for job in jobs:
+                                if job_db_inst.add_job(job):
+                                    new_jobs += 1
+                            
+                            elapsed = time.time() - t_start
+                            print(f"  ✓ {batch_name} done: {len(jobs)} jobs ({new_jobs} new) in {elapsed:.1f}s")
+                            return new_jobs
+                            
+                        except Exception as e:
+                            print(f"  ⚠️  {batch_name} error: {e}")
+                            return 0
+                    
+                    # Progressive fetching with concurrent workers
+                    total_new = 0
+                    completed = 0
+                    t_fetch_start = time.time()
+                    
+                    with ThreadPoolExecutor(max_workers=3) as executor:
                         # Submit all fetch tasks
-                        futures = []
-                        for location in locations_limited:
-                            futures.append(executor.submit(fetch_batch, batch1_keywords, location, 1))
-                            if batch2_keywords:
-                                futures.append(executor.submit(fetch_batch, batch2_keywords, location, 2))
+                        futures = {}
+                        for batch_idx, batch_keywords in enumerate(keyword_batches):
+                            for location in locations:
+                                future = executor.submit(fetch_batch, batch_keywords, location, batch_idx)
+                                futures[future] = (batch_idx, location)
                         
-                        # Collect results as they complete
+                        # Process results as they complete (progressive!)
                         for future in as_completed(futures):
-                            try:
-                                jobs = future.result()
-                                # Add jobs to database
-                                for job in jobs:
-                                    job_db_inst.add_job(job)
-                                    total_fetched += 1
-                                print(f"  ✓ Fetched {len(jobs)} jobs from batch")
-                            except Exception as e:
-                                print(f"  ⚠️  Batch fetch error: {e}")
+                            new_jobs = future.result()
+                            total_new += new_jobs
+                            completed += 1
+                            
+                            # Update progress for UI
+                            progress = 15 + int((completed / total_searches) * 10)  # 15-25%
+                            matching_status[user_id].update({
+                                'progress': progress,
+                                'message': f'Fetching jobs: {completed}/{total_searches} searches done ({total_new} new jobs)...'
+                            })
                     
-                    print(f"✓ Fetched {total_fetched} initial jobs from JSearch")
-                    print(f"  📊 Keyword batches: Batch 1: {', '.join(batch1_keywords)}")
-                    if batch2_keywords:
-                        print(f"  📊 Keyword batches: Batch 2: {', '.join(batch2_keywords)}")
+                    t_fetch = time.time() - t_fetch_start
+                    print(f"\n✓ All searches complete: {total_new} new jobs in {t_fetch:.1f}s ({t_fetch/60:.1f} min)")
+                    print(f"  📊 Processed {len(keywords)} keywords across {total_searches} searches")
+                    
+                    if t_fetch > 120:
+                        print(f"  💡 {t_fetch/60:.1f} minutes for {len(keywords)} keywords - results appeared progressively!")
                 else:
                     print("⚠️  No JSEARCH_API_KEY found, will use existing jobs only")
                     
@@ -198,8 +260,10 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
             'message': 'Fetching jobs to analyze...'
         })
         
+        t_query_start = time.time()
         jobs_to_filter = job_db_inst.get_unfiltered_jobs_for_user(user_id)
-        print(f"Found {len(jobs_to_filter)} jobs to filter")
+        t_query = time.time() - t_query_start
+        print(f"Found {len(jobs_to_filter)} jobs to filter (query: {t_query:.2f}s)")
         
         if not jobs_to_filter:
             print("✓ No new jobs to filter")
@@ -228,14 +292,29 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
         
         matches = []
         max_score = 0
+        
+        # Timing breakdown
+        t_semantic_start = time.time()
+        t_encode_total = 0
+        t_similarity_total = 0
+        t_keyword_total = 0
+        
         for idx, job in enumerate(jobs_to_filter):
             job_text = filter_module.build_job_text(job)
-            job_embedding = model.encode(job_text, show_progress_bar=False)
             
+            t_encode = time.time()
+            job_embedding = model.encode(job_text, show_progress_bar=False)
+            t_encode_total += time.time() - t_encode
+            
+            t_sim = time.time()
             similarity = filter_module.calculate_similarity(cv_embedding, job_embedding)
+            t_similarity_total += time.time() - t_sim
+            
+            t_kw = time.time()
             boosted_score, matched_keywords = filter_module.apply_keyword_boosts(
                 similarity, job, config_keywords
             )
+            t_keyword_total += time.time() - t_kw
             
             # Track max score for debugging
             if boosted_score > max_score:
@@ -256,7 +335,13 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                     'message': f'Filtered {idx + 1}/{len(jobs_to_filter)} jobs, {len(matches)} matches so far...'
                 })
         
-        print(f"✓ Found {len(matches)} matches above 30% threshold (max score: {max_score:.3f})")
+        t_semantic_total = time.time() - t_semantic_start
+        print(f"\n⏱️  SEMANTIC FILTERING:")
+        print(f"  Total: {t_semantic_total:.2f}s ({t_semantic_total/60:.2f} min)")
+        print(f"  Encoding: {t_encode_total:.2f}s ({t_encode_total/len(jobs_to_filter)*1000:.0f}ms/job)")
+        print(f"  Similarity: {t_similarity_total:.2f}s")
+        print(f"  Keyword boost: {t_keyword_total:.2f}s")
+        print(f"✓ Found {len(matches)} matches above 30% threshold (max: {max_score:.3f})")
         
         # Save semantic matches to database (batch insert for performance)
         matching_status[user_id].update({
@@ -279,9 +364,11 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
             })
         
         # Batch insert all matches at once (much faster than individual inserts)
+        t_save_start = time.time()
         saved_count = job_db_inst.add_user_job_matches_batch(batch_matches)
         cv_manager_inst.update_filter_run_time(user_id)
-        print(f"✓ Saved {saved_count} semantic matches to database")
+        t_save = time.time() - t_save_start
+        print(f"✓ Saved {saved_count} semantic matches in {t_save:.2f}s")
         
         # Step 2: Claude analysis on high-scoring matches (>= 70%)
         high_score_matches = [m for m in matches if m['score'] >= 70]

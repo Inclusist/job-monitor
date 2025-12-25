@@ -187,6 +187,31 @@ class ClaudeJobAnalyzer:
     def _create_analysis_prompt(self, job: Dict[str, Any]) -> str:
         """Create the analysis prompt for Claude"""
         
+        # Helper to safely format list items
+        def format_list_item(item):
+            if isinstance(item, dict):
+                # Handle dict items (e.g., languages with level)
+                if 'language' in item and 'level' in item:
+                    return f"{item['language']} ({item['level']})"
+                return str(item)
+            return str(item)
+        
+        # Format key experience
+        key_exp = self.profile.get('key_experience', []) or []
+        key_exp_str = chr(10).join(f'- {format_list_item(exp)}' for exp in key_exp) if key_exp else '- Not specified'
+        
+        # Format technical skills
+        tech_skills = self.profile.get('technical_skills', []) or []
+        tech_skills_str = ', '.join(format_list_item(s) for s in tech_skills) if tech_skills else 'Not specified'
+        
+        # Format languages
+        languages = self.profile.get('languages', []) or []
+        languages_str = ', '.join(format_list_item(lang) for lang in languages) if languages else 'Not specified'
+        
+        # Format preferences
+        prefs = self.profile.get('preferences', []) or []
+        prefs_str = chr(10).join(f'- {format_list_item(pref)}' for pref in prefs) if prefs else '- Not specified'
+        
         profile_summary = f"""
 **Candidate Profile:**
 - Name: {self.profile.get('name')}
@@ -194,16 +219,16 @@ class ClaudeJobAnalyzer:
 - Location: {self.profile.get('location')}
 
 **Key Experience:**
-{chr(10).join(f'- {exp}' for exp in self.profile.get('key_experience', []))}
+{key_exp_str}
 
 **Technical Skills:**
-{', '.join(self.profile.get('technical_skills', []))}
+{tech_skills_str}
 
 **Languages:**
-{', '.join(self.profile.get('languages', []))}
+{languages_str}
 
 **Preferences:**
-{chr(10).join(f'- {pref}' for pref in self.profile.get('preferences', []))}
+{prefs_str}
 """
         
         job_details = f"""
