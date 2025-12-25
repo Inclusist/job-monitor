@@ -17,9 +17,10 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-download the sentence-transformers model during build
+# Pre-download the multilingual sentence-transformers model during build
 # This prevents timeout on first run and ensures model is cached
-RUN python -c "from sentence_transformers import SentenceTransformer; print('Downloading model...'); model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); print('Model ready!')"
+# Using multilingual model for better English CV + German job matching
+RUN python -c "from sentence_transformers import SentenceTransformer; print('Downloading multilingual model...'); model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2'); print('Multilingual model ready!')"
 
 # Copy application code
 COPY . .
