@@ -82,6 +82,8 @@ class ArbeitsagenturCollector:
                 "snw" = Shift work (Schicht/Nacht/Wochenende)
                 "woe" = Weekend work
             days_since_posted: Jobs posted within last N days (0-100)
+                WARNING: API has bugs for values 2-6, 10, 30+. 
+                Safe values: 0, 1, 7, 14. Other values auto-mapped to nearest safe value.
             page: Page number for pagination (starts at 1)
             page_size: Results per page (max 100)
             **kwargs: Additional API parameters
@@ -117,7 +119,21 @@ class ArbeitsagenturCollector:
             params['arbeitszeit'] = work_time
         
         if days_since_posted is not None:
-            params['veroeffentlichtseit'] = min(days_since_posted, 100)
+            # NOTE: API has bugs! Values 2-6, 10, 30+ return wrong results (too many old jobs)
+            # Safe values: 0, 1, 7, 14, and multiples of 7 seem to work
+            # Workaround: Map problematic values to nearest safe value
+            safe_days = days_since_posted
+            if 2 <= days_since_posted <= 6:
+                safe_days = 7  # Use 7 for 2-6 range
+            elif 8 <= days_since_posted <= 13:
+                safe_days = 14  # Use 14 for 8-13 range
+            elif days_since_posted >= 15:
+                # For larger values, round to nearest multiple of 7
+                safe_days = min(((days_since_posted + 6) // 7) * 7, 100)
+            
+            params['veroeffentlichtseit'] = safe_days
+            if safe_days != days_since_posted:
+                logger.warning(f"API quirk: days_since_posted={days_since_posted} mapped to {safe_days} (API has bugs for some values)")
         
         # Add any extra parameters
         params.update(kwargs)

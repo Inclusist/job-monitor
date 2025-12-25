@@ -5,9 +5,12 @@ Uses Anthropic's Claude API to score and analyze job postings
 
 import os
 import json
+import logging
 from typing import Dict, Any, Optional
 from anthropic import Anthropic
 import time
+
+logger = logging.getLogger(__name__)
 
 
 class ClaudeJobAnalyzer:
@@ -264,6 +267,23 @@ Respond ONLY with valid JSON, no additional text.
         
         return prompt
     
+    def _calculate_priority(self, score: int) -> str:
+        """
+        Calculate priority based on match score
+        
+        Args:
+            score: Match score (0-100)
+            
+        Returns:
+            Priority level: 'high', 'medium', or 'low'
+        """
+        if score >= 85:
+            return 'high'
+        elif score >= 70:
+            return 'medium'
+        else:
+            return 'low'
+    
     def _parse_response(self, response_text: str) -> Dict[str, Any]:
         """Parse Claude's JSON response"""
         try:
@@ -282,6 +302,18 @@ Respond ONLY with valid JSON, no additional text.
                 for field in required_fields:
                     if field not in analysis:
                         analysis[field] = [] if field in ['key_alignments', 'potential_gaps'] else ''
+                
+                # FIX: Validate priority matches the score guidelines
+                # Sometimes Claude returns incorrect priority despite clear guidelines
+                score = analysis.get('match_score', 0)
+                correct_priority = self._calculate_priority(score)
+                
+                if analysis.get('priority') != correct_priority:
+                    logger.warning(
+                        f"Priority mismatch: Claude returned '{analysis.get('priority')}' "
+                        f"for score {score}, correcting to '{correct_priority}'"
+                    )
+                    analysis['priority'] = correct_priority
                 
                 return analysis
             else:
