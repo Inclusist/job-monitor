@@ -998,7 +998,7 @@ def run_search_background(search_id, user):
                                 query=keyword,
                                 location=location,
                                 num_pages=1,
-                                results_per_page=10,
+                                results_per_page=5,  # Reduced from 10 to 5 to speed up searches
                                 date_posted="week",
                                 description_type="text"
                             )
@@ -1007,7 +1007,7 @@ def run_search_background(search_id, user):
                                 query=keyword,
                                 location=location,
                                 num_pages=1,
-                                results_per_page=10,
+                                results_per_page=5,  # Reduced from 10 to 5
                                 country=country,
                                 max_days_old=7
                             )
@@ -1026,10 +1026,10 @@ def run_search_background(search_id, user):
                         if results:
                             send_progress(progress_percent, f"  → Found {len(results)} jobs", 'success')
                         
-                        # Add delay between requests to respect rate limits
-                        # Being conservative: 3 second delay = 20 requests/minute
+                        # Reduced delay to prevent Railway timeout (was 3s, now 0.5s)
+                        # Railway has ~300s timeout, with 90 searches: 0.5s delay = 45s of waiting vs 270s
                         if search_count < total_searches:
-                            time.sleep(3)
+                            time.sleep(0.5)
                             
                     except Exception as e:
                         send_progress(progress_percent, f"  → Error: {str(e)}", 'warning')
