@@ -694,16 +694,14 @@ def run_custom_search():
 @login_required
 def job_detail(job_id):
     """Job detail page"""
-    # Get job from database
-    # This is a simplified version - you'd implement a get_job_by_id method
-    jobs_list = job_db.get_jobs_by_score(0, max_results=1000)
-    job = next((j for j in jobs_list if j['id'] == job_id), None)
+    # Get job from database using efficient lookup
+    job = job_db.get_job_by_id(job_id)
 
     if not job:
         flash('Job not found', 'error')
         return redirect(url_for('jobs'))
 
-    # Parse JSON fields
+    # Parse JSON fields if they're stored as strings
     if job.get('key_alignments') and isinstance(job['key_alignments'], str):
         try:
             job['key_alignments'] = json.loads(job['key_alignments'])

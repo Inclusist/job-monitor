@@ -393,6 +393,29 @@ class PostgresDatabase:
             cursor.close()
             self._return_connection(conn)
     
+    def get_job_by_id(self, job_id: int) -> Optional[Dict]:
+        """
+        Get a single job by its database ID
+        
+        Args:
+            job_id: Database ID (primary key) of the job
+            
+        Returns:
+            Job dictionary if found, None otherwise
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("SELECT * FROM jobs WHERE id = %s", (job_id,))
+            
+            job = cursor.fetchone()
+            if job:
+                return dict(job)
+            return None
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
     def get_deleted_job_ids(self) -> set:
         """
         Get set of job_ids that have been deleted/hidden
