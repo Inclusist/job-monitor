@@ -239,7 +239,7 @@ def filter_jobs(threshold: float = 0.5, user_email: str = None, dry_run: bool = 
     
     # Get user and CV profile
     if user_email:
-        user = cv_db.get_user(user_email)
+        user = cv_db.get_user_by_email(user_email)
         if not user:
             print(f"❌ User not found: {user_email}")
             return
@@ -255,13 +255,30 @@ def filter_jobs(threshold: float = 0.5, user_email: str = None, dry_run: bool = 
             print("❌ No users found in database")
             print("💡 Upload a CV first via the web UI at /upload")
             return
-        user_id = row['id']    
-    # Check if filtering needed
-    should_filter, reason = cv_db.should_refilter(user_id)
-    if not should_filter and not dry_run:
-        print(f"ℹ️  Filtering not needed: {reason}")
-        print(f"💡 Use --force to filter anyway, or change preferences to trigger re-filter")
-        return    
+        user_id = row['id']
+
+    # First check if there are unmatched jobs
+    conn = job_db._get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COUNT(*) as count FROM jobs j
+        LEFT JOIN user_job_matches ujm ON j.id = ujm.job_id AND ujm.user_id = ?
+        WHERE ujm.id IS NULL
+    """, (user_id,))
+    unmatched_count = cursor.fetchone()['count']
+    cursor.close()
+    if hasattr(job_db, '_return_connection'):
+        job_db._return_connection(conn)
+    else:
+        conn.close()
+
+    if unmatched_count == 0:
+        print(f"ℹ️  No unmatched jobs found - all jobs already filtered for this user")
+        print(f"💡 Run bulk_load_arbeitsagentur.py to fetch new jobs")
+        return
+
+    print(f"📊 Found {unmatched_count} unmatched jobs for user\n")
+
     # Get primary CV
     cvs = cv_db.get_user_cvs(user_id)
     primary_cv = next((cv for cv in cvs if cv['is_primary']), None)
@@ -291,7 +308,8 @@ def filter_jobs(threshold: float = 0.5, user_email: str = None, dry_run: bool = 
     print(f"   CV text length: {len(cv_text)} characters")
     cv_embedding = model.encode(cv_text, show_progress_bar=False)
     
-    # Get jobs not yet matched for this user
+    # Get unmatched jobs for this user
+    print(f"🔍 Fetching {unmatched_count} unmatched jobs...\n")
     conn = job_db._get_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -301,14 +319,10 @@ def filter_jobs(threshold: float = 0.5, user_email: str = None, dry_run: bool = 
         ORDER BY j.discovered_date DESC
     """, (user_id,))
     jobs = [dict(row) for row in cursor.fetchall()]
-    conn.close()
-    
-    if not jobs:
-        print("\n⚠️  No unfiltered jobs found (all jobs already have match_score)")
-        print("💡 Run bulk_fetch_jobs.py to fetch new jobs")
-        return
-    
-    print(f"\n📊 Found {len(jobs)} jobs to filter\n")
+    if hasattr(job_db, '_return_connection'):
+        job_db._return_connection(conn)
+    else:
+        conn.close()
     
     # Load config keywords for boosting
     try:
