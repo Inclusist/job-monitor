@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Setup script for Job Monitoring System
+Setup script for Inclusist
 Helps configure the system and test connections
 """
 
@@ -156,9 +156,9 @@ def test_claude():
 
 def main():
     """Main setup function"""
-    print_header("Job Monitoring System - Setup & Test")
-    
-    print("This script will help you set up and test the job monitoring system.\n")
+    print_header("Inclusist - Setup & Test")
+
+    print("This script will help you set up and test Inclusist.\n")
     
     # Check Python version
     if sys.version_info < (3, 8):

@@ -1,6 +1,6 @@
-# Job Monitoring System
+# Inclusist - Job Monitoring System
 
-Automated job search system that monitors multiple job boards, analyzes matches using Claude AI, and sends daily digests of relevant opportunities.
+An intelligent job search platform that monitors multiple job boards, analyzes matches using Claude AI, and helps you find the perfect opportunities.
 
 ## Features
 

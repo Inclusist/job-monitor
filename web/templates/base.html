@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Job Monitor{% endblock %}</title>
+    <title>{% block title %}Inclusist{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <style>
         * {
@@ -34,9 +34,27 @@
             align-items: center;
         }
 
+        .navbar .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            text-decoration: none;
+            color: white;
+        }
+
+        .navbar .logo-container:hover {
+            opacity: 0.9;
+        }
+
+        .navbar .logo {
+            height: 40px;
+            width: auto;
+        }
+
         .navbar h1 {
             font-size: 1.5rem;
             font-weight: 600;
+            margin: 0;
         }
 
         .navbar nav a {
@@ -242,7 +260,10 @@
 <body>
     <div class="navbar">
         <div class="container">
-            <h1>🤖 Job Monitor</h1>
+            <a href="{{ url_for('index') }}" class="logo-container">
+                <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Inclusist Logo" class="logo">
+                <h1>Inclusist</h1>
+            </a>
             <nav>
                 {% if current_user.is_authenticated %}
                 <a href="{{ url_for('index') }}">Home</a>
