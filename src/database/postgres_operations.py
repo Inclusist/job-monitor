@@ -268,11 +268,12 @@ class PostgresDatabase:
             
             cursor.execute("""
                 INSERT INTO jobs (
-                    job_id, source, title, company, location, description, 
+                    job_id, source, title, company, location, description,
                     url, posted_date, salary, discovered_date, last_updated,
                     match_score, match_reasoning, key_alignments, potential_gaps,
-                    priority, status
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    priority, status,
+                    ai_employment_type, ai_work_arrangement, ai_seniority, ai_industry
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             """, (
                 job_data.get('job_id') or job_data.get('external_id'),
@@ -291,7 +292,11 @@ class PostgresDatabase:
                 json.dumps(job_data.get('key_alignments', [])),
                 json.dumps(job_data.get('potential_gaps', [])),
                 job_data.get('priority', 'medium'),
-                'new'
+                'new',
+                job_data.get('ai_employment_type'),
+                job_data.get('ai_work_arrangement'),
+                job_data.get('ai_seniority'),
+                job_data.get('ai_industry')
             ))
             
             job_id = cursor.fetchone()[0]
@@ -382,17 +387,177 @@ class PostgresDatabase:
         try:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute("""
-                SELECT * FROM jobs 
-                WHERE priority = %s 
+                SELECT * FROM jobs
+                WHERE priority = %s
                 ORDER BY discovered_date DESC
             """, (priority,))
-            
+
             jobs = cursor.fetchall()
             return [dict(job) for job in jobs]
         finally:
             cursor.close()
             self._return_connection(conn)
-    
+
+    def search_jobs_with_filters(
+        self,
+        location: Optional[str] = None,
+        work_arrangement: Optional[str] = None,
+        employment_type: Optional[str] = None,
+        seniority: Optional[str] = None,
+        industry: Optional[str] = None,
+        min_score: Optional[int] = None,
+        status: Optional[str] = 'new',
+        exclude_location: bool = False,
+        limit: int = 100
+    ) -> List[Dict]:
+        """
+        Search jobs with AI field filters and support for complex queries
+
+        Args:
+            location: Filter by location (supports LIKE pattern, e.g., '%Berlin%')
+            work_arrangement: Filter by AI work arrangement (remote, hybrid, onsite)
+            employment_type: Filter by AI employment type (full-time, part-time, contract)
+            seniority: Filter by AI seniority level (entry, mid, senior, lead)
+            industry: Filter by AI industry
+            min_score: Minimum match score
+            status: Job status filter (default: 'new')
+            exclude_location: If True with work_arrangement, excludes jobs matching location
+            limit: Maximum results to return
+
+        Returns:
+            List of job dictionaries matching the filters
+
+        Example usage:
+            # Jobs in Berlin OR (Hybrid AND NOT in Berlin)
+            berlin_jobs = db.search_jobs_with_filters(location='Berlin')
+            hybrid_not_berlin = db.search_jobs_with_filters(
+                work_arrangement='Hybrid',
+                location='Berlin',
+                exclude_location=True
+            )
+            all_jobs = berlin_jobs + hybrid_not_berlin
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+            # Build dynamic WHERE clause
+            where_conditions = []
+            params = []
+
+            # Status filter
+            if status:
+                where_conditions.append("status = %s")
+                params.append(status)
+
+            # Location filter
+            if location:
+                if exclude_location:
+                    # Exclude this location (for complex queries)
+                    where_conditions.append("(location NOT ILIKE %s OR location IS NULL)")
+                    params.append(f'%{location}%')
+                else:
+                    # Include this location
+                    where_conditions.append("location ILIKE %s")
+                    params.append(f'%{location}%')
+
+            # AI field filters
+            if work_arrangement:
+                where_conditions.append("ai_work_arrangement ILIKE %s")
+                params.append(f'%{work_arrangement}%')
+
+            if employment_type:
+                where_conditions.append("ai_employment_type ILIKE %s")
+                params.append(f'%{employment_type}%')
+
+            if seniority:
+                where_conditions.append("ai_seniority ILIKE %s")
+                params.append(f'%{seniority}%')
+
+            if industry:
+                where_conditions.append("ai_industry ILIKE %s")
+                params.append(f'%{industry}%')
+
+            # Score filter
+            if min_score is not None:
+                where_conditions.append("match_score >= %s")
+                params.append(min_score)
+
+            # Build final query
+            where_clause = " AND ".join(where_conditions) if where_conditions else "1=1"
+            query = f"""
+                SELECT * FROM jobs
+                WHERE {where_clause}
+                ORDER BY match_score DESC, discovered_date DESC
+                LIMIT %s
+            """
+            params.append(limit)
+
+            cursor.execute(query, params)
+            jobs = cursor.fetchall()
+            return [dict(job) for job in jobs]
+
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+
+    def search_jobs_with_or_filters(
+        self,
+        filter_groups: List[Dict[str, Any]],
+        status: Optional[str] = 'new',
+        limit: int = 100
+    ) -> List[Dict]:
+        """
+        Search jobs with OR logic between filter groups
+
+        Args:
+            filter_groups: List of filter dictionaries, each representing a condition group
+                          Results matching ANY group will be returned
+            status: Job status filter (default: 'new')
+            limit: Maximum results to return
+
+        Returns:
+            List of unique job dictionaries matching any filter group
+
+        Example usage:
+            # Jobs in Berlin OR (Hybrid AND NOT in Berlin)
+            filter_groups = [
+                {'location': 'Berlin'},  # Jobs in Berlin
+                {'work_arrangement': 'Hybrid', 'location': 'Berlin', 'exclude_location': True}  # Hybrid jobs not in Berlin
+            ]
+            jobs = db.search_jobs_with_or_filters(filter_groups)
+        """
+        all_jobs = []
+        seen_job_ids = set()
+
+        for filters in filter_groups:
+            # Extract exclude_location flag if present
+            exclude_location = filters.pop('exclude_location', False)
+
+            # Call search_jobs_with_filters for each group
+            jobs = self.search_jobs_with_filters(
+                location=filters.get('location'),
+                work_arrangement=filters.get('work_arrangement'),
+                employment_type=filters.get('employment_type'),
+                seniority=filters.get('seniority'),
+                industry=filters.get('industry'),
+                min_score=filters.get('min_score'),
+                status=status,
+                exclude_location=exclude_location,
+                limit=limit
+            )
+
+            # Add unique jobs only
+            for job in jobs:
+                if job['id'] not in seen_job_ids:
+                    seen_job_ids.add(job['id'])
+                    all_jobs.append(job)
+
+        # Sort by match score and date
+        all_jobs.sort(key=lambda x: (x.get('match_score', 0), x.get('discovered_date', '')), reverse=True)
+
+        return all_jobs[:limit]
+
     def get_job_by_id(self, job_id: int) -> Optional[Dict]:
         """
         Get a single job by its database ID

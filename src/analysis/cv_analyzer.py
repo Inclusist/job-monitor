@@ -38,7 +38,7 @@ class CVAnalyzer:
 
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=2000,
+                max_tokens=2500,  # Increased for new fields
                 messages=[
                     {"role": "user", "content": prompt}
                 ]
@@ -109,7 +109,11 @@ Extract the following information in JSON format:
   "highest_degree": "Master",
   "expertise_summary": "<2-3 sentence summary of key expertise and career focus>",
   "career_highlights": ["highlight1", "highlight2", ...],
-  "industries": ["Industry1", "Industry2", ...]
+  "industries": ["Industry1", "Industry2", ...],
+  "current_location": "City, Country",
+  "preferred_work_locations": ["Location1", "Location2", "Remote"],
+  "desired_job_titles": ["Title1", "Title2", "Title3"],
+  "work_arrangement_preference": "remote/hybrid/onsite/flexible"
 }}
 
 IMPORTANT EXTRACTION GUIDELINES:
@@ -124,6 +128,10 @@ IMPORTANT EXTRACTION GUIDELINES:
 - expertise_summary: Write a concise 2-3 sentence summary capturing the candidate's core expertise and career trajectory
 - career_highlights: 3-5 most impressive achievements across entire career
 - industries: List all industries the candidate has worked in
+- current_location: Extract from contact info, address, or most recent job location. Format as "City, Country" (e.g., "Berlin, Germany"). If not found, use null.
+- preferred_work_locations: Infer from work history, mentioned preferences, or desired locations. Include "Remote" if candidate mentions remote work. Use format "City, Country" for each location. If not clear, include current location and major cities in the same country.
+- desired_job_titles: Based on career progression, infer 3-5 job titles the candidate would likely search for next. Consider seniority level and specialization (e.g., "Senior Data Scientist" → ["Lead Data Scientist", "Data Science Manager", "Principal Data Scientist", "Head of Data Science"]).
+- work_arrangement_preference: Infer from CV if mentioned (remote, hybrid, onsite). If not explicitly stated, use "flexible".
 
 FORMATTING RULES:
 - Be thorough but concise
@@ -187,6 +195,12 @@ Respond ONLY with valid JSON, no additional text or explanation."""
             profile.setdefault('highest_degree', None)
             profile.setdefault('expertise_summary', '')
 
+            # Default values for new fields
+            profile.setdefault('current_location', None)
+            profile.setdefault('preferred_work_locations', [])
+            profile.setdefault('desired_job_titles', [])
+            profile.setdefault('work_arrangement_preference', 'flexible')
+
             return profile
 
         except json.JSONDecodeError as e:
@@ -221,6 +235,10 @@ Respond ONLY with valid JSON, no additional text or explanation."""
             'expertise_summary': f'CV parsing incomplete: {reason}',
             'career_highlights': [],
             'industries': [],
+            'current_location': None,
+            'preferred_work_locations': [],
+            'desired_job_titles': [],
+            'work_arrangement_preference': 'flexible',
             'parsing_model': self.model,
             'parsing_cost': 0.0,
             'full_text': ''
@@ -241,16 +259,16 @@ Respond ONLY with valid JSON, no additional text or explanation."""
         input_tokens = len(input_text) / 4
         output_tokens = len(output_text) / 4
 
-        # Sonnet 3.5 pricing (as of Dec 2024)
-        # Input: $3 per million tokens
-        # Output: $15 per million tokens
-        input_cost = (input_tokens / 1_000_000) * 3.00
-        output_cost = (output_tokens / 1_000_000) * 15.00
+        # Haiku pricing (as of Dec 2024)
+        # Input: $0.25 per million tokens
+        # Output: $1.25 per million tokens
+        input_cost = (input_tokens / 1_000_000) * 0.25
+        output_cost = (output_tokens / 1_000_000) * 1.25
 
         return round(input_cost + output_cost, 4)
 
     @staticmethod
-    def estimate_parsing_cost(text_length: int, model: str = "claude-3-5-sonnet-20241022") -> float:
+    def estimate_parsing_cost(text_length: int, model: str = "claude-3-haiku-20240307") -> float:
         """
         Estimate cost before parsing
 
@@ -263,11 +281,11 @@ Respond ONLY with valid JSON, no additional text or explanation."""
         """
         # Rough estimates
         input_tokens = text_length / 4
-        output_tokens = 800  # Expected structured output size
+        output_tokens = 1000  # Expected structured output size (increased for new fields)
 
-        # Sonnet pricing
-        input_cost = (input_tokens / 1_000_000) * 3.00
-        output_cost = (output_tokens / 1_000_000) * 15.00
+        # Haiku pricing
+        input_cost = (input_tokens / 1_000_000) * 0.25
+        output_cost = (output_tokens / 1_000_000) * 1.25
 
         return round(input_cost + output_cost, 4)
 

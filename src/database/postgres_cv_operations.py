@@ -85,7 +85,7 @@ class PostgresCVManager:
             conn = self._get_connection()
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             
-            cursor.execute("SELECT id, password_hash FROM users WHERE email = %s", (email,))
+            cursor.execute("SELECT id, password_hash FROM users WHERE LOWER(email) = LOWER(%s)", (email,))
             user = cursor.fetchone()
             
             if not user:
@@ -117,6 +117,130 @@ class PostgresCVManager:
                 except:
                     pass
             logger.error(f"Error authenticating user: {e}")
+            return None
+    
+    def get_or_create_oauth_user(self, email: str, name: str = None, provider: str = 'google', avatar_url: str = None) -> Optional[Dict]:
+        """
+        Get or create user from OAuth provider (Google, LinkedIn, etc.)
+        
+        Args:
+            email: User's email address from OAuth provider
+            name: User's name from OAuth provider
+            provider: OAuth provider name ('google', 'linkedin')
+            avatar_url: Profile picture URL from OAuth provider
+            
+        Returns:
+            User dict with is_new_user flag, or None on error
+        """
+        conn = None
+        cursor = None
+        try:
+            # Check if user already exists
+            existing_user = self.get_user_by_email(email)
+            
+            if existing_user:
+                # Update provider and avatar if not set
+                conn = self._get_connection()
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
+                
+                # Get preferences (already parsed as dict by get_user_by_email)
+                preferences = existing_user.get('preferences') or {}
+                needs_update = False
+                
+                # Update name if not set
+                update_name = name and not existing_user.get('name')
+                
+                # Store OAuth provider info in preferences
+                if 'oauth_provider' not in preferences:
+                    preferences['oauth_provider'] = provider
+                    needs_update = True
+                if avatar_url and 'avatar_url' not in preferences:
+                    preferences['avatar_url'] = avatar_url
+                    needs_update = True
+                
+                if update_name or needs_update:
+                    update_parts = []
+                    params = []
+                    
+                    if update_name:
+                        update_parts.append("name = %s")
+                        params.append(name)
+                    
+                    if needs_update:
+                        update_parts.append("preferences = %s")
+                        params.append(json.dumps(preferences))
+                    
+                    update_parts.append("last_updated = %s")
+                    params.append(datetime.now())  # Use datetime object, not ISO string
+                    
+                    params.append(existing_user['id'])
+                    
+                    cursor.execute(f"""
+                        UPDATE users 
+                        SET {', '.join(update_parts)}
+                        WHERE id = %s
+                    """, params)
+                    
+                    conn.commit()
+                
+                cursor.close()
+                self._return_connection(conn)
+                
+                # Reload user
+                user = self.get_user_by_email(email)
+                user['is_new_user'] = False
+                user['provider'] = preferences.get('oauth_provider', 'email')
+                user['avatar_url'] = preferences.get('avatar_url')
+                return user
+            
+            # Create new user with OAuth
+            conn = self._get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            now = datetime.now()  # Use datetime object, not ISO string for PostgreSQL
+            
+            # Store OAuth info in preferences
+            preferences = {
+                'oauth_provider': provider,
+                'avatar_url': avatar_url
+            }
+            
+            cursor.execute("""
+                INSERT INTO users (
+                    email, password_hash, name, created_date, last_updated, preferences
+                ) VALUES (%s, NULL, %s, %s, %s, %s)
+                RETURNING id
+            """, (email.lower(), name, now, now, json.dumps(preferences)))
+            
+            result = cursor.fetchone()
+            user_id = result['id']
+            
+            conn.commit()
+            cursor.close()
+            self._return_connection(conn)
+            
+            # Return new user with flag
+            user = self.get_user_by_id(user_id)
+            user['is_new_user'] = True
+            user['provider'] = provider
+            user['avatar_url'] = avatar_url
+            return user
+            
+        except Exception as e:
+            import traceback
+            logger.error(f"Error creating OAuth user: {e}")
+            logger.error(traceback.format_exc())
+            if cursor:
+                try:
+                    cursor.close()
+                except:
+                    pass
+            if conn:
+                try:
+                    conn.rollback()
+                    self._return_connection(conn)
+                except:
+                    pass
             return None
     
     def get_user_by_id(self, user_id: int) -> Optional[Dict]:
@@ -158,12 +282,12 @@ class PostgresCVManager:
         return self.get_user_by_id(user_id)
     
     def get_user_by_email(self, email: str) -> Optional[Dict]:
-        """Get user by email"""
+        """Get user by email (case-insensitive)"""
         try:
             conn = self._get_connection()
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             
-            cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+            cursor.execute("SELECT * FROM users WHERE LOWER(email) = LOWER(%s)", (email,))
             user = cursor.fetchone()
             
             cursor.close()
@@ -690,7 +814,50 @@ class PostgresCVManager:
         
         self.update_user_preferences(user_id, preferences)
         return True
-    
+
+    def update_user_location(self, user_id: int, location: str) -> bool:
+        """
+        Update user's current location
+
+        Args:
+            user_id: User ID
+            location: User's location (e.g., "Berlin, Germany")
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not location or not isinstance(location, str):
+            logger.warning(f"Invalid location provided: {location}")
+            return False
+
+        location = location.strip()
+        if not location:
+            return False
+
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                UPDATE users
+                SET location = %s,
+                    last_updated = NOW()
+                WHERE id = %s
+            """, (location, user_id))
+
+            conn.commit()
+            self._return_connection(conn)
+
+            logger.info(f"Updated location for user {user_id} to: {location}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error updating user location: {e}")
+            if conn:
+                conn.rollback()
+                self._return_connection(conn)
+            return False
+
     def add_cv(self, user_id: int, file_name: str, file_path: str,
                file_type: str, file_size: int, file_hash: str,
                version: int = 1) -> Optional[int]:

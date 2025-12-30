@@ -4,17 +4,29 @@ One-time bulk loader for Arbeitsagentur jobs
 
 Aggregates all keyword+location combinations from all users and loads
 jobs from the last 30 days for each combination.
+
+Usage:
+    python scripts/bulk_load_arbeitsagentur.py          # Interactive mode
+    python scripts/bulk_load_arbeitsagentur.py --yes    # Auto-confirm mode
 """
 
 import os
 import sys
 from pathlib import Path
+import argparse
+from dotenv import load_dotenv
+
+# Load environment variables first
+load_dotenv()
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.database.factory import create_database_manager, create_cv_manager
+from src.database.factory import get_database
+from src.database.postgres_cv_operations import PostgresCVManager
+from src.database.cv_operations import CVManager
 from src.collectors.arbeitsagentur import ArbeitsagenturCollector
+import os
 from datetime import datetime
 import time
 from collections import defaultdict
@@ -45,12 +57,17 @@ def get_all_user_combinations(cv_manager):
         cursor.execute("SELECT id, email, preferences FROM users WHERE is_active = 1")
         users = cursor.fetchall()
     except:
-        # PostgreSQL
+        # PostgreSQL uses true/false instead of 1/0
         cursor.execute("SELECT id, email, preferences FROM users WHERE is_active = true")
         users = cursor.fetchall()
 
     cursor.close()
-    cv_manager._return_connection(conn)
+
+    # Return connection to pool (PostgreSQL) or just close (SQLite)
+    if hasattr(cv_manager, '_return_connection'):
+        cv_manager._return_connection(conn)
+    else:
+        conn.close()
 
     # Load default config
     config = load_config()
@@ -203,6 +220,12 @@ def bulk_load_jobs(combinations, job_db):
 
 def main():
     """Main execution"""
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description='Bulk load jobs from Arbeitsagentur')
+    parser.add_argument('--yes', '-y', action='store_true',
+                       help='Auto-confirm all prompts (for non-interactive execution)')
+    args = parser.parse_args()
+
     print("\n" + "="*80)
     print("ARBEITSAGENTUR BULK LOADER")
     print("="*80)
@@ -214,15 +237,28 @@ def main():
     print("="*80)
 
     # Confirm
-    confirm = input("\n⚠️  Proceed with bulk load? (yes/no): ").strip().lower()
-    if confirm != 'yes':
-        print("\n❌ Bulk load cancelled.")
-        return
+    if args.yes:
+        print("\n⚠️  Auto-confirmed (--yes flag)")
+    else:
+        confirm = input("\n⚠️  Proceed with bulk load? (yes/no): ").strip().lower()
+        if confirm != 'yes':
+            print("\n❌ Bulk load cancelled.")
+            return
 
     # Initialize database
     print("\n🔧 Initializing database...")
-    job_db = create_database_manager()
-    cv_manager = create_cv_manager(job_db)
+    job_db = get_database()  # Auto-detects PostgreSQL or SQLite
+
+    # Initialize CV Manager
+    if hasattr(job_db, 'connection_pool'):
+        # PostgreSQL
+        cv_manager = PostgresCVManager(job_db.connection_pool)
+        print("✓ Using PostgreSQL (Railway production database)")
+    else:
+        # SQLite
+        db_path = os.getenv('DATABASE_PATH', 'data/jobs.db')
+        cv_manager = CVManager(db_path)
+        print("✓ Using SQLite (local database)")
 
     # Get all combinations
     combinations = get_all_user_combinations(cv_manager)
@@ -233,10 +269,13 @@ def main():
 
     # Show summary and confirm again
     print(f"\n📊 Ready to fetch jobs for {len(combinations)} combinations")
-    confirm2 = input("⚠️  This may take several minutes. Continue? (yes/no): ").strip().lower()
-    if confirm2 != 'yes':
-        print("\n❌ Bulk load cancelled.")
-        return
+    if args.yes:
+        print("⚠️  Auto-confirmed (--yes flag)")
+    else:
+        confirm2 = input("⚠️  This may take several minutes. Continue? (yes/no): ").strip().lower()
+        if confirm2 != 'yes':
+            print("\n❌ Bulk load cancelled.")
+            return
 
     # Bulk load
     bulk_load_jobs(combinations, job_db)

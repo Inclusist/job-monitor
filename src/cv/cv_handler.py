@@ -163,6 +163,9 @@ class CVHandler:
             if set_as_primary:
                 self.cv_manager.set_primary_cv(user_id, cv_id)
 
+            # Step 10: Auto-generate search preferences if user has none
+            self._auto_generate_search_preferences(user_id, profile_data, user_email)
+
             return {
                 'success': True,
                 'cv_id': cv_id,
@@ -425,6 +428,66 @@ class CVHandler:
 
         max_version = max(cv.get('version', 1) for cv in cvs)
         return max_version + 1
+
+    def _auto_generate_search_preferences(self, user_id: int, profile_data: Dict, user_email: str) -> None:
+        """
+        Auto-generate search preferences from CV profile if user has none
+
+        Args:
+            user_id: User ID
+            profile_data: Parsed CV profile data
+            user_email: User's email for logging
+        """
+        try:
+            # Check if user already has search preferences
+            current_prefs = self.cv_manager.get_user_search_preferences(user_id)
+
+            if current_prefs and (current_prefs.get('keywords') or current_prefs.get('locations')):
+                print(f"User {user_email} already has search preferences, skipping auto-generation")
+                return
+
+            # Extract preferences from CV profile
+            desired_titles = profile_data.get('desired_job_titles', [])
+            preferred_locations = profile_data.get('preferred_work_locations', [])
+            current_location = profile_data.get('current_location')
+
+            # Prepare keywords (job titles)
+            keywords = []
+            if desired_titles:
+                keywords = desired_titles[:5]  # Limit to top 5
+                print(f"Auto-generated {len(keywords)} job keywords from CV: {keywords}")
+
+            # Prepare locations
+            locations = []
+            if preferred_locations:
+                locations = preferred_locations[:5]  # Limit to top 5
+                print(f"Auto-generated {len(locations)} locations from CV: {locations}")
+
+            # If no locations found, use current location
+            if not locations and current_location:
+                locations = [current_location]
+                print(f"Using current location from CV: {current_location}")
+
+            # Only update if we have at least keywords or locations
+            if keywords or locations:
+                self.cv_manager.update_user_search_preferences(
+                    user_id=user_id,
+                    keywords=keywords,
+                    locations=locations
+                )
+                print(f"✓ Auto-generated search preferences for {user_email}")
+                print(f"  Keywords: {len(keywords)}, Locations: {len(locations)}")
+            else:
+                print(f"No search preferences could be auto-generated from CV for {user_email}")
+
+            # Update user location if available
+            if current_location:
+                self.cv_manager.update_user_location(user_id, current_location)
+                print(f"✓ Updated user location to: {current_location}")
+
+        except Exception as e:
+            print(f"Warning: Could not auto-generate search preferences for {user_email}: {e}")
+            # Don't fail the upload if this fails
 
 
 if __name__ == "__main__":

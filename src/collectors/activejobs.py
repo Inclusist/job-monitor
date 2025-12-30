@@ -38,18 +38,26 @@ class ActiveJobsCollector:
         location: str = "Germany",
         max_pages: int = 10,
         date_posted: str = "24h",
-        remote_only: bool = False
+        remote_only: bool = False,
+        ai_work_arrangement: str = None,
+        ai_employment_type: str = None,
+        ai_seniority: str = None,
+        ai_industry: str = None
     ) -> List[Dict]:
         """
         Fetch all recent jobs from a country without keyword filtering
         More efficient than multiple keyword searches
-        
+
         Args:
             location: Country or region
             max_pages: Maximum pages to fetch (100 jobs per page)
             date_posted: '24h' or 'week'
             remote_only: Only return remote jobs
-            
+            ai_work_arrangement: AI filter for work arrangement (remote, hybrid, onsite)
+            ai_employment_type: AI filter for employment type (full-time, part-time, contract)
+            ai_seniority: AI filter for seniority level (entry, mid, senior, lead)
+            ai_industry: AI filter for industry
+
         Returns:
             List of all job dictionaries
         """
@@ -67,17 +75,31 @@ class ActiveJobsCollector:
             params = {
                 'limit': 100,
                 'offset': offset,
-                'description_type': 'text'
+                'description_type': 'text',
+                'include_ai': 'true'  # Always include AI metadata
             }
-            
+
             # Add location filter if provided
             if location:
                 params['location_filter'] = location
-            
+
             # Add remote filter if requested
             if remote_only:
                 params['remote'] = 'true'
-            
+
+            # API-level AI filters
+            if ai_work_arrangement:
+                params['ai_work_arrangement_filter'] = ai_work_arrangement
+
+            if ai_employment_type:
+                params['ai_employment_type_filter'] = ai_employment_type
+
+            if ai_seniority:
+                params['ai_seniority_filter'] = ai_seniority
+
+            if ai_industry:
+                params['ai_industry_filter'] = ai_industry
+
             try:
                 response = requests.get(endpoint, headers=self.headers, params=params)
                 
@@ -131,11 +153,15 @@ class ActiveJobsCollector:
         results_per_page: int = 10,
         date_posted: str = "week",  # week, 24h, 1h (1h requires Ultra plan)
         description_type: str = None,  # 'text' or 'html'
-        remote_only: bool = False
+        remote_only: bool = False,
+        ai_work_arrangement: str = None,  # Filter: remote, hybrid, onsite
+        ai_employment_type: str = None,   # Filter: full-time, part-time, contract
+        ai_seniority: str = None,         # Filter: entry, mid, senior, lead
+        ai_industry: str = None           # Filter: technology, finance, healthcare, etc.
     ) -> List[Dict]:
         """
-        Search for jobs using Active Jobs DB API
-        
+        Search for jobs using Active Jobs DB API with AI-powered filters
+
         Args:
             query: Job title or keywords
             location: Location (e.g., "Germany", "Berlin")
@@ -144,7 +170,11 @@ class ActiveJobsCollector:
             date_posted: Filter by date (week=7 days, 24h=24 hours)
             description_type: Include description ('text' or 'html')
             remote_only: Only return remote jobs
-            
+            ai_work_arrangement: AI filter for work arrangement (remote, hybrid, onsite)
+            ai_employment_type: AI filter for employment type (full-time, part-time, contract)
+            ai_seniority: AI filter for seniority level (entry, mid, senior, lead)
+            ai_industry: AI filter for industry (technology, finance, healthcare, etc.)
+
         Returns:
             List of job dictionaries
         """
@@ -172,11 +202,27 @@ class ActiveJobsCollector:
             # Add remote filter
             if remote_only:
                 params['remote'] = 'true'
-            
+
             # Include job descriptions if requested
             if description_type in ['text', 'html']:
                 params['description_type'] = description_type
-            
+
+            # Include AI-extracted metadata (employment type, work arrangement, etc.)
+            params['include_ai'] = 'true'
+
+            # API-level AI filters (more efficient than local filtering)
+            if ai_work_arrangement:
+                params['ai_work_arrangement_filter'] = ai_work_arrangement
+
+            if ai_employment_type:
+                params['ai_employment_type_filter'] = ai_employment_type
+
+            if ai_seniority:
+                params['ai_seniority_filter'] = ai_seniority
+
+            if ai_industry:
+                params['ai_industry_filter'] = ai_industry
+
             try:
                 response = requests.get(endpoint, headers=self.headers, params=params)
                 
@@ -293,7 +339,13 @@ class ActiveJobsCollector:
         
         # Format posted date
         posted_date = job_data.get('date_posted', '')
-        
+
+        # Extract AI-powered fields
+        ai_employment_type = job_data.get('ai_employment_type_filter', '')
+        ai_work_arrangement = job_data.get('ai_work_arrangement_filter', '')
+        ai_seniority = job_data.get('ai_seniority_filter', '')
+        ai_industry = job_data.get('ai_industry_filter', '')
+
         return {
             "title": job_data.get('title', ''),
             "company": job_data.get('organization', ''),
@@ -309,4 +361,9 @@ class ActiveJobsCollector:
             "organization_url": job_data.get('organization_url', ''),
             "organization_logo": job_data.get('organization_logo', ''),
             "remote": job_data.get('location_type') == 'TELECOMMUTE',
+            # AI-extracted metadata for better matching
+            "ai_employment_type": ai_employment_type,
+            "ai_work_arrangement": ai_work_arrangement,
+            "ai_seniority": ai_seniority,
+            "ai_industry": ai_industry,
         }

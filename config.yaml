@@ -1,30 +1,43 @@
-# Bulk fetch configuration for daily job ingestion
-bulk_fetch:
-  # Countries to search in (country-level search includes all cities)
-  # NOTE: Choose EITHER countries OR specific cities, not both!
-  # Country-level already includes all cities in that country
-  countries: []
-  
-  # Specific cities/regions to search
-  # Will make one API call per location listed here
-  locations:
-    - "Berlin"
-    - "Hamburg"
-  
-  # Include remote-only jobs in bulk fetch
-  # This makes a separate API call for remote jobs
-  include_remote: true
-  
-  # Maximum jobs to fetch per bulk run
-  # Pro plan quota: 5000 jobs/month, 2500 requests/month
-  max_jobs: 1000
-  
-  # Time period for job postings
-  # Use "week" for initial 7-day load, then switch to "24h" for daily updates
-  date_posted: "week"
+# ===================================================================
+# JOB SOURCES CONFIGURATION
+# ===================================================================
+# Configure which job sources to use and their parameters
+# Changes here affect what jobs are collected from APIs
+
+sources:
+  # JSearch - Indeed + LinkedIn aggregation (via RapidAPI)
+  jsearch:
+    enabled: true
+    api_key_env: "JSEARCH_API_KEY"     # Environment variable name
+    date_posted: "week"                 # all, today, 3days, week, month
+    num_pages: 5                        # 5 pages × 10 jobs = 50 per keyword
+    country: "de"                       # ISO country code (de = Germany)
+    quality_filter: true
+    min_quality_score: 2                # 1=all, 2=remove spam, 3=only trusted
+
+  # Active Jobs DB - 36 ATS platforms (via RapidAPI)
+  activejobs:
+    enabled: true
+    api_key_env: "ACTIVEJOBS_API_KEY"
+    date_posted: "week"                 # 24h or week
+    max_pages: 10                       # 10 pages × 100 = 1000 jobs
+    location_filter: "Germany"
+    quality_filter: true
+    min_quality_score: 2
+
+  # Future sources can be added here
+  # stepstone:
+  #   enabled: false
+  #   api_token_env: "APIFY_API_TOKEN"
+
+
+# ===================================================================
+# DEFAULT SEARCH PARAMETERS
+# ===================================================================
+# Used as fallback when user has NO search preferences AND NO CV
+# Most users will have auto-generated preferences from their CV
 
 search_config:
-  # Job titles to search for
   keywords:
     # Leadership roles
     - "Head of Data Science"
@@ -37,13 +50,12 @@ search_config:
     - "Senior Data Scientist"
     - "AI Engineering Manager"
     - "Data Science Manager"
-    
+
     # German terms
     - "Leiter Data Science"
     - "KI-Teamleiter"
     - "Leiter Künstliche Intelligenz"
-  
-  # Locations to search
+
   locations:
     - "Germany"
     - "Berlin, Germany"
@@ -52,7 +64,7 @@ search_config:
     - "Wolfsburg, Germany"
     - "Remote, Germany"
     - "Deutschland"
-  
+
   # Company-specific searches
   company_keywords:
     - "Volkswagen Data Science"
@@ -71,54 +83,165 @@ search_config:
     - "Finance"
     - "Technology"
 
+
+# ===================================================================
+# DAILY JOB LOADING CONFIGURATION
+# ===================================================================
+# Efficient loading strategy for Active Jobs DB
+# This configuration dynamically adapts to your user base
+
+daily_loading:
+  # Strategy 1: Key Cities - Fetch ALL jobs (any work arrangement)
+  # Add cities here as your user base grows
+  # Example: User from Frankfurt joins → add "Frankfurt" to this list
+  key_cities:
+    - "Berlin"      # All jobs in Berlin (onsite, hybrid, remote)
+    - "Hamburg"     # All jobs in Hamburg (onsite, hybrid, remote)
+    # - "Frankfurt" # Uncomment when you have users from Frankfurt
+    # - "Munich"    # Uncomment when you have users from Munich
+
+  # Strategy 2: Flexible Work - Fetch country-wide with specific work arrangements
+  # These are fetched across all of Germany, not just key cities
+  flexible_work:
+    country: "Germany"
+    work_arrangements:
+      - "Hybrid"         # Hybrid jobs anywhere in Germany
+      - "Remote OK"      # Remote OK jobs anywhere in Germany
+      - "Remote Solely"  # Remote only jobs anywhere in Germany
+
+  # Loading parameters
+  max_pages_per_query: 10   # 100 jobs/page = max 1000 jobs per query
+  date_posted: "24h"        # Use "24h" for daily updates
+
+  # ⚠️  QUOTA MANAGEMENT (Ultra Plan: 20,000 jobs/month)
+  # Current settings estimate (assumes max pages filled):
+  #   - 2 cities × 10 pages × 100 jobs = 2,000 jobs
+  #   - 3 work types × 10 pages × 100 jobs = 3,000 jobs
+  #   - Daily total: ~5,000 jobs/day
+  #   - Monthly: 5,000 × 30 = 150,000 jobs (7.5x over quota!)
+  #
+  # 💡 REALITY CHECK:
+  #   - In practice, 24h updates return FAR fewer jobs (maybe 100-500/day)
+  #   - The max_pages limit is a safety cap, not actual usage
+  #   - Monitor actual usage and adjust max_pages_per_query if needed
+  #
+  # 📊 RECOMMENDED STRATEGY:
+  #   1. Start with current settings and monitor first few days
+  #   2. Check actual quota usage from API responses
+  #   3. If usage is too high, reduce max_pages_per_query to 5
+  #   4. If usage is too low, you can increase it
+
+
+# ===================================================================
+# BACKFILL CONFIGURATION (One-time or weekly)
+# ===================================================================
+# ⚠️  WARNING: Backfilling COUNTS towards your monthly job quota!
+# Source: https://rapidapi.com/fantastic-jobs-fantastic-jobs-default/api/active-jobs-db
+#
+# Use this VERY CAREFULLY - you can exhaust your entire monthly quota in one run!
+
+backfill:
+  # Enable backfill loading (disabled by default for safety)
+  enabled: false
+
+  # Time period for backfill
+  # "week" = last 7 days of job postings (RECOMMENDED for initial load)
+  # Note: Longer periods may not be available or require special access
+  date_posted: "week"
+
+  # Backfill strategy - same structure as daily_loading
+  # You can use different cities/settings for backfill
+  key_cities:
+    - "Berlin"
+    - "Hamburg"
+    - "Munich"
+    - "Frankfurt"
+    - "Cologne"
+
+  flexible_work:
+    country: "Germany"
+    work_arrangements:
+      - "Hybrid"
+      - "Remote OK"
+      - "Remote Solely"
+
+  max_pages_per_query: 20  # More aggressive for backfill
+
+  # ⚠️  QUOTA IMPACT CALCULATION:
+  # With current settings:
+  #   - 5 cities × 20 pages × 100 jobs/page = 10,000 jobs
+  #   - 3 work types × 20 pages × 100 jobs/page = 6,000 jobs
+  #   - Total: ~16,000 jobs (80% of your 20,000 monthly quota!)
+  #
+  # 💡 RECOMMENDATION:
+  #   - Do backfill ONCE at the beginning of the month
+  #   - Then use daily_loading (24h) for ongoing updates
+  #   - Or reduce max_pages_per_query to 5-10 for safer backfill
+
+
+# ===================================================================
+# MATCHING AND FILTERING PREFERENCES
+# ===================================================================
+
 preferences:
   # Minimum match score to include in digest (0-100)
   min_match_score: 60
-  
+
   # Score threshold for high priority (0-100)
   high_priority_threshold: 85
-  
+
   # Maximum jobs to include in daily digest
   max_jobs_per_digest: 20
-  
+
   # Include jobs you've already applied to in digest
   include_applied_jobs: false
-  
+
   # Days to keep job data before archiving
   archive_after_days: 90
-  
+
   # Source filtering settings
   source_filtering:
     # Enable filtering of low-quality job sources
     enabled: true
-    
+
     # Minimum quality score for job sources (1-3)
     # 1 = Allow all sources (no filtering)
     # 2 = Remove blacklisted spam sites (recommended)
     # 3 = Only allow whitelisted trusted sources (very strict)
     min_quality: 2
 
+
+# ===================================================================
+# SCHEDULE CONFIGURATION
+# ===================================================================
+
 schedule:
   # Time for daily search (24-hour format)
   daily_search_time: "08:00"
-  
+
   # Day for weekly summary (Monday, Tuesday, etc.)
   weekly_summary_day: "Sunday"
   weekly_summary_time: "18:00"
 
-# Your profile information for Claude analysis
+
+# ===================================================================
+# PROFILE CONFIGURATION (Legacy - for config.yaml fallback only)
+# ===================================================================
+# This profile is now only used as fallback if user has NO CV
+# Preference is: User CV > User manual preferences > This config
+
 profile:
   name: "Prabhu Shankar Ramachandran"
   current_role: "Team Lead - Data Science at XING"
   location: "Wolfsburg, Germany"
-  
+
   key_experience:
     - "Leading 8+ data scientists and engineers across 5 European locations"
     - "Pioneered XING's first LLM-based production model"
     - "Leading ontology automation using LLMs and dynamic knowledge graphs"
     - "Founded C&S Financial Services - built Forex trading algorithms"
     - "10+ years in data science and machine learning"
-  
+
   technical_skills:
     - "LLMs and Generative AI"
     - "Machine Learning and Deep Learning"
@@ -126,12 +249,12 @@ profile:
     - "AWS and Azure AI"
     - "Knowledge Graphs and Embedded Vectors"
     - "Team Leadership and Product Strategy"
-  
+
   languages:
     - "English (C1)"
     - "German (B2)"
     - "Tamil (Native)"
-  
+
   preferences:
     - "Leadership roles with team management"
     - "AI/ML focused positions"

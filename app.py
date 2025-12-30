@@ -8,6 +8,7 @@ import os
 import sys
 from flask import Flask, render_template, request, redirect, url_for, flash, session, Response, jsonify
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from authlib.integrations.flask_client import OAuth
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 import json
@@ -90,6 +91,33 @@ handler = CVHandler(cv_manager, parser, analyzer, storage_root='data/cvs') if an
 # Progress tracking for job search
 search_progress = {}
 
+# Initialize OAuth
+oauth = OAuth(app)
+
+# Configure Google OAuth
+google = oauth.register(
+    name='google',
+    client_id=os.getenv('GOOGLE_CLIENT_ID'),
+    client_secret=os.getenv('GOOGLE_CLIENT_SECRET'),
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_kwargs={
+        'scope': 'openid email profile'
+    }
+)
+
+# Configure LinkedIn OAuth (using OpenID Connect - manual configuration)
+linkedin = oauth.register(
+    name='linkedin',
+    client_id=os.getenv('LINKEDIN_CLIENT_ID'),
+    client_secret=os.getenv('LINKEDIN_CLIENT_SECRET'),
+    authorize_url='https://www.linkedin.com/oauth/v2/authorization',
+    access_token_url='https://www.linkedin.com/oauth/v2/accessToken',
+    client_kwargs={
+        'scope': 'profile email',
+        'token_endpoint_auth_method': 'client_secret_post',
+    }
+)
+
 
 # ============ Flask-Login User Class ============
 
@@ -99,6 +127,8 @@ class User(UserMixin):
         self.id = user_dict['id']
         self.email = user_dict['email']
         self.name = user_dict.get('name')
+        self.provider = user_dict.get('provider', 'email')  # 'google', 'linkedin', or 'email'
+        self.avatar_url = user_dict.get('avatar_url')  # Profile picture from OAuth
         self._is_active = bool(user_dict.get('is_active', 1))
     
     def get_id(self):
@@ -260,6 +290,171 @@ def logout():
     logout_user()
     flash('You have been logged out', 'success')
     return redirect(url_for('login'))
+
+
+# ============ OAuth Routes ============
+
+@app.route('/login/google')
+def login_google():
+    """Initiate Google OAuth login"""
+    redirect_uri = url_for('authorize_google', _external=True)
+    return google.authorize_redirect(redirect_uri)
+
+
+@app.route('/authorize/google')
+def authorize_google():
+    """Google OAuth callback"""
+    try:
+        token = google.authorize_access_token()
+        user_info = token.get('userinfo')
+        
+        if not user_info:
+            flash('Failed to get user information from Google', 'error')
+            return redirect(url_for('login'))
+        
+        email = user_info.get('email')
+        name = user_info.get('name')
+        avatar_url = user_info.get('picture')
+        
+        if not email:
+            flash('Email not provided by Google', 'error')
+            return redirect(url_for('login'))
+        
+        # Get or create user with OAuth provider info
+        user_dict = cv_manager.get_or_create_oauth_user(
+            email=email,
+            name=name,
+            provider='google',
+            avatar_url=avatar_url
+        )
+        
+        print(f"Google OAuth - user_dict result: {user_dict}")
+        
+        if user_dict:
+            user = User(user_dict)
+            login_user(user, remember=True)
+            
+            # Check if this is a new user
+            is_new_user = user_dict.get('is_new_user', False)
+            if is_new_user:
+                flash(f'Welcome {name}! Your account has been created.', 'success')
+                
+                # Trigger automatic job loading for new user
+                try:
+                    defaults = get_default_preferences()
+                    if defaults['keywords'] and defaults['locations']:
+                        trigger_new_user_job_load(
+                            user_id=user.id,
+                            keywords=defaults['keywords'],
+                            locations=defaults['locations'],
+                            job_db=job_db,
+                            cv_manager=cv_manager
+                        )
+                        flash('Loading initial jobs in the background...', 'info')
+                except Exception as e:
+                    print(f"Error triggering job load for new user: {e}")
+            else:
+                flash(f'Welcome back, {name}!', 'success')
+            
+            # Redirect to next page or index
+            next_page = request.args.get('next')
+            if next_page and next_page.startswith('/'):
+                return redirect(next_page)
+            return redirect(url_for('index'))
+        else:
+            flash('Failed to create user account', 'error')
+            return redirect(url_for('login'))
+            
+    except Exception as e:
+        import traceback
+        print(f"Google OAuth error: {e}")
+        print(traceback.format_exc())
+        flash(f'Failed to authenticate with Google: {str(e)}', 'error')
+        return redirect(url_for('login'))
+
+
+@app.route('/login/linkedin')
+def login_linkedin():
+    """Initiate LinkedIn OAuth login"""
+    redirect_uri = url_for('authorize_linkedin', _external=True)
+    return linkedin.authorize_redirect(redirect_uri)
+
+
+@app.route('/authorize/linkedin')
+def authorize_linkedin():
+    """LinkedIn OAuth callback"""
+    try:
+        token = linkedin.authorize_access_token()
+        
+        # Manually fetch user info from LinkedIn OpenID Connect endpoint
+        resp = linkedin.get('https://api.linkedin.com/v2/userinfo', token=token)
+        user_info = resp.json()
+        
+        # Debug: Print what LinkedIn returns
+        print("LinkedIn userinfo response:", user_info)
+        
+        if not user_info:
+            flash('Failed to get user information from LinkedIn', 'error')
+            return redirect(url_for('login'))
+        
+        email = user_info.get('email')
+        name = user_info.get('name')
+        avatar_url = user_info.get('picture')
+        
+        if not email:
+            print("Available fields in LinkedIn response:", list(user_info.keys()))
+            flash('Email not provided by LinkedIn', 'error')
+            return redirect(url_for('login'))
+        
+        # Get or create user with OAuth provider info
+        user_dict = cv_manager.get_or_create_oauth_user(
+            email=email,
+            name=name,
+            provider='linkedin',
+            avatar_url=avatar_url
+        )
+        
+        if user_dict:
+            user = User(user_dict)
+            login_user(user, remember=True)
+            
+            # Check if this is a new user
+            is_new_user = user_dict.get('is_new_user', False)
+            if is_new_user:
+                flash(f'Welcome {name}! Your account has been created.', 'success')
+                
+                # Trigger automatic job loading for new user
+                try:
+                    defaults = get_default_preferences()
+                    if defaults['keywords'] and defaults['locations']:
+                        trigger_new_user_job_load(
+                            user_id=user.id,
+                            keywords=defaults['keywords'],
+                            locations=defaults['locations'],
+                            job_db=job_db,
+                            cv_manager=cv_manager
+                        )
+                        flash('Loading initial jobs in the background...', 'info')
+                except Exception as e:
+                    print(f"Error triggering job load for new user: {e}")
+            else:
+                flash(f'Welcome back, {name}!', 'success')
+            
+            # Redirect to next page or index
+            next_page = request.args.get('next')
+            if next_page and next_page.startswith('/'):
+                return redirect(next_page)
+            return redirect(url_for('index'))
+        else:
+            flash('Failed to create user account', 'error')
+            return redirect(url_for('login'))
+            
+    except Exception as e:
+        import traceback
+        print(f"LinkedIn OAuth error: {e}")
+        print(traceback.format_exc())
+        flash(f'Failed to authenticate with LinkedIn: {str(e)}', 'error')
+        return redirect(url_for('login'))
 
 
 # ============ Main Routes ============

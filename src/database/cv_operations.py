@@ -367,6 +367,108 @@ class CVManager:
         
         return None
     
+    def get_or_create_oauth_user(self, email: str, name: str = None, provider: str = 'google', avatar_url: str = None) -> Optional[Dict]:
+        """
+        Get or create user from OAuth provider (Google, LinkedIn, etc.)
+        
+        Args:
+            email: User's email address from OAuth provider
+            name: User's name from OAuth provider
+            provider: OAuth provider name ('google', 'linkedin')
+            avatar_url: Profile picture URL from OAuth provider
+            
+        Returns:
+            User dict with is_new_user flag, or None on error
+        """
+        # Check if user already exists
+        existing_user = self.get_user_by_email(email)
+        
+        if existing_user:
+            # Update provider and avatar if not set
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            try:
+                updates = []
+                params = []
+                
+                # Update name if not set
+                if name and not existing_user.get('name'):
+                    updates.append("name = ?")
+                    params.append(name)
+                
+                # Store OAuth provider info in preferences
+                preferences = json.loads(existing_user.get('preferences') or '{}')
+                if 'oauth_provider' not in preferences:
+                    preferences['oauth_provider'] = provider
+                if avatar_url and 'avatar_url' not in preferences:
+                    preferences['avatar_url'] = avatar_url
+                
+                updates.append("preferences = ?")
+                params.append(json.dumps(preferences))
+                
+                updates.append("last_updated = ?")
+                params.append(datetime.now().isoformat())
+                
+                params.append(existing_user['id'])
+                
+                cursor.execute(f"""
+                    UPDATE users 
+                    SET {', '.join(updates)}
+                    WHERE id = ?
+                """, params)
+                
+                conn.commit()
+                conn.close()
+                
+                # Reload user
+                user = self.get_user_by_email(email)
+                user['is_new_user'] = False
+                user['provider'] = preferences.get('oauth_provider', 'email')
+                user['avatar_url'] = preferences.get('avatar_url')
+                return user
+                
+            except Exception as e:
+                print(f"Error updating OAuth user: {e}")
+                conn.close()
+                return existing_user
+        
+        # Create new user with OAuth
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            now = datetime.now().isoformat()
+            
+            # Store OAuth info in preferences
+            preferences = {
+                'oauth_provider': provider,
+                'avatar_url': avatar_url
+            }
+            
+            cursor.execute("""
+                INSERT INTO users (
+                    email, password_hash, name, created_date, last_updated, preferences
+                ) VALUES (?, NULL, ?, ?, ?, ?)
+            """, (email.lower(), name, now, now, json.dumps(preferences)))
+            
+            conn.commit()
+            user_id = cursor.lastrowid
+            conn.close()
+            
+            # Return new user with flag
+            user = self.get_user_by_id(user_id)
+            user['is_new_user'] = True
+            user['provider'] = provider
+            user['avatar_url'] = avatar_url
+            return user
+            
+        except sqlite3.IntegrityError as e:
+            print(f"Error creating OAuth user: {e}")
+            conn.close()
+            return None
+
+    
     def update_password(self, user_id: int, new_password: str) -> bool:
         """
         Update user's password

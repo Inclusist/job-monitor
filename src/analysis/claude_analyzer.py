@@ -69,7 +69,12 @@ class ClaudeJobAnalyzer:
             'expertise_summary': cv_profile.get('expertise_summary', ''),
             'career_highlights': cv_profile.get('career_highlights', []),
             'industries': cv_profile.get('industries', []),
-            'preferences': []  # Can be added from user preferences
+            'preferences': [],  # Can be added from user preferences
+            # New AI-enhanced fields from CV
+            'work_arrangement_preference': cv_profile.get('work_arrangement_preference', 'flexible'),
+            'desired_job_titles': cv_profile.get('desired_job_titles', []),
+            'current_location': cv_profile.get('current_location', ''),
+            'preferred_work_locations': cv_profile.get('preferred_work_locations', [])
         }
 
     def _extract_current_role(self, cv_profile: Dict) -> str:
@@ -211,12 +216,21 @@ class ClaudeJobAnalyzer:
         # Format preferences
         prefs = self.profile.get('preferences', []) or []
         prefs_str = chr(10).join(f'- {format_list_item(pref)}' for pref in prefs) if prefs else '- Not specified'
-        
+
+        # Format work arrangement preference
+        work_arrangement = self.profile.get('work_arrangement_preference', 'flexible')
+
+        # Format preferred locations
+        preferred_locs = self.profile.get('preferred_work_locations', []) or []
+        preferred_locs_str = ', '.join(str(loc) for loc in preferred_locs) if preferred_locs else 'Not specified'
+
         profile_summary = f"""
 **Candidate Profile:**
 - Name: {self.profile.get('name')}
 - Current Role: {self.profile.get('current_role')}
 - Location: {self.profile.get('location')}
+- Work Arrangement Preference: {work_arrangement}
+- Preferred Work Locations: {preferred_locs_str}
 
 **Key Experience:**
 {key_exp_str}
@@ -231,6 +245,12 @@ class ClaudeJobAnalyzer:
 {prefs_str}
 """
         
+        # Get AI-extracted metadata
+        ai_work_arrangement = job.get('ai_work_arrangement', 'Not specified')
+        ai_employment_type = job.get('ai_employment_type', 'Not specified')
+        ai_seniority = job.get('ai_seniority', 'Not specified')
+        ai_industry = job.get('ai_industry', 'Not specified')
+
         job_details = f"""
 **Job Posting:**
 - Title: {job.get('title')}
@@ -238,6 +258,12 @@ class ClaudeJobAnalyzer:
 - Location: {job.get('location')}
 - Posted: {job.get('posted_date', 'Unknown')}
 - Salary: {job.get('salary', 'Not specified')}
+
+**AI-Extracted Job Metadata:**
+- Work Arrangement: {ai_work_arrangement}
+- Employment Type: {ai_employment_type}
+- Seniority Level: {ai_seniority}
+- Industry: {ai_industry}
 
 **Description:**
 {job.get('description', 'No description available')[:2000]}
@@ -279,13 +305,23 @@ Evaluate this job opportunity and provide your assessment in the following JSON 
 - Medium: Score 70-84, decent fit with some reservations
 - Low: Score below 70, significant gaps or misalignment
 
-Consider:
+**Matching Considerations:**
 1. Technical skill match
 2. Leadership/management experience match
-3. Location compatibility
-4. Company/industry fit
-5. Language requirements
-6. Career progression alignment
+3. Location compatibility (preferred locations vs job location)
+4. **Work arrangement match (IMPORTANT):**
+   - If candidate prefers "remote" and job is "Remote" → strong positive
+   - If candidate prefers "hybrid" and job is "Hybrid" → strong positive
+   - If candidate prefers "onsite" and job is "Onsite" → strong positive
+   - If candidate is "flexible" → neutral, no penalty
+   - Mismatch (e.g., candidate wants remote but job is onsite) → reduce score by 10-15 points
+5. Seniority level alignment (AI-extracted seniority vs candidate experience)
+6. Employment type match (full-time, part-time, contract)
+7. Industry fit (AI-extracted industry vs candidate's industry experience)
+8. Language requirements
+9. Career progression alignment
+
+**Note:** Work arrangement compatibility is critical. A mismatch here can be a dealbreaker even if other aspects align well.
 
 Respond ONLY with valid JSON, no additional text.
 """
