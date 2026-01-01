@@ -43,6 +43,11 @@ filter_spec.loader.exec_module(filter_module)
 app = Flask(__name__, template_folder='web/templates', static_folder='web/static')
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
 
+# Fix for HTTPS behind proxy (Railway, etc.)
+# This ensures OAuth redirect URIs use HTTPS instead of HTTP
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
 # Initialize Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
