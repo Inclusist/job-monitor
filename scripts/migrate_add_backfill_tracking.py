@@ -36,7 +36,6 @@ def migrate():
 
         if cursor.fetchone()[0]:
             print("\n✓ backfill_tracking table already exists.")
-            db._return_connection(conn)
             return
 
         print("\n📝 Creating backfill_tracking table...")

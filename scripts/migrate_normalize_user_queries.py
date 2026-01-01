@@ -41,7 +41,6 @@ def migrate():
         if not cursor.fetchone()[0]:
             print("\n⚠️  user_search_queries table doesn't exist.")
             print("Run migrate_add_user_queries.py first!")
-            db._return_connection(conn)
             return
 
         print("\n📝 Step 1: Backing up existing data...")
