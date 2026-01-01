@@ -1268,7 +1268,515 @@ class PostgresCVManager:
     def get_cv_statistics(self, user_id: int) -> Dict:
         """Get CV statistics for a user - alias for get_user_statistics"""
         return self.get_user_statistics(user_id)
-    
+
+    # ==================== User Search Queries Management ====================
+
+    def add_user_search_queries(
+        self,
+        user_id: int,
+        query_name: str,
+        title_keywords: List[str] = None,
+        locations: List[str] = None,
+        ai_work_arrangement: str = None,
+        ai_employment_type: str = None,
+        ai_seniority: str = None,
+        ai_industry: str = None,
+        priority: int = 0
+    ) -> int:
+        """
+        Add personalized search queries for a user (NORMALIZED)
+
+        Creates separate rows for each title+location combination.
+        Example: 2 titles × 2 locations = 4 rows
+
+        Args:
+            user_id: User ID
+            query_name: Name/description (e.g., "Primary Search")
+            title_keywords: List of keywords (e.g., ["data scientist", "ML engineer"])
+            locations: List of locations (e.g., ["Berlin", "Hamburg"])
+            ai_work_arrangement: Work arrangement filter (single value)
+            ai_employment_type: Employment type filter
+            ai_seniority: Seniority level filter
+            ai_industry: Industry filter
+            priority: Query priority
+
+        Returns:
+            Number of rows inserted
+        """
+        try:
+            # Ensure we have at least one title or location
+            if not title_keywords and not locations:
+                logger.warning("No title_keywords or locations provided")
+                return 0
+
+            # Default to [None] if not provided
+            titles = title_keywords or [None]
+            locs = locations or [None]
+
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            inserted_count = 0
+
+            # Create all combinations of title × location
+            for title in titles:
+                for location in locs:
+                    try:
+                        cursor.execute("""
+                            INSERT INTO user_search_queries (
+                                user_id, query_name, title_keyword, location,
+                                ai_work_arrangement, ai_employment_type, ai_seniority, ai_industry,
+                                priority
+                            )
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT DO NOTHING
+                        """, (
+                            user_id, query_name, title, location,
+                            ai_work_arrangement, ai_employment_type, ai_seniority, ai_industry,
+                            priority
+                        ))
+
+                        if cursor.rowcount > 0:
+                            inserted_count += 1
+
+                    except Exception as e:
+                        logger.warning(f"Could not insert query row (title={title}, loc={location}): {e}")
+                        continue
+
+            conn.commit()
+            cursor.close()
+            self._return_connection(conn)
+
+            logger.info(f"Added {inserted_count} search query rows for user {user_id} (query: {query_name})")
+            return inserted_count
+
+        except Exception as e:
+            if 'conn' in locals():
+                conn.rollback()
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error adding user search queries: {e}")
+            return 0
+
+    def get_user_search_queries(self, user_id: int, active_only: bool = True) -> List[Dict]:
+        """
+        Get all search queries for a user
+
+        Args:
+            user_id: User ID
+            active_only: If True, only return active queries
+
+        Returns:
+            List of query dictionaries
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+            if active_only:
+                cursor.execute("""
+                    SELECT * FROM user_search_queries
+                    WHERE user_id = %s AND is_active = TRUE
+                    ORDER BY priority DESC, id ASC
+                """, (user_id,))
+            else:
+                cursor.execute("""
+                    SELECT * FROM user_search_queries
+                    WHERE user_id = %s
+                    ORDER BY priority DESC, id ASC
+                """, (user_id,))
+
+            queries = cursor.fetchall()
+            cursor.close()
+            self._return_connection(conn)
+
+            return [dict(q) for q in queries]
+
+        except Exception as e:
+            if 'conn' in locals():
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error getting user search queries: {e}")
+            return []
+
+    def update_user_search_query(
+        self,
+        query_id: int,
+        **kwargs
+    ) -> bool:
+        """
+        Update a search query
+
+        Args:
+            query_id: Query ID
+            **kwargs: Fields to update (query_name, title_keywords, locations, etc.)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Build update query dynamically
+            allowed_fields = [
+                'query_name', 'title_keywords', 'locations',
+                'ai_work_arrangement', 'ai_employment_type', 'ai_seniority', 'ai_industry',
+                'is_active', 'priority', 'max_results'
+            ]
+
+            updates = []
+            values = []
+
+            for field, value in kwargs.items():
+                if field in allowed_fields:
+                    updates.append(f"{field} = %s")
+                    values.append(value)
+
+            if not updates:
+                return False
+
+            values.append(query_id)
+
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            query = f"""
+                UPDATE user_search_queries
+                SET {', '.join(updates)}
+                WHERE id = %s
+            """
+
+            cursor.execute(query, values)
+            conn.commit()
+            cursor.close()
+            self._return_connection(conn)
+
+            logger.info(f"Updated search query {query_id}")
+            return True
+
+        except Exception as e:
+            if 'conn' in locals():
+                conn.rollback()
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error updating search query: {e}")
+            return False
+
+    def delete_user_search_query(self, query_id: int) -> bool:
+        """
+        Delete a search query
+
+        Args:
+            query_id: Query ID
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("DELETE FROM user_search_queries WHERE id = %s", (query_id,))
+
+            conn.commit()
+            cursor.close()
+            self._return_connection(conn)
+
+            logger.info(f"Deleted search query {query_id}")
+            return True
+
+        except Exception as e:
+            if 'conn' in locals():
+                conn.rollback()
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error deleting search query: {e}")
+            return False
+
+    def get_unique_query_combinations(self) -> List[Dict]:
+        """
+        Get DISTINCT query combinations across all users
+
+        This is the KEY method for quota efficiency!
+        Returns unique combinations of (title_keyword, location, AI filters)
+        regardless of which user created them.
+
+        Example:
+            User 1: "data scientist" in "Berlin"
+            User 2: "data scientist" in "Berlin"  <- Duplicate!
+            Returns only 1 combination
+
+        Returns:
+            List of unique query combination dictionaries
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+            # Get distinct combinations - this is where deduplication happens!
+            cursor.execute("""
+                SELECT DISTINCT
+                    title_keyword,
+                    location,
+                    ai_work_arrangement,
+                    ai_employment_type,
+                    ai_seniority,
+                    ai_industry,
+                    MAX(priority) as max_priority
+                FROM user_search_queries
+                WHERE is_active = TRUE
+                GROUP BY title_keyword, location, ai_work_arrangement,
+                         ai_employment_type, ai_seniority, ai_industry
+                ORDER BY max_priority DESC
+            """)
+
+            combinations = cursor.fetchall()
+            cursor.close()
+            self._return_connection(conn)
+
+            logger.info(f"Found {len(combinations)} unique query combinations across all users")
+            return [dict(c) for c in combinations]
+
+        except Exception as e:
+            if 'conn' in locals():
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error getting unique query combinations: {e}")
+            return []
+
+    def get_all_active_queries(self) -> List[Dict]:
+        """
+        Get all active search queries across all users (NOT deduplicated)
+
+        Use get_unique_query_combinations() for job loading to save quota!
+
+        Returns:
+            List of all query rows with user info
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+            cursor.execute("""
+                SELECT
+                    q.*,
+                    u.email as user_email,
+                    u.name as user_name
+                FROM user_search_queries q
+                JOIN users u ON q.user_id = u.id
+                WHERE q.is_active = TRUE
+                ORDER BY q.priority DESC, q.user_id ASC, q.id ASC
+            """)
+
+            queries = cursor.fetchall()
+            cursor.close()
+            self._return_connection(conn)
+
+            return [dict(q) for q in queries]
+
+        except Exception as e:
+            if 'conn' in locals():
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error getting all active queries: {e}")
+            return []
+
+    def update_query_run_stats(self, query_id: int, job_count: int) -> bool:
+        """
+        Update query statistics after a run
+
+        Args:
+            query_id: Query ID
+            job_count: Number of jobs found in this run
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                UPDATE user_search_queries
+                SET last_run_date = NOW(),
+                    last_job_count = %s
+                WHERE id = %s
+            """, (job_count, query_id))
+
+            conn.commit()
+            cursor.close()
+            self._return_connection(conn)
+
+            return True
+
+        except Exception as e:
+            if 'conn' in locals():
+                conn.rollback()
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error updating query stats: {e}")
+            return False
+
+    # ==================== Backfill Tracking ====================
+
+    def get_unbacked_combinations_for_user(self, user_id: int) -> List[Dict]:
+        """
+        Get query combinations for a user that haven't been backfilled yet
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            List of combinations needing backfill
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+            # Get user's unique combinations that are NOT in backfill_tracking
+            cursor.execute("""
+                SELECT DISTINCT
+                    usq.title_keyword,
+                    usq.location,
+                    usq.ai_work_arrangement,
+                    usq.ai_employment_type,
+                    usq.ai_seniority,
+                    usq.ai_industry
+                FROM user_search_queries usq
+                LEFT JOIN backfill_tracking bt ON (
+                    (usq.title_keyword = bt.title_keyword OR (usq.title_keyword IS NULL AND bt.title_keyword IS NULL))
+                    AND (usq.location = bt.location OR (usq.location IS NULL AND bt.location IS NULL))
+                    AND (usq.ai_work_arrangement = bt.ai_work_arrangement OR (usq.ai_work_arrangement IS NULL AND bt.ai_work_arrangement IS NULL))
+                    AND (usq.ai_employment_type = bt.ai_employment_type OR (usq.ai_employment_type IS NULL AND bt.ai_employment_type IS NULL))
+                    AND (usq.ai_seniority = bt.ai_seniority OR (usq.ai_seniority IS NULL AND bt.ai_seniority IS NULL))
+                    AND (usq.ai_industry = bt.ai_industry OR (usq.ai_industry IS NULL AND bt.ai_industry IS NULL))
+                )
+                WHERE usq.user_id = %s
+                  AND usq.is_active = TRUE
+                  AND bt.id IS NULL
+            """, (user_id,))
+
+            combinations = cursor.fetchall()
+            cursor.close()
+            self._return_connection(conn)
+
+            logger.info(f"Found {len(combinations)} unbacked combinations for user {user_id}")
+            return [dict(c) for c in combinations]
+
+        except Exception as e:
+            if 'conn' in locals():
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error getting unbacked combinations: {e}")
+            return []
+
+    def mark_combination_backfilled(
+        self,
+        title_keyword: str = None,
+        location: str = None,
+        ai_work_arrangement: str = None,
+        ai_employment_type: str = None,
+        ai_seniority: str = None,
+        ai_industry: str = None,
+        jobs_found: int = 0
+    ) -> bool:
+        """
+        Mark a combination as backfilled
+
+        Args:
+            title_keyword: Title keyword
+            location: Location
+            ai_work_arrangement: Work arrangement filter
+            ai_employment_type: Employment type filter
+            ai_seniority: Seniority filter
+            ai_industry: Industry filter
+            jobs_found: Number of jobs found
+
+        Returns:
+            True if successful
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO backfill_tracking (
+                    title_keyword, location, ai_work_arrangement,
+                    ai_employment_type, ai_seniority, ai_industry,
+                    jobs_found
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT DO NOTHING
+            """, (
+                title_keyword, location, ai_work_arrangement,
+                ai_employment_type, ai_seniority, ai_industry,
+                jobs_found
+            ))
+
+            conn.commit()
+            cursor.close()
+            self._return_connection(conn)
+
+            logger.info(f"Marked as backfilled: {title_keyword} in {location}")
+            return True
+
+        except Exception as e:
+            if 'conn' in locals():
+                conn.rollback()
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error marking combination as backfilled: {e}")
+            return False
+
+    def is_combination_backfilled(
+        self,
+        title_keyword: str = None,
+        location: str = None,
+        ai_work_arrangement: str = None,
+        ai_seniority: str = None
+    ) -> bool:
+        """
+        Check if a combination has been backfilled
+
+        Args:
+            title_keyword: Title keyword
+            location: Location
+            ai_work_arrangement: Work arrangement
+            ai_seniority: Seniority
+
+        Returns:
+            True if already backfilled
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT EXISTS(
+                    SELECT 1 FROM backfill_tracking
+                    WHERE (title_keyword = %s OR (title_keyword IS NULL AND %s IS NULL))
+                      AND (location = %s OR (location IS NULL AND %s IS NULL))
+                      AND (ai_work_arrangement = %s OR (ai_work_arrangement IS NULL AND %s IS NULL))
+                      AND (ai_seniority = %s OR (ai_seniority IS NULL AND %s IS NULL))
+                )
+            """, (
+                title_keyword, title_keyword,
+                location, location,
+                ai_work_arrangement, ai_work_arrangement,
+                ai_seniority, ai_seniority
+            ))
+
+            exists = cursor.fetchone()[0]
+            cursor.close()
+            self._return_connection(conn)
+
+            return exists
+
+        except Exception as e:
+            if 'conn' in locals():
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error checking if combination is backfilled: {e}")
+            return False
+
     def close(self):
         """Close method for compatibility - connection pool managed by PostgresDatabase"""
         pass

@@ -485,8 +485,134 @@ class CVHandler:
                 self.cv_manager.update_user_location(user_id, current_location)
                 print(f"✓ Updated user location to: {current_location}")
 
+            # NEW: Auto-generate search queries
+            self._auto_generate_search_queries(user_id, profile_data, user_email)
+
         except Exception as e:
             print(f"Warning: Could not auto-generate search preferences for {user_email}: {e}")
+            # Don't fail the upload if this fails
+
+    def _auto_generate_search_queries(self, user_id: int, profile_data: Dict, user_email: str) -> None:
+        """
+        Auto-generate personalized search queries using pipe operators
+
+        Args:
+            user_id: User ID
+            profile_data: Parsed CV profile data
+            user_email: User's email for logging
+        """
+        try:
+            # Check if user already has search queries
+            existing_queries = self.cv_manager.get_user_search_queries(user_id)
+
+            if existing_queries:
+                print(f"User {user_email} already has {len(existing_queries)} search queries, skipping auto-generation")
+                return
+
+            # Extract data from CV profile
+            desired_titles = profile_data.get('desired_job_titles', [])
+            preferred_locations = profile_data.get('preferred_work_locations', [])
+            current_location = profile_data.get('current_location')
+            work_arrangement = profile_data.get('work_arrangement_preference', 'flexible')
+            industries = profile_data.get('industries', [])
+
+            # Determine seniority from years of experience
+            years_exp = profile_data.get('total_years_experience', 0)
+            if years_exp >= 10:
+                seniority = 'Senior|Lead'
+            elif years_exp >= 5:
+                seniority = 'Mid|Senior'
+            elif years_exp >= 2:
+                seniority = 'Mid'
+            else:
+                seniority = None
+
+            # Build title_keywords using pipe operator
+            title_keywords = None
+            if desired_titles:
+                title_keywords = '|'.join(desired_titles[:5])  # Top 5 titles
+                print(f"Generated title keywords: {title_keywords}")
+
+            # Build locations using pipe operator
+            locations_str = None
+            location_list = []
+
+            # Add preferred locations
+            if preferred_locations:
+                location_list.extend(preferred_locations[:3])
+
+            # Add current location if not in preferred
+            if current_location and current_location not in location_list:
+                location_list.append(current_location)
+
+            if location_list:
+                locations_str = '|'.join(location_list)
+                print(f"Generated locations: {locations_str}")
+
+            # Build work arrangement filter
+            work_filter = None
+            if work_arrangement and work_arrangement != 'flexible':
+                # Map CV preferences to API filter values
+                work_map = {
+                    'remote': 'Remote OK|Remote Solely',
+                    'hybrid': 'Hybrid',
+                    'onsite': 'Onsite'
+                }
+                work_filter = work_map.get(work_arrangement.lower())
+                print(f"Generated work arrangement filter: {work_filter}")
+
+            # Build industry filter
+            industry_filter = None
+            if industries:
+                industry_filter = '|'.join(industries[:3])  # Top 3 industries
+
+            # Create primary search query if we have enough data
+            if desired_titles or location_list:
+                # Use normalized add_user_search_queries (creates multiple rows)
+                row_count = self.cv_manager.add_user_search_queries(
+                    user_id=user_id,
+                    query_name='Primary Search',
+                    title_keywords=desired_titles[:5] if desired_titles else None,  # List, not pipe string
+                    locations=location_list if location_list else None,              # List, not pipe string
+                    ai_work_arrangement=work_filter,
+                    ai_seniority=seniority,
+                    ai_industry=industry_filter,
+                    priority=10
+                )
+
+                if row_count > 0:
+                    print(f"✓ Auto-generated {row_count} search query rows for {user_email}")
+                    print(f"  Titles: {desired_titles[:5] if desired_titles else ['None']}")
+                    print(f"  Locations: {location_list if location_list else ['None']}")
+                    print(f"  Combinations: {len(desired_titles or [1])} titles × {len(location_list or [1])} locations = {row_count} rows")
+                    print(f"  Work arrangement: {work_filter or 'Any'}")
+                    print(f"  Seniority: {seniority or 'Any'}")
+
+                    # Trigger backfill for new user (1 month of jobs)
+                    try:
+                        from src.jobs.user_backfill import backfill_user_on_signup
+                        print(f"\n🔄 Triggering 1-month backfill for {user_email}...")
+                        backfill_stats = backfill_user_on_signup(
+                            user_id=user_id,
+                            user_email=user_email,
+                            db=self.cv_manager
+                        )
+
+                        if backfill_stats.get('already_backfilled'):
+                            print(f"✓ Backfill skipped - queries already backfilled by other users")
+                        else:
+                            print(f"✓ Backfill completed: {backfill_stats.get('new_jobs_added', 0)} jobs added")
+                    except Exception as backfill_error:
+                        print(f"⚠️  Warning: Backfill failed: {backfill_error}")
+                        print(f"   User can still use the app, jobs will load on next daily update")
+                else:
+                    print(f"⚠️  Failed to create search queries for {user_email}")
+            else:
+                print(f"⚠️  Not enough data to auto-generate search query for {user_email}")
+                print(f"    Need at least title keywords or locations from CV")
+
+        except Exception as e:
+            print(f"Warning: Could not auto-generate search queries for {user_email}: {e}")
             # Don't fail the upload if this fails
 
 
