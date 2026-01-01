@@ -601,7 +601,7 @@ class CVHandler:
                     # Trigger backfill for new user (1 month of jobs)
                     try:
                         from src.jobs.user_backfill import backfill_user_on_signup
-                        print(f"\n🔄 Triggering 1-month backfill for {user_email}...")
+                        print(f"\n🔄 Triggering 1-month backfill for {user_email}...", flush=True)
                         backfill_stats = backfill_user_on_signup(
                             user_id=user_id,
                             user_email=user_email,
@@ -609,12 +609,14 @@ class CVHandler:
                         )
 
                         if backfill_stats.get('already_backfilled'):
-                            print(f"✓ Backfill skipped - queries already backfilled by other users")
+                            print(f"✓ Backfill skipped - queries already backfilled by other users", flush=True)
                         else:
-                            print(f"✓ Backfill completed: {backfill_stats.get('new_jobs_added', 0)} jobs added")
+                            print(f"✓ Backfill completed: {backfill_stats.get('new_jobs_added', 0)} jobs added", flush=True)
                     except Exception as backfill_error:
-                        print(f"⚠️  Warning: Backfill failed: {backfill_error}")
-                        print(f"   User can still use the app, jobs will load on next daily update")
+                        print(f"⚠️  Warning: Backfill failed: {backfill_error}", flush=True)
+                        import traceback
+                        traceback.print_exc()
+                        print(f"   User can still use the app, jobs will load on next daily update", flush=True)
                 else:
                     print(f"⚠️  Failed to create search queries for {user_email}")
             else:

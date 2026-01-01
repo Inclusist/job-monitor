@@ -1586,15 +1586,10 @@ def search_preferences():
 @app.route('/update-search-preferences', methods=['POST'])
 @login_required
 def update_search_preferences():
-    """Update user's search preferences"""
+    """Update user's search preferences and trigger backfill"""
     user, stats = get_user_context()
-    
-    try:
-        # Get OLD preferences before update (for detecting new combinations)
-        old_prefs = cv_manager.get_user_search_preferences(user['id'])
-        old_keywords = old_prefs.get('keywords', [])
-        old_locations = old_prefs.get('locations', [])
 
+    try:
         # Get form data
         keywords_text = request.form.get('keywords', '').strip()
         locations_text = request.form.get('locations', '').strip()
@@ -1612,29 +1607,56 @@ def update_search_preferences():
             flash('Please enter at least one location', 'error')
             return redirect(url_for('search_preferences'))
 
-        # Update preferences
+        # Update user's preference JSON (for backward compatibility)
         cv_manager.update_user_search_preferences(
             user['id'],
             keywords=keywords,
             locations=locations
         )
 
-        flash(f'Search preferences updated! {len(keywords)} keywords and {len(locations)} locations saved.', 'success')
+        # Deactivate old queries in user_search_queries table
+        cv_manager.deactivate_user_search_queries(user['id'])
 
-        # Trigger job loading for NEW combinations only
+        # Add new normalized queries to user_search_queries table
+        row_count = cv_manager.add_user_search_queries(
+            user_id=user['id'],
+            query_name='Updated Search Preferences',
+            title_keywords=keywords,
+            locations=locations,
+            ai_work_arrangement=None,  # TODO: Add to preferences form
+            ai_seniority=None,  # TODO: Add to preferences form
+            ai_employment_type=None,
+            ai_industry=None,
+            priority=10
+        )
+
+        print(f"✓ Updated search preferences: {len(keywords)} keywords × {len(locations)} locations = {row_count} queries", flush=True)
+
+        # Trigger NEW backfill system (with deduplication)
         try:
-            trigger_preferences_update_job_load(
+            from src.jobs.user_backfill import backfill_user_on_signup
+            print(f"🔄 Triggering backfill for updated preferences...", flush=True)
+
+            backfill_stats = backfill_user_on_signup(
                 user_id=user['id'],
-                old_keywords=old_keywords,
-                old_locations=old_locations,
-                new_keywords=keywords,
-                new_locations=locations,
-                job_db=job_db
+                user_email=user['email'],
+                db=cv_manager
             )
-            flash('Loading jobs for new search combinations in the background...', 'info')
+
+            if backfill_stats.get('already_backfilled'):
+                flash(f'Search preferences updated! ({row_count} combinations, already backfilled by other users)', 'success')
+            elif backfill_stats.get('error'):
+                flash(f'Search preferences updated! {backfill_stats.get("error")}', 'warning')
+            else:
+                new_jobs = backfill_stats.get('new_jobs_added', 0)
+                flash(f'Search preferences updated! Loaded {new_jobs} new jobs from {row_count} combinations.', 'success')
+
         except Exception as load_error:
-            print(f"Error triggering job load for updated preferences: {load_error}")
-        
+            print(f"⚠️ Warning: Backfill failed: {load_error}", flush=True)
+            import traceback
+            traceback.print_exc()
+            flash('Search preferences updated, but job loading failed. Will retry on next daily update.', 'warning')
+
         # Auto-trigger filtering if user has CV
         try:
             user_cvs = cv_manager.get_user_cvs(user['id'])
@@ -1647,14 +1669,14 @@ def update_search_preferences():
                     daemon=True
                 ).start()
         except Exception as filter_error:
-            print(f"Error starting background filter: {filter_error}")
-        
+            print(f"Error starting background filter: {filter_error}", flush=True)
+
     except Exception as e:
         flash(f'Error updating preferences: {str(e)}', 'error')
-        print(f"Error updating search preferences: {e}")
-    
-    return redirect(url_for('search_preferences'))
-    
+        print(f"Error updating search preferences: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+
     return redirect(url_for('search_preferences'))
 
 

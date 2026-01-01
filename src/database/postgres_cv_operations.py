@@ -1399,6 +1399,41 @@ class PostgresCVManager:
             logger.error(f"Error getting user search queries: {e}")
             return []
 
+    def deactivate_user_search_queries(self, user_id: int) -> bool:
+        """
+        Deactivate all search queries for a user
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                UPDATE user_search_queries
+                SET is_active = FALSE
+                WHERE user_id = %s
+            """, (user_id,))
+
+            rows_affected = cursor.rowcount
+            conn.commit()
+            cursor.close()
+            self._return_connection(conn)
+
+            logger.info(f"Deactivated {rows_affected} search queries for user {user_id}")
+            return True
+
+        except Exception as e:
+            if 'conn' in locals():
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error deactivating queries for user {user_id}: {e}")
+            return False
+
     def update_user_search_query(
         self,
         query_id: int,

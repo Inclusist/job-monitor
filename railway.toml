@@ -3,7 +3,8 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "python app.py"
+# Removed: Use Dockerfile CMD (Gunicorn) instead of Flask dev server
+# startCommand = "python app.py"
 healthcheckPath = "/"
 healthcheckTimeout = 600
 restartPolicyType = "on_failure"
