@@ -568,12 +568,22 @@ class CVHandler:
 
             # Create primary search query if we have enough data
             if desired_titles or location_list:
+                # TODO: Make remote search a user preference in the future
+                # For now, automatically add remote searches if user wants remote work
+                final_locations = location_list.copy() if location_list else []
+
+                # Add "Remote" as a location if user wants remote work
+                if work_arrangement and work_arrangement.lower() in ['remote', 'flexible']:
+                    if 'Remote' not in final_locations:
+                        final_locations.append('Remote')
+                        print(f"Added 'Remote' location for remote job searches")
+
                 # Use normalized add_user_search_queries (creates multiple rows)
                 row_count = self.cv_manager.add_user_search_queries(
                     user_id=user_id,
                     query_name='Primary Search',
                     title_keywords=desired_titles[:5] if desired_titles else None,  # List, not pipe string
-                    locations=location_list if location_list else None,              # List, not pipe string
+                    locations=final_locations if final_locations else None,          # List, not pipe string
                     ai_work_arrangement=work_filter,
                     ai_seniority=seniority,
                     ai_industry=industry_filter,

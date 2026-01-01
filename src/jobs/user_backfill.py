@@ -14,7 +14,7 @@ from typing import Dict, List
 from datetime import datetime
 
 from src.collectors.jsearch import JSearchCollector
-from src.collectors.activejobs import ActiveJobsCollector
+from src.collectors.activejobs_backfill import ActiveJobsBackfillCollector
 
 
 class UserBackfillService:
@@ -30,7 +30,7 @@ class UserBackfillService:
             db: Database instance
         """
         self.jsearch_collector = JSearchCollector(jsearch_key) if jsearch_key else None
-        self.activejobs_collector = ActiveJobsCollector(activejobs_key) if activejobs_key else None
+        self.activejobs_collector = ActiveJobsBackfillCollector(activejobs_key) if activejobs_key else None
         self.db = db
 
         self.stats = {
@@ -160,6 +160,10 @@ class UserBackfillService:
         """
         Backfill from JSearch with 1-month filter
 
+        Handles two types of searches:
+        1. Location-specific: "Data Scientist in Berlin"
+        2. Remote-only: "Data Scientist" with remote_jobs_only=true
+
         Args:
             queries: User's normalized query rows
 
@@ -168,23 +172,46 @@ class UserBackfillService:
         """
         all_jobs = []
 
-        # Group queries by title_keyword to avoid duplicates
-        unique_titles = set()
+        # Group by unique (title, location) combinations
+        combinations = set()
+
         for query in queries:
-            if query.get('title_keyword'):
-                unique_titles.add(query.get('title_keyword'))
+            title = query.get('title_keyword')
+            location = query.get('location')
 
-        print(f"\nSearching for {len(unique_titles)} unique titles in JSearch...")
+            if not title:
+                continue
 
-        for title in unique_titles:
-            print(f"\n  Searching: {title}")
+            # Check if this is a remote search
+            is_remote = location and location.lower() == 'remote'
+
+            # Add combination: (title, location or None if remote, is_remote flag)
+            if is_remote:
+                combinations.add((title, None, True))  # Remote search, no location
+            else:
+                combinations.add((title, location, False))  # Regular location search
+
+        print(f"\nSearching {len(combinations)} title+location combinations in JSearch...")
+
+        for title, location, is_remote in combinations:
+            # Build display string
+            if is_remote:
+                display = f"{title} (remote only)"
+            elif location:
+                display = f"{title} in {location}"
+            else:
+                display = title
+
+            print(f"\n  Searching: {display}")
 
             # JSearch: date_posted="month" for 1-month backfill
             jobs = self.jsearch_collector.search_jobs(
-                query=title,
-                num_pages=5,  # 5 pages × 10 = 50 jobs per title
-                date_posted="month",  # 1 MONTH!
-                country="de"
+                query=title,  # Just title, location added by collector
+                location=location,  # Collector adds "in {location}" if provided
+                num_pages=10,  # API stops when no more results
+                date_posted="month",
+                country="de",
+                remote_jobs_only=is_remote
             )
 
             all_jobs.extend(jobs)
@@ -194,7 +221,10 @@ class UserBackfillService:
 
     def _backfill_activejobs(self, queries: List[Dict]) -> List[Dict]:
         """
-        Backfill from Active Jobs DB with backfill endpoint
+        Backfill from Active Jobs DB using 6-month endpoint with pipe operators
+
+        Groups queries by location and pipes titles together for efficiency.
+        Example: "Data Scientist|ML Engineer" in "Berlin" (1 API call instead of 2)
 
         Args:
             queries: User's normalized query rows
@@ -204,32 +234,63 @@ class UserBackfillService:
         """
         all_jobs = []
 
-        # Get unique combinations for this user
-        combinations = self._get_unique_combinations(queries)
+        # Group by location and filters, then pipe titles together
+        location_groups = {}
 
-        print(f"\nSearching for {len(combinations)} unique combinations in Active Jobs DB...")
+        for query in queries:
+            location = query.get('location', 'Germany')
+            work_arrangement = query.get('ai_work_arrangement')
+            seniority = query.get('ai_seniority')
+            employment_type = query.get('ai_employment_type')
+            industry = query.get('ai_industry')
 
-        for combo in combinations:
-            title = combo.get('title_keyword')
-            location = combo.get('location')
+            # Handle "Remote" location - use Germany with remote filter
+            if location and location.lower() == 'remote':
+                location = 'Germany'  # Search all of Germany for remote jobs
 
-            print(f"\n  {title} in {location}")
+            # Create group key
+            key = (location, work_arrangement, seniority, employment_type, industry)
 
-            # Active Jobs DB: Use search with "week" and pagination
-            # Note: 1-month backfill requires pagination through multiple weeks
-            # For now, use "week" (7 days) as it's available on all plans
-            jobs = self.activejobs_collector.search_jobs(
-                query=title or '',
+            if key not in location_groups:
+                location_groups[key] = {
+                    'location': location,
+                    'titles': [],
+                    'ai_work_arrangement': work_arrangement,
+                    'ai_seniority': seniority,
+                    'ai_employment_type': employment_type,
+                    'ai_industry': industry
+                }
+
+            # Add title to group
+            title = query.get('title_keyword')
+            if title and title not in location_groups[key]['titles']:
+                location_groups[key]['titles'].append(title)
+
+        print(f"\nSearching {len(location_groups)} location groups in Active Jobs DB (6-month backfill)...")
+
+        for group_key, group in location_groups.items():
+            # Pipe titles together with | operator
+            piped_titles = '|'.join(group['titles']) if group['titles'] else None
+
+            location = group['location']
+
+            print(f"\n  Titles: {piped_titles or 'Any'}")
+            print(f"  Location: {location}")
+            print(f"  Filters: {group['ai_work_arrangement'] or 'Any'} work, {group['ai_seniority'] or 'Any'} level")
+
+            # Use 6-month backfill endpoint with piped titles
+            jobs = self.activejobs_collector.search_backfill(
+                query=piped_titles,
                 location=location,
-                num_pages=10,  # More pages for backfill
-                results_per_page=100,
-                date_posted="week",  # 7 days (can loop for 1 month)
-                ai_work_arrangement=combo.get('ai_work_arrangement'),
-                ai_seniority=combo.get('ai_seniority')
+                limit=500,  # 500 jobs per location group (covers multiple titles)
+                ai_work_arrangement=group['ai_work_arrangement'],
+                ai_employment_type=group['ai_employment_type'],
+                ai_seniority=group['ai_seniority'],
+                ai_industry=group['ai_industry']
             )
 
             all_jobs.extend(jobs)
-            print(f"    Found {len(jobs)} jobs")
+            print(f"    Found {len(jobs)} jobs (6 months)")
 
         return all_jobs
 
