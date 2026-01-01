@@ -400,6 +400,20 @@ def backfill_user_on_signup(user_id: int, user_email: str, db) -> Dict:
     jsearch_key = os.getenv('JSEARCH_API_KEY')
     activejobs_key = os.getenv('ACTIVEJOBS_API_KEY')
 
+    # Warn if API keys are missing
+    if not jsearch_key:
+        print("⚠️  WARNING: JSEARCH_API_KEY not set - skipping JSearch backfill")
+    if not activejobs_key:
+        print("⚠️  WARNING: ACTIVEJOBS_API_KEY not set - skipping ActiveJobs backfill")
+
+    if not jsearch_key and not activejobs_key:
+        print("❌ ERROR: No API keys configured - cannot run backfill!")
+        return {
+            'user_email': user_email,
+            'error': 'No API keys configured',
+            'new_jobs_added': 0
+        }
+
     service = UserBackfillService(
         jsearch_key=jsearch_key,
         activejobs_key=activejobs_key,
@@ -409,8 +423,8 @@ def backfill_user_on_signup(user_id: int, user_email: str, db) -> Dict:
     return service.backfill_user(
         user_id=user_id,
         user_email=user_email,
-        use_jsearch=True,
-        use_activejobs=True
+        use_jsearch=bool(jsearch_key),
+        use_activejobs=bool(activejobs_key)
     )
 
 

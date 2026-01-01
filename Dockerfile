@@ -31,5 +31,8 @@ RUN mkdir -p data temp_uploads data/logs
 # Expose port
 EXPOSE 8080
 
+# Disable Python output buffering for immediate log visibility
+ENV PYTHONUNBUFFERED=1
+
 # Run the application with Gunicorn (production server)
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "4", "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "4", "--timeout", "120", "--log-level=info", "--capture-output", "--enable-stdio-inheritance", "--access-logfile", "-", "--error-logfile", "-", "app:app"]
