@@ -159,44 +159,45 @@ class ActiveJobsBackfillCollector:
     def _parse_job(self, job_data: Dict) -> Dict:
         """Parse Active Jobs DB job data into standardized format"""
 
-        # Format salary from raw data
+        # Format salary from AI-extracted salary fields
         salary = None
-        salary_min = job_data.get('salary_min')
-        salary_max = job_data.get('salary_max')
-        salary_currency = job_data.get('salary_currency', 'EUR')
+        salary_currency = job_data.get('ai_salary_currency')
+        salary_min = job_data.get('ai_salary_minvalue')
+        salary_max = job_data.get('ai_salary_maxvalue')
 
         if salary_min and salary_max:
-            salary = f"{salary_currency} {salary_min:,} - {salary_max:,}"
+            salary = f"{salary_currency or 'EUR'} {int(salary_min):,} - {int(salary_max):,}"
         elif salary_min:
-            salary = f"{salary_currency} {salary_min:,}+"
+            salary = f"{salary_currency or 'EUR'} {int(salary_min):,}+"
         elif salary_max:
-            salary = f"Up to {salary_currency} {salary_max:,}"
+            salary = f"Up to {salary_currency or 'EUR'} {int(salary_max):,}"
 
-        # Extract AI-parsed metadata
-        ai_data = job_data.get('ai', {}) or {}
+        # Extract location from locations_derived list
+        locations = job_data.get('locations_derived', [])
+        location_str = ', '.join(locations) if isinstance(locations, list) and locations else ''
 
         return {
             'job_id': job_data.get('id'),
             'external_id': job_data.get('id'),  # For deduplication
             'title': job_data.get('title'),
-            'company': job_data.get('company'),
-            'location': job_data.get('location'),
-            'description': job_data.get('description', ''),
+            'company': job_data.get('organization', '').strip(),  # Use 'organization' field
+            'location': location_str,  # Join locations_derived list
+            'description': job_data.get('description_text') or job_data.get('description_html', ''),
             'url': job_data.get('url'),
-            'posted_date': job_data.get('posted_date'),
+            'posted_date': job_data.get('date_posted'),
             'salary': salary,
             'source': f"Active Jobs DB ({job_data.get('source', 'ATS')})",  # Include ATS platform name
-            'fetched_date': job_data.get('fetched_at'),
+            'fetched_date': job_data.get('date_created'),
             'priority': 'medium',  # Default priority for backfill jobs
 
-            # AI-extracted metadata
-            'ai_employment_type': ai_data.get('employment_type'),
-            'ai_work_arrangement': ai_data.get('work_arrangement'),
-            'ai_seniority': ai_data.get('seniority'),
-            'ai_industry': ai_data.get('industry'),
-            'ai_required_skills': ai_data.get('required_skills', []),
-            'ai_optional_skills': ai_data.get('optional_skills', []),
-            'ai_responsibilities': ai_data.get('responsibilities', []),
+            # AI-extracted metadata (using correct field names from 6m endpoint)
+            'ai_employment_type': ', '.join(job_data.get('employment_type', [])) if job_data.get('employment_type') else None,
+            'ai_work_arrangement': job_data.get('ai_work_arrangement'),
+            'ai_seniority': job_data.get('ai_experience_level'),  # Maps to experience level
+            'ai_industry': None,  # Not available in this endpoint
+            'ai_required_skills': [],
+            'ai_optional_skills': [],
+            'ai_responsibilities': [],
 
             # Raw data for debugging
             'raw_salary_min': salary_min,
