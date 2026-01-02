@@ -1812,6 +1812,106 @@ class PostgresCVManager:
             logger.error(f"Error checking if combination is backfilled: {e}")
             return False
 
+    # ==================== Job Operations (for backfill support) ====================
+
+    def get_deleted_job_ids(self) -> set:
+        """
+        Get set of job_ids that have been deleted/hidden
+        Used to prevent re-adding deleted jobs in future searches
+
+        Returns:
+            Set of job_id strings for deleted jobs
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT job_id FROM jobs WHERE status = 'deleted'")
+            deleted_ids = {row[0] for row in cursor.fetchall()}
+            cursor.close()
+            self._return_connection(conn)
+            return deleted_ids
+        except Exception as e:
+            if 'conn' in locals():
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error getting deleted job IDs: {e}")
+            return set()
+
+    def add_job(self, job_data: Dict) -> Optional[int]:
+        """
+        Add a new job to the database
+
+        Args:
+            job_data: Dictionary containing job information
+
+        Returns:
+            Job ID if successful, None if job already exists or error occurred
+        """
+        try:
+            from datetime import datetime
+            import json
+            import psycopg2
+
+            now = datetime.now()
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            # Parse posted_date if it's a string
+            posted_date = job_data.get('posted_date')
+            if isinstance(posted_date, str):
+                try:
+                    posted_date = datetime.fromisoformat(posted_date.replace('Z', '+00:00'))
+                except:
+                    posted_date = None
+
+            cursor.execute("""
+                INSERT INTO jobs (
+                    job_id, source, title, company, location, description,
+                    url, posted_date, salary, discovered_date, last_updated,
+                    match_score, match_reasoning, key_alignments, potential_gaps,
+                    priority, status,
+                    ai_employment_type, ai_work_arrangement, ai_seniority, ai_industry
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (
+                job_data.get('job_id') or job_data.get('external_id'),
+                job_data.get('source'),
+                job_data.get('title'),
+                job_data.get('company'),
+                job_data.get('location'),
+                job_data.get('description'),
+                job_data.get('url'),
+                posted_date,
+                job_data.get('salary'),
+                now,
+                now,
+                job_data.get('match_score'),
+                job_data.get('match_reasoning') or job_data.get('reasoning'),
+                json.dumps(job_data.get('key_alignments', [])),
+                json.dumps(job_data.get('potential_gaps', [])),
+                job_data.get('priority', 'medium'),
+                'new',
+                job_data.get('ai_employment_type'),
+                job_data.get('ai_work_arrangement'),
+                job_data.get('ai_seniority'),
+                job_data.get('ai_industry')
+            ))
+
+            job_id = cursor.fetchone()[0]
+            conn.commit()
+            return job_id
+
+        except psycopg2.IntegrityError:
+            conn.rollback()
+            return None  # Job already exists
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error adding job: {e}")
+            return None
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+
     def close(self):
         """Close method for compatibility - connection pool managed by PostgresDatabase"""
         pass
