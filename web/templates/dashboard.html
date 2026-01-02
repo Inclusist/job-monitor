@@ -54,7 +54,7 @@
         </div>
         <div>
             <p style="color: #666; font-size: 0.875rem; margin: 0;">📅 Posted</p>
-            <p style="font-weight: 500; margin: 0.25rem 0 0 0;">{{ job.posted_date[:10] if job.posted_date else 'Unknown' }}</p>
+            <p style="font-weight: 500; margin: 0.25rem 0 0 0;">{{ job.posted_date.strftime('%Y-%m-%d') if job.posted_date else 'Unknown' }}</p>
         </div>
         {% if job.salary %}
         <div>
