@@ -1418,41 +1418,47 @@ def learning_insights():
 
 
 @app.route('/jobs/<int:job_id>/shortlist', methods=['POST'])
+@login_required
 def shortlist_job(job_id):
-    """Add job to shortlist"""
+    """Add job to shortlist (user-specific)"""
     try:
-        job_db.update_job_status(job_id, 'shortlisted')
+        user_id = get_user_id()
+        job_db.update_user_job_status(user_id, job_id, 'shortlisted')
         flash('Job added to your dashboard!', 'success')
     except Exception as e:
         flash(f'Error adding job to shortlist: {str(e)}', 'error')
-    
+
     return redirect(request.referrer or url_for('jobs'))
 
 
 @app.route('/jobs/<int:job_id>/remove-shortlist', methods=['POST'])
+@login_required
 def remove_shortlist(job_id):
-    """Remove job from shortlist"""
+    """Remove job from shortlist (user-specific)"""
     try:
-        job_db.update_job_status(job_id, 'viewed')
+        user_id = get_user_id()
+        job_db.update_user_job_status(user_id, job_id, 'viewed')
         flash('Job removed from dashboard', 'info')
     except Exception as e:
         flash(f'Error removing job: {str(e)}', 'error')
-    
+
     return redirect(request.referrer or url_for('dashboard'))
 
 
 @app.route('/jobs/<int:job_id>/delete', methods=['POST'])
+@login_required
 def delete_job(job_id):
     """
-    Hide job permanently - it won't appear in future searches
-    Job is marked as 'deleted' but not removed from database
+    Hide job permanently for this user - it won't appear in future searches
+    Job is marked as 'deleted' in user_job_matches (user-specific)
     """
     try:
-        job_db.update_job_status(job_id, 'deleted')
+        user_id = get_user_id()
+        job_db.update_user_job_status(user_id, job_id, 'deleted')
         flash('Job hidden permanently. It will not appear in future searches.', 'success')
     except Exception as e:
         flash(f'Error hiding job: {str(e)}', 'error')
-    
+
     return redirect(url_for('jobs'))
 
 

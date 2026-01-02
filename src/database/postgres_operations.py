@@ -1013,16 +1013,81 @@ class PostgresDatabase:
             cursor.close()
             self._return_connection(conn)
     
+    def update_user_job_status(self, user_id: int, job_id: int, status: str):
+        """
+        Update user-specific job status in user_job_matches table
+
+        Args:
+            user_id: User ID
+            job_id: Job ID (database primary key)
+            status: New status ('shortlisted', 'deleted', 'viewed', 'applying', 'applied')
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+
+            # Check if user_job_match exists
+            cursor.execute("""
+                SELECT id FROM user_job_matches
+                WHERE user_id = %s AND job_id = %s
+            """, (user_id, job_id))
+
+            match_row = cursor.fetchone()
+
+            if match_row:
+                # Update existing record
+                cursor.execute("""
+                    UPDATE user_job_matches
+                    SET status = %s, last_updated = NOW()
+                    WHERE user_id = %s AND job_id = %s
+                """, (status, user_id, job_id))
+            else:
+                # Create new record
+                cursor.execute("""
+                    INSERT INTO user_job_matches
+                    (user_id, job_id, status, created_date, last_updated)
+                    VALUES (%s, %s, %s, NOW(), NOW())
+                """, (user_id, job_id, status))
+
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error updating user job status: {e}")
+            raise
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+
     def get_shortlisted_jobs(self, user_email: str = 'default@localhost') -> List[Dict]:
-        """Get jobs marked as shortlisted by user"""
+        """Get jobs marked as shortlisted by specific user"""
         conn = self._get_connection()
         try:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+            # Get user_id from email
+            cursor.execute("SELECT id FROM users WHERE email = %s", (user_email,))
+            user_row = cursor.fetchone()
+            if not user_row:
+                return []
+            user_id = user_row['id']
+
+            # Query jobs with user-specific status
             cursor.execute("""
-                SELECT * FROM jobs 
-                WHERE status = 'shortlisted'
-                ORDER BY match_score DESC, discovered_date DESC
-            """)
+                SELECT j.*,
+                       ujm.status as user_status,
+                       ujm.claude_score,
+                       ujm.match_reasoning,
+                       ujm.key_alignments,
+                       ujm.potential_gaps,
+                       COALESCE(ujm.claude_score, ujm.semantic_score, j.match_score) as effective_score
+                FROM jobs j
+                INNER JOIN user_job_matches ujm ON j.id = ujm.job_id
+                WHERE ujm.user_id = %s
+                AND ujm.status = 'shortlisted'
+                ORDER BY effective_score DESC NULLS LAST,
+                         j.discovered_date DESC
+            """, (user_id,))
+
             results = [dict(row) for row in cursor.fetchall()]
             return results
         finally:
