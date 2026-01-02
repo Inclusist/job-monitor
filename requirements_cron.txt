@@ -1,0 +1,6 @@
+# Cron Service Dependencies
+# Required for scripts/daily_job_cron.py
+
+APScheduler==3.10.4
+pytz==2024.1
+python-dotenv==1.0.0
