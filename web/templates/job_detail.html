@@ -19,7 +19,7 @@
                 N/A
             </div>
             {% endif %}
-            <span class="badge badge-{{ job.priority }}">{{ job.priority|capitalize }} Priority</span>
+            <span class="badge badge-{{ job.priority or 'medium' }}">{{ (job.priority or 'medium')|capitalize }} Priority</span>
         </div>
     </div>
 

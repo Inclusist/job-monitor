@@ -187,6 +187,7 @@ class ActiveJobsBackfillCollector:
             'salary': salary,
             'source': 'Active Jobs DB',
             'fetched_date': job_data.get('fetched_at'),
+            'priority': 'medium',  # Default priority for backfill jobs
 
             # AI-extracted metadata
             'ai_employment_type': ai_data.get('employment_type'),

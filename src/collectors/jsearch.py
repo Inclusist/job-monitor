@@ -145,6 +145,7 @@ class JSearchCollector:
             "external_id": job_data.get("job_id", ""),
             "company_logo": job_data.get("employer_logo"),
             "is_remote": job_data.get("job_is_remote", False),
+            "priority": "medium",  # Default priority for all jobs
             "raw_data": job_data
         }
     
