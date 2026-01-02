@@ -185,7 +185,7 @@ class ActiveJobsBackfillCollector:
             'url': job_data.get('url'),
             'posted_date': job_data.get('posted_date'),
             'salary': salary,
-            'source': 'Active Jobs DB',
+            'source': f"Active Jobs DB ({job_data.get('source', 'ATS')})",  # Include ATS platform name
             'fetched_date': job_data.get('fetched_at'),
             'priority': 'medium',  # Default priority for backfill jobs
 
