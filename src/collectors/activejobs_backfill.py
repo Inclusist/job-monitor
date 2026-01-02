@@ -58,6 +58,7 @@ class ActiveJobsBackfillCollector:
         Returns:
             List of job dictionaries
         """
+        # Using 6-month backfill endpoint for historical data
         endpoint = f"{self.base_url}/active-ats-6m"
 
         params = {
@@ -65,9 +66,9 @@ class ActiveJobsBackfillCollector:
             'offset': offset
         }
 
-        # Add title filter (supports pipe operator)
+        # Add advanced title filter (supports pipe operator for multiple titles)
         if query:
-            params['title_filter'] = query
+            params['advanced_title_filter'] = query
 
         # Add location filter (supports pipe operator)
         if location:

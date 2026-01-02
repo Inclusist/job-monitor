@@ -251,8 +251,8 @@ class UserBackfillService:
             if location and location not in ['Germany', 'Remote'] and location.lower() != 'remote':
                 specific_locations.add(location)
 
-        # Pipe all titles together
-        piped_titles = '|'.join(sorted(all_titles)) if all_titles else None
+        # Format titles for advanced_title_filter: 'title1' | 'title2' | 'title3'
+        piped_titles = ' | '.join(f"'{title}'" for title in sorted(all_titles)) if all_titles else None
 
         if not piped_titles:
             print("\n⚠️  No titles found in queries, skipping Active Jobs DB backfill")
@@ -267,11 +267,15 @@ class UserBackfillService:
             print(f"\n📍 STRATEGY 1: Searching {len(specific_locations)} specific locations for ALL jobs...")
 
             for location in sorted(specific_locations):
-                print(f"\n  Location: {location}")
+                # Try to clean location - Active Jobs DB might not like "Berlin, Germany" format
+                # Try just the city name "Berlin" instead
+                clean_location = location.split(',')[0].strip() if ',' in location else location
+
+                print(f"\n  Location: {location} (searching as: {clean_location})")
 
                 jobs = self.activejobs_collector.search_backfill(
                     query=piped_titles,
-                    location=location,
+                    location=clean_location,
                     limit=500
                 )
 
