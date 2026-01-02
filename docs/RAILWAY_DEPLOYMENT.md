@@ -123,6 +123,7 @@ DATABASE_URL=<from Railway PostgreSQL>
 
 # Job APIs (SAME as web service)
 ACTIVEJOBS_API_KEY=<your-key>
+JSEARCH_API_KEY=<your-key>
 
 # Timezone
 TZ=Europe/Berlin
@@ -263,7 +264,7 @@ Quota Analysis (Ultra Plan: 20,000 jobs/month):
 |----------|------------|--------------|--------|
 | `DATABASE_URL` | ✅ | ✅ | Railway PostgreSQL |
 | `ANTHROPIC_API_KEY` | ✅ | ❌ | Manual |
-| `JSEARCH_API_KEY` | ✅ | ❌ | Manual |
+| `JSEARCH_API_KEY` | ✅ | ✅ | Manual |
 | `ACTIVEJOBS_API_KEY` | ✅ | ✅ | Manual |
 | `SECRET_KEY` | ✅ | ❌ | Manual (generate) |
 | `PORT` | ✅ | ❌ | Railway (auto) |

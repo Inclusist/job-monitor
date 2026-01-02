@@ -40,17 +40,22 @@ def run_daily_job():
     print("=" * 80)
 
     try:
-        # Get API key
-        api_key = os.getenv('ACTIVEJOBS_API_KEY')
-        if not api_key:
+        # Get API keys
+        activejobs_key = os.getenv('ACTIVEJOBS_API_KEY')
+        jsearch_key = os.getenv('JSEARCH_API_KEY')
+
+        if not activejobs_key:
             print("❌ ERROR: ACTIVEJOBS_API_KEY not set in environment")
             return False
+
+        if not jsearch_key:
+            print("⚠️  WARNING: JSEARCH_API_KEY not set - will only use Active Jobs DB")
 
         # Initialize database
         db = get_database()
 
-        # Create loader
-        loader = UserQueryLoader(api_key, db)
+        # Create loader with both API keys
+        loader = UserQueryLoader(activejobs_key, db, jsearch_key)
 
         # Load jobs from last 24 hours
         print("\n📥 Loading jobs from last 24 hours...")

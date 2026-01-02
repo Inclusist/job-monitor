@@ -3,7 +3,7 @@
 User Query-Based Job Loader
 
 Fetches jobs based on personalized search queries stored in user_search_queries table.
-Uses Active Jobs DB's pipe operator (|) for efficient OR queries.
+Uses both JSearch and Active Jobs DB APIs for comprehensive coverage.
 
 This is the RECOMMENDED approach for job loading - quota-efficient and personalized!
 """
@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src.collectors.activejobs import ActiveJobsCollector
+from src.collectors.jsearch import JSearchCollector
 from src.database.factory import get_database
 
 load_dotenv()
@@ -25,19 +26,21 @@ load_dotenv()
 class UserQueryLoader:
     """Loads jobs based on user-defined search queries"""
 
-    def __init__(self, api_key: str, db):
+    def __init__(self, activejobs_key: str, db, jsearch_key: str = None):
         """
         Initialize loader
 
         Args:
-            api_key: Active Jobs DB API key
+            activejobs_key: Active Jobs DB API key
             db: Database instance (with CV manager methods)
+            jsearch_key: JSearch API key (optional)
         """
-        self.collector = ActiveJobsCollector(
-            api_key=api_key,
+        self.activejobs_collector = ActiveJobsCollector(
+            api_key=activejobs_key,
             enable_filtering=True,
             min_quality=2
         )
+        self.jsearch_collector = JSearchCollector(jsearch_key) if jsearch_key else None
         self.db = db
         self.stats = {
             'total_queries': 0,
@@ -46,6 +49,8 @@ class UserQueryLoader:
             'deleted_skipped': 0,
             'new_jobs_added': 0,
             'quota_used': 0,
+            'activejobs_quota': 0,
+            'jsearch_quota': 0,
             'by_query': {},
             'query_deduplication_savings': 0
         }
@@ -133,16 +138,16 @@ class UserQueryLoader:
 
     def _execute_combination(self, combination: Dict, date_posted: str) -> List[Dict]:
         """
-        Execute a single search query combination using Active Jobs DB
+        Execute a single search query combination using both JSearch and Active Jobs DB
 
         Args:
             combination: Unique combination dictionary (title_keyword, location, filters)
-            date_posted: Time filter
+            date_posted: Time filter ('24h' or 'week')
 
         Returns:
-            List of job dictionaries
+            List of job dictionaries from both sources
         """
-        # Extract combination parameters (all single values, not pipe-separated)
+        # Extract combination parameters
         title_keyword = combination.get('title_keyword')
         location = combination.get('location')
         work_arrangement = combination.get('ai_work_arrangement')
@@ -158,21 +163,60 @@ class UserQueryLoader:
         if seniority:
             print(f"  Seniority: {seniority}")
 
-        # Execute search with single values
-        jobs = self.collector.search_jobs(
-            query=title_keyword or '',
-            location=location,
-            num_pages=1,  # Single page per combination
-            results_per_page=100,
-            date_posted=date_posted,
-            ai_work_arrangement=work_arrangement,
-            ai_employment_type=employment_type,
-            ai_seniority=seniority,
-            ai_industry=industry
-        )
+        all_jobs = []
 
-        self.stats['quota_used'] += len(jobs)
-        return jobs
+        # 1. Fetch from JSearch if available
+        if self.jsearch_collector and title_keyword:
+            try:
+                print(f"  🔍 Searching JSearch...")
+
+                # Map 24h -> today, week -> week for JSearch
+                jsearch_date = 'today' if date_posted == '24h' else 'week'
+
+                is_remote = location and location.lower() == 'remote'
+                jsearch_location = None if is_remote else location
+
+                jsearch_jobs = self.jsearch_collector.search_jobs(
+                    query=title_keyword,
+                    location=jsearch_location,
+                    num_pages=1,
+                    date_posted=jsearch_date,
+                    country="de",
+                    remote_jobs_only=is_remote
+                )
+
+                all_jobs.extend(jsearch_jobs)
+                self.stats['jsearch_quota'] += len(jsearch_jobs)
+                print(f"    ✓ JSearch: {len(jsearch_jobs)} jobs")
+
+            except Exception as e:
+                print(f"    ⚠️  JSearch error: {e}")
+
+        # 2. Fetch from Active Jobs DB
+        try:
+            print(f"  🔍 Searching Active Jobs DB...")
+
+            activejobs_jobs = self.activejobs_collector.search_jobs(
+                query=title_keyword or '',
+                location=location,
+                num_pages=1,
+                results_per_page=100,
+                date_posted=date_posted,
+                ai_work_arrangement=work_arrangement,
+                ai_employment_type=employment_type,
+                ai_seniority=seniority,
+                ai_industry=industry
+            )
+
+            all_jobs.extend(activejobs_jobs)
+            self.stats['activejobs_quota'] += len(activejobs_jobs)
+            print(f"    ✓ Active Jobs DB: {len(activejobs_jobs)} jobs")
+
+        except Exception as e:
+            print(f"    ⚠️  Active Jobs DB error: {e}")
+
+        self.stats['quota_used'] = self.stats['activejobs_quota'] + self.stats['jsearch_quota']
+        return all_jobs
 
     def _deduplicate_jobs(
         self,
@@ -229,7 +273,9 @@ class UserQueryLoader:
         print(f"{'='*70}")
 
         print(f"\nQuota Usage:")
-        print(f"  Jobs fetched from API: {self.stats['quota_used']}")
+        print(f"  Total jobs fetched: {self.stats['quota_used']}")
+        print(f"    • JSearch: {self.stats['jsearch_quota']}")
+        print(f"    • Active Jobs DB: {self.stats['activejobs_quota']}")
         if self.stats['query_deduplication_savings'] > 0:
             print(f"  Query deduplication saved: {self.stats['query_deduplication_savings']} API calls")
         print(f"  Duplicates skipped: {self.stats['duplicates_skipped']}")
@@ -242,15 +288,15 @@ class UserQueryLoader:
         for combo, count in sorted(self.stats['by_query'].items())[:10]:  # Show top 10
             print(f"  {combo}: {count} jobs")
 
-        # Quota projection
+        # Quota projection (Active Jobs DB only - JSearch has different quota model)
         ultra_plan_quota = 20000
-        quota_percent = (self.stats['quota_used'] / ultra_plan_quota) * 100
+        activejobs_percent = (self.stats['activejobs_quota'] / ultra_plan_quota) * 100
 
-        print(f"\nQuota Analysis (Ultra Plan: {ultra_plan_quota:,} jobs/month):")
-        print(f"  This run used: {self.stats['quota_used']:,} jobs ({quota_percent:.1f}% of quota)")
+        print(f"\nActive Jobs DB Quota Analysis (Ultra Plan: {ultra_plan_quota:,} jobs/month):")
+        print(f"  This run used: {self.stats['activejobs_quota']:,} jobs ({activejobs_percent:.1f}% of quota)")
 
-        estimated_monthly = self.stats['quota_used'] * 30
-        print(f"  Projected monthly: {self.stats['quota_used']:,}/day × 30 = {estimated_monthly:,} jobs/month")
+        estimated_monthly = self.stats['activejobs_quota'] * 30
+        print(f"  Projected monthly: {self.stats['activejobs_quota']:,}/day × 30 = {estimated_monthly:,} jobs/month")
 
         if estimated_monthly > ultra_plan_quota:
             overage_percent = ((estimated_monthly / ultra_plan_quota) - 1) * 100
@@ -274,17 +320,22 @@ def main():
                        help='Load jobs for specific user only (by email)')
     args = parser.parse_args()
 
-    # Get API key
-    api_key = os.getenv('ACTIVEJOBS_API_KEY')
-    if not api_key:
+    # Get API keys
+    activejobs_key = os.getenv('ACTIVEJOBS_API_KEY')
+    jsearch_key = os.getenv('JSEARCH_API_KEY')
+
+    if not activejobs_key:
         print("Error: ACTIVEJOBS_API_KEY not set in .env")
         return
+
+    if not jsearch_key:
+        print("⚠️  Warning: JSEARCH_API_KEY not set - will only use Active Jobs DB")
 
     # Initialize database
     db = get_database()
 
     # Create loader
-    loader = UserQueryLoader(api_key, db)
+    loader = UserQueryLoader(activejobs_key, db, jsearch_key)
 
     try:
         stats = loader.load_jobs_for_all_users(date_posted=args.date)
