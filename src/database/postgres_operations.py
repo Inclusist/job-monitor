@@ -1052,7 +1052,7 @@ class PostgresDatabase:
         try:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT COUNT(*) FROM jobs 
+                SELECT COUNT(*) FROM jobs
                 WHERE discovered_date >= %s AND status != 'deleted'
             """, (since_date,))
             count = cursor.fetchone()[0]
@@ -1060,7 +1060,95 @@ class PostgresDatabase:
         finally:
             cursor.close()
             self._return_connection(conn)
-    
+
+    def get_unique_query_combinations(self) -> List[Dict]:
+        """
+        Get DISTINCT query combinations across all users
+
+        This is the KEY method for quota efficiency!
+        Returns unique combinations of (title_keyword, location, AI filters)
+        regardless of which user created them.
+
+        Example:
+            User 1: "data scientist" in "Berlin"
+            User 2: "data scientist" in "Berlin"  <- Duplicate!
+            Returns only 1 combination
+
+        Returns:
+            List of unique query combination dictionaries
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+            # Get distinct combinations - this is where deduplication happens!
+            cursor.execute("""
+                SELECT DISTINCT
+                    title_keyword,
+                    location,
+                    ai_work_arrangement,
+                    ai_employment_type,
+                    ai_seniority,
+                    ai_industry,
+                    MAX(priority) as max_priority
+                FROM user_search_queries
+                WHERE is_active = TRUE
+                GROUP BY title_keyword, location, ai_work_arrangement,
+                         ai_employment_type, ai_seniority, ai_industry
+                ORDER BY max_priority DESC
+            """)
+
+            combinations = cursor.fetchall()
+            cursor.close()
+            self._return_connection(conn)
+
+            logger.info(f"Found {len(combinations)} unique query combinations across all users")
+            return [dict(c) for c in combinations]
+
+        except Exception as e:
+            if 'conn' in locals():
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error getting unique query combinations: {e}")
+            return []
+
+    def get_all_active_queries(self) -> List[Dict]:
+        """
+        Get all active search queries across all users (NOT deduplicated)
+
+        Use get_unique_query_combinations() for job loading to save quota!
+
+        Returns:
+            List of all query rows with user info
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+            cursor.execute("""
+                SELECT
+                    q.*,
+                    u.email as user_email,
+                    u.name as user_name
+                FROM user_search_queries q
+                JOIN users u ON q.user_id = u.id
+                WHERE q.is_active = TRUE
+                ORDER BY q.priority DESC, q.user_id ASC, q.id ASC
+            """)
+
+            queries = cursor.fetchall()
+            cursor.close()
+            self._return_connection(conn)
+
+            return [dict(q) for q in queries]
+
+        except Exception as e:
+            if 'conn' in locals():
+                cursor.close()
+                self._return_connection(conn)
+            logger.error(f"Error getting all active queries: {e}")
+            return []
+
     def close(self):
         """Close all connections in the pool"""
         if hasattr(self, 'connection_pool'):
