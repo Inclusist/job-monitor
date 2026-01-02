@@ -34,8 +34,8 @@ class ActiveJobsBackfillCollector:
         description_type: str = "text",
         ai_work_arrangement: str = None,
         ai_employment_type: str = None,
-        ai_seniority: str = None,
-        ai_industry: str = None
+        ai_experience_level: str = None,
+        ai_taxonomy: str = None
     ) -> List[Dict]:
         """
         Fetch jobs from 6-month backfill endpoint
@@ -50,10 +50,10 @@ class ActiveJobsBackfillCollector:
             limit: Maximum results to fetch (default: 500)
             offset: Offset for pagination (default: 0)
             description_type: Include description ('text' or 'html')
-            ai_work_arrangement: AI filter for work arrangement
-            ai_employment_type: AI filter for employment type
-            ai_seniority: AI filter for seniority level
-            ai_industry: AI filter for industry
+            ai_work_arrangement: AI filter for work arrangement (On-site, Hybrid, Remote OK, Remote Solely)
+            ai_employment_type: AI filter for employment type (FULL_TIME, PART_TIME, CONTRACTOR, etc)
+            ai_experience_level: AI filter for experience level (0-2, 2-5, 5-10, 10+)
+            ai_taxonomy: AI filter for industry/taxonomy (Technology, Healthcare, etc)
 
         Returns:
             List of job dictionaries
@@ -80,21 +80,26 @@ class ActiveJobsBackfillCollector:
         # Include AI-extracted metadata
         params['include_ai'] = 'true'
 
-        # API-level AI filters
+        # API-level AI filters (using correct parameter names from API docs)
         if ai_work_arrangement:
             params['ai_work_arrangement_filter'] = ai_work_arrangement
 
         if ai_employment_type:
             params['ai_employment_type_filter'] = ai_employment_type
 
-        if ai_seniority:
-            params['ai_seniority_filter'] = ai_seniority
+        if ai_experience_level:
+            params['ai_experience_level_filter'] = ai_experience_level
 
-        if ai_industry:
-            params['ai_industry_filter'] = ai_industry
+        if ai_taxonomy:
+            params['ai_taxonomies_a_filter'] = ai_taxonomy
 
         try:
+            print(f"  DEBUG: Calling {endpoint}")
+            print(f"  DEBUG: Params: {params}")
+
             response = requests.get(endpoint, headers=self.headers, params=params)
+
+            print(f"  DEBUG: Response status: {response.status_code}")
 
             # Check for quota/rate limit errors
             if response.status_code == 429:
@@ -104,15 +109,30 @@ class ActiveJobsBackfillCollector:
                     error_msg = error_data.get('message', error_msg)
                 except:
                     pass
-                print(f"Active Jobs DB Backfill: {error_msg}")
+                print(f"❌ Active Jobs DB Backfill: {error_msg}")
                 return []
 
             if response.status_code == 403:
-                print("Active Jobs DB Backfill: API key invalid or quota exceeded")
+                print("❌ Active Jobs DB Backfill: API key invalid or quota exceeded")
+                try:
+                    error_data = response.json()
+                    print(f"  Error details: {error_data}")
+                except:
+                    pass
+                return []
+
+            if response.status_code != 200:
+                print(f"❌ Active Jobs DB Backfill: HTTP {response.status_code}")
+                try:
+                    print(f"  Response: {response.text[:500]}")
+                except:
+                    pass
                 return []
 
             response.raise_for_status()
             data = response.json()
+
+            print(f"  DEBUG: Response type: {type(data)}, len: {len(data) if isinstance(data, list) else 'N/A'}")
 
             # Extract jobs from response
             if isinstance(data, list):

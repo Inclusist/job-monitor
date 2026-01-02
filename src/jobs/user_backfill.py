@@ -221,9 +221,12 @@ class UserBackfillService:
 
     def _backfill_activejobs(self, queries: List[Dict]) -> List[Dict]:
         """
-        Backfill from Active Jobs DB using 6-month endpoint with pipe operators
+        Backfill from Active Jobs DB using TWO search strategies:
 
-        Groups queries by location and pipes titles together for efficiency.
+        1. City-specific searches: Search in specific cities (Berlin, Hamburg) for ALL jobs
+        2. Germany-wide remote/hybrid: Search all Germany for remote/hybrid jobs only
+
+        Uses pipe operators for efficiency.
         Example: "Data Scientist|ML Engineer" in "Berlin" (1 API call instead of 2)
 
         Args:
@@ -234,64 +237,66 @@ class UserBackfillService:
         """
         all_jobs = []
 
-        # Group by location and filters, then pipe titles together
-        location_groups = {}
+        # Collect all unique titles
+        all_titles = set()
+        specific_locations = set()
 
         for query in queries:
-            location = query.get('location', 'Germany')
-            work_arrangement = query.get('ai_work_arrangement')
-            seniority = query.get('ai_seniority')
-            employment_type = query.get('ai_employment_type')
-            industry = query.get('ai_industry')
-
-            # Handle "Remote" location - use Germany with remote filter
-            if location and location.lower() == 'remote':
-                location = 'Germany'  # Search all of Germany for remote jobs
-
-            # Create group key
-            key = (location, work_arrangement, seniority, employment_type, industry)
-
-            if key not in location_groups:
-                location_groups[key] = {
-                    'location': location,
-                    'titles': [],
-                    'ai_work_arrangement': work_arrangement,
-                    'ai_seniority': seniority,
-                    'ai_employment_type': employment_type,
-                    'ai_industry': industry
-                }
-
-            # Add title to group
             title = query.get('title_keyword')
-            if title and title not in location_groups[key]['titles']:
-                location_groups[key]['titles'].append(title)
+            if title:
+                all_titles.add(title)
 
-        print(f"\nSearching {len(location_groups)} location groups in Active Jobs DB (6-month backfill)...")
+            location = query.get('location', 'Germany')
+            # Collect specific city locations (not "Germany" or "Remote")
+            if location and location not in ['Germany', 'Remote'] and location.lower() != 'remote':
+                specific_locations.add(location)
 
-        for group_key, group in location_groups.items():
-            # Pipe titles together with | operator
-            piped_titles = '|'.join(group['titles']) if group['titles'] else None
+        # Pipe all titles together
+        piped_titles = '|'.join(sorted(all_titles)) if all_titles else None
 
-            location = group['location']
+        if not piped_titles:
+            print("\n⚠️  No titles found in queries, skipping Active Jobs DB backfill")
+            return []
 
-            print(f"\n  Titles: {piped_titles or 'Any'}")
-            print(f"  Location: {location}")
-            print(f"  Filters: {group['ai_work_arrangement'] or 'Any'} work, {group['ai_seniority'] or 'Any'} level")
+        print(f"\nActive Jobs DB Backfill Strategy:")
+        print(f"  Titles: {piped_titles}")
+        print(f"  Specific locations: {', '.join(sorted(specific_locations)) if specific_locations else 'None'}")
 
-            # Use 6-month backfill endpoint with piped titles
-            jobs = self.activejobs_collector.search_backfill(
-                query=piped_titles,
-                location=location,
-                limit=500,  # 500 jobs per location group (covers multiple titles)
-                ai_work_arrangement=group['ai_work_arrangement'],
-                ai_employment_type=group['ai_employment_type'],
-                ai_seniority=group['ai_seniority'],
-                ai_industry=group['ai_industry']
-            )
+        # STRATEGY 1: City-specific searches (ALL jobs, no work arrangement filter)
+        if specific_locations:
+            print(f"\n📍 STRATEGY 1: Searching {len(specific_locations)} specific locations for ALL jobs...")
 
-            all_jobs.extend(jobs)
-            print(f"    Found {len(jobs)} jobs (6 months)")
+            for location in sorted(specific_locations):
+                print(f"\n  Location: {location}")
 
+                jobs = self.activejobs_collector.search_backfill(
+                    query=piped_titles,
+                    location=location,
+                    limit=500
+                )
+
+                all_jobs.extend(jobs)
+                print(f"    ✓ Found {len(jobs)} jobs")
+
+        # STRATEGY 2: Germany-wide search for remote/hybrid jobs ONLY
+        print(f"\n🌍 STRATEGY 2: Searching Germany for remote/hybrid jobs...")
+
+        # Search with work arrangement filter for remote/hybrid
+        remote_work_types = "Hybrid,Remote OK,Remote Solely"
+        print(f"  Location: Germany")
+        print(f"  Work arrangements: {remote_work_types}")
+
+        jobs = self.activejobs_collector.search_backfill(
+            query=piped_titles,
+            location="Germany",
+            limit=500,
+            ai_work_arrangement=remote_work_types
+        )
+
+        all_jobs.extend(jobs)
+        print(f"    ✓ Found {len(jobs)} jobs")
+
+        print(f"\n📊 Total jobs from Active Jobs DB: {len(all_jobs)}")
         return all_jobs
 
     def _get_unique_combinations(self, queries: List[Dict]) -> List[Dict]:
