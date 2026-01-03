@@ -279,6 +279,12 @@ class ActiveJobsCollector:
 
                 if page_num == 0:
                     print(f"  DEBUG: Response type: {type(data)}, len: {len(data) if isinstance(data, list) else 'N/A'}")
+                    if isinstance(data, dict):
+                        print(f"  DEBUG: Dict keys: {list(data.keys())}")
+                        if 'data' in data:
+                            print(f"  DEBUG: data['data'] type: {type(data['data'])}, len: {len(data['data']) if isinstance(data['data'], list) else 'N/A'}")
+                        # Show first few keys of the response for debugging
+                        print(f"  DEBUG: Response preview (first 500 chars): {str(data)[:500]}")
 
                 # Extract jobs from response - API returns list directly
                 if isinstance(data, list):
