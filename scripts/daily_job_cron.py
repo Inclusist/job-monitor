@@ -57,9 +57,9 @@ def run_daily_job():
         # Create loader with both API keys
         loader = UserQueryLoader(activejobs_key, db, jsearch_key)
 
-        # Load jobs from last 24 hours
-        print("\n📥 Loading jobs from last 24 hours...")
-        stats = loader.load_jobs_for_all_users(date_posted='24h')
+        # Load jobs from last 7 days (24h window too narrow, often 0 results)
+        print("\n📥 Loading jobs from last 7 days...")
+        stats = loader.load_jobs_for_all_users(date_posted='week')
 
         # Check for errors
         if stats.get('error') or stats.get('cancelled'):
