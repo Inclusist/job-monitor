@@ -910,34 +910,20 @@ def run_custom_search():
 @app.route('/jobs/<int:job_id>')
 @login_required
 def job_detail(job_id):
-    """Job detail page"""
-    # Get job from database using efficient lookup
-    job = job_db.get_job_by_id(job_id)
+    """Job detail page with user-specific match data"""
+    # Get current user
+    user, stats = get_user_context()
+    user_id = user['id']
+
+    # Get job with user-specific data merged (priority, match_reasoning, etc.)
+    job = job_db.get_job_with_user_data(job_id, user_id)
 
     if not job:
         flash('Job not found', 'error')
         return redirect(url_for('jobs'))
 
-    # Set match_score from claude_score or semantic_score
-    if job.get('claude_score'):
-        job['match_score'] = job['claude_score']
-    elif job.get('semantic_score'):
-        job['match_score'] = job['semantic_score']
-    else:
-        job['match_score'] = None
-
-    # Parse JSON fields if they're stored as strings
-    if job.get('key_alignments') and isinstance(job['key_alignments'], str):
-        try:
-            job['key_alignments'] = json.loads(job['key_alignments'])
-        except:
-            job['key_alignments'] = []
-
-    if job.get('potential_gaps') and isinstance(job['potential_gaps'], str):
-        try:
-            job['potential_gaps'] = json.loads(job['potential_gaps'])
-        except:
-            job['potential_gaps'] = []
+    # Note: match_score, priority, match_reasoning, key_alignments, and potential_gaps
+    # are already set and parsed by get_job_with_user_data()
 
     return render_template('job_detail.html', job=job)
 

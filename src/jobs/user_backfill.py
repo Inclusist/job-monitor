@@ -322,26 +322,97 @@ class UserBackfillService:
 
         return unique
 
+    @staticmethod
+    def normalize_location(location: str) -> str:
+        """
+        Normalize location string for deduplication
+
+        Removes country suffixes to treat "Berlin" and "Berlin, Germany" as same location.
+        This helps deduplicate jobs from different sources that use different location formats.
+
+        Args:
+            location: Location string from job posting
+
+        Returns:
+            Normalized location (lowercase, no country suffix)
+
+        Examples:
+            >>> normalize_location("Berlin, Germany")
+            'berlin'
+            >>> normalize_location("Munich, DE")
+            'munich'
+            >>> normalize_location("Hamburg")
+            'hamburg'
+        """
+        if not location:
+            return ''
+
+        location = location.strip()
+
+        # Remove common country suffixes for Germany
+        country_suffixes = [', Germany', ', DE', ', Deutschland']
+        for suffix in country_suffixes:
+            if location.endswith(suffix):
+                location = location[:-len(suffix)].strip()
+
+        return location.lower()
+
     def _deduplicate_jobs(
         self,
         jobs: List[Dict],
         seen_job_ids: set,
         deleted_ids: set
     ) -> List[Dict]:
-        """Remove duplicate and deleted jobs"""
+        """
+        Remove duplicate and deleted jobs using both ID and content-based deduplication
+
+        Uses two deduplication strategies:
+        1. Primary: external_id or URL (catches same job from same source)
+        2. Secondary: (title, company, normalized_location) signature (catches same job from different sources)
+
+        This prevents jobs like "Berlin" and "Berlin, Germany" from being stored as duplicates.
+
+        Args:
+            jobs: List of job dictionaries to deduplicate
+            seen_job_ids: Set of external_ids/URLs already seen
+            deleted_ids: Set of job_ids that have been deleted/hidden
+
+        Returns:
+            List of unique jobs
+        """
         unique_jobs = []
+        seen_signatures = set()  # Track content-based signatures
 
         for job in jobs:
+            # Primary deduplication key: external_id or URL
             job_id = job.get('external_id') or job.get('url', '') or job.get('job_id', '')
 
-            if job_id in seen_job_ids:
+            # Secondary deduplication: content-based signature
+            signature = (
+                job.get('title', '').lower().strip(),
+                job.get('company', '').lower().strip(),
+                self.normalize_location(job.get('location', ''))
+            )
+
+            # Check primary key (external_id)
+            if job_id and job_id in seen_job_ids:
                 self.stats['duplicates_skipped'] += 1
                 continue
 
-            if job_id in deleted_ids:
+            # Check secondary key (content signature) - catches cross-source duplicates
+            if signature in seen_signatures:
+                self.stats['duplicates_skipped'] += 1
                 continue
 
-            seen_job_ids.add(job_id)
+            # Check deleted jobs
+            if job_id and job_id in deleted_ids:
+                continue
+
+            # Add to both tracking sets
+            if job_id:
+                seen_job_ids.add(job_id)
+            seen_signatures.add(signature)
+
             unique_jobs.append(job)
 
         return unique_jobs

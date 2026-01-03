@@ -580,7 +580,93 @@ class PostgresDatabase:
         finally:
             cursor.close()
             self._return_connection(conn)
-    
+
+    def get_job_with_user_data(self, job_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Get job details merged with user-specific match data
+
+        Joins the jobs table with user_job_matches to provide a complete view
+        including user-specific priority, match_reasoning, scores, etc.
+
+        Args:
+            job_id: The job ID to fetch (primary key from jobs table)
+            user_id: The user ID for user-specific data
+
+        Returns:
+            Job dictionary with merged user-specific fields (priority, match_reasoning, etc.)
+            or None if job not found
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("""
+                SELECT
+                    j.*,
+                    ujm.claude_score,
+                    ujm.semantic_score,
+                    ujm.priority as user_priority,
+                    ujm.match_reasoning as user_match_reasoning,
+                    ujm.key_alignments as user_key_alignments,
+                    ujm.potential_gaps as user_potential_gaps,
+                    ujm.status as user_status,
+                    ujm.feedback_type,
+                    ujm.feedback_reason,
+                    ujm.user_score
+                FROM jobs j
+                LEFT JOIN user_job_matches ujm
+                    ON j.id = ujm.job_id AND ujm.user_id = %s
+                WHERE j.id = %s
+            """, (user_id, job_id))
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            job = dict(row)
+
+            # Merge user-specific data, preferring user_job_matches values
+            if job.get('user_priority'):
+                job['priority'] = job['user_priority']
+
+            if job.get('user_match_reasoning'):
+                job['match_reasoning'] = job['user_match_reasoning']
+
+            # Parse JSON fields if they are strings
+            if job.get('user_key_alignments'):
+                if isinstance(job['user_key_alignments'], str):
+                    try:
+                        import json
+                        job['key_alignments'] = json.loads(job['user_key_alignments'])
+                    except:
+                        job['key_alignments'] = []
+                else:
+                    job['key_alignments'] = job['user_key_alignments']
+
+            if job.get('user_potential_gaps'):
+                if isinstance(job['user_potential_gaps'], str):
+                    try:
+                        import json
+                        job['potential_gaps'] = json.loads(job['user_potential_gaps'])
+                    except:
+                        job['potential_gaps'] = []
+                else:
+                    job['potential_gaps'] = job['user_potential_gaps']
+
+            if job.get('user_status'):
+                job['status'] = job['user_status']
+
+            # Set match_score from Claude or semantic score
+            if job.get('claude_score'):
+                job['match_score'] = job['claude_score']
+            elif job.get('semantic_score'):
+                job['match_score'] = job['semantic_score']
+
+            return job
+
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+
     def get_deleted_job_ids(self) -> set:
         """
         Get set of job_ids that have been deleted/hidden
