@@ -188,12 +188,16 @@ class ActiveJobsCollector:
         
         for page_num in range(num_pages):
             offset = page_num * results_per_page
-            
+
             params = {
-                'title_filter': query,
                 'limit': min(results_per_page, 100),  # Max 100 per request
                 'offset': offset
             }
+
+            # Add title filter using advanced_title_filter (required for proper API results)
+            # Format: 'query' with single quotes for proper parsing
+            if query:
+                params['advanced_title_filter'] = f"'{query}'"
             
             # Add location filter
             if location:
