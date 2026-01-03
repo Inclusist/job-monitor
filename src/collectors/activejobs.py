@@ -194,9 +194,13 @@ class ActiveJobsCollector:
                 'offset': offset
             }
 
-            # Add title filter using advanced_title_filter (required for proper API results)
+            # Add title filter using advanced_title_filter
+            # Convert to tsquery format: "Team Lead Machine Learning" -> "Team&Lead&Machine&Learning"
+            # tsquery uses & for AND, | for OR
             if query:
-                params['advanced_title_filter'] = query
+                # Replace spaces with & for PostgreSQL tsquery syntax
+                tsquery_format = query.replace(' ', '&')
+                params['advanced_title_filter'] = tsquery_format
             
             # Add location filter
             if location:
