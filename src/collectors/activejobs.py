@@ -195,12 +195,16 @@ class ActiveJobsCollector:
             }
 
             # Add title filter using advanced_title_filter
-            # Convert to tsquery format: "Team Lead Machine Learning" -> "Team&Lead&Machine&Learning"
-            # tsquery uses & for AND, | for OR
+            # API requires: phrases (2+ words) must be single-quoted
+            # Example: 'Machine Learning' or 'Team Lead' & 'Data Science'
             if query:
-                # Replace spaces with & for PostgreSQL tsquery syntax
-                tsquery_format = query.replace(' ', '&')
-                params['advanced_title_filter'] = tsquery_format
+                # If query has multiple words, treat as exact phrase (more accurate)
+                if ' ' in query:
+                    # Single-quote the entire phrase for exact matching
+                    params['advanced_title_filter'] = f"'{query}'"
+                else:
+                    # Single word, no quotes needed
+                    params['advanced_title_filter'] = query
             
             # Add location filter
             if location:
