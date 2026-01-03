@@ -631,19 +631,32 @@ class PostgresDatabase:
             # Parse JSON fields - prefer user-specific, fallback to job table
             import json
 
+            # Helper to parse JSON field
+            def parse_json(field):
+                if not field:
+                    return []
+                if isinstance(field, list):
+                    return field
+                if isinstance(field, str):
+                    try:
+                        return json.loads(field)
+                    except:
+                        return []
+                return []
+
             # Key alignments
             if job.get('user_key_alignments'):
-                job['key_alignments'] = self._parse_json_field(job['user_key_alignments'])
+                job['key_alignments'] = parse_json(job['user_key_alignments'])
             elif job.get('key_alignments'):
-                job['key_alignments'] = self._parse_json_field(job['key_alignments'])
+                job['key_alignments'] = parse_json(job['key_alignments'])
             else:
                 job['key_alignments'] = []
 
             # Potential gaps
             if job.get('user_potential_gaps'):
-                job['potential_gaps'] = self._parse_json_field(job['user_potential_gaps'])
+                job['potential_gaps'] = parse_json(job['user_potential_gaps'])
             elif job.get('potential_gaps'):
-                job['potential_gaps'] = self._parse_json_field(job['potential_gaps'])
+                job['potential_gaps'] = parse_json(job['potential_gaps'])
             else:
                 job['potential_gaps'] = []
 
