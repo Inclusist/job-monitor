@@ -1513,7 +1513,7 @@ def job_feedback(job_id):
     # Get original job score
     conn = job_db._get_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT match_score FROM jobs WHERE id = ?', (job_id,))
+    cursor.execute('SELECT match_score FROM jobs WHERE id = %s', (job_id,))
     row = cursor.fetchone()
     conn.close()
     

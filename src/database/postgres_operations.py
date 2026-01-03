@@ -608,10 +608,7 @@ class PostgresDatabase:
                     ujm.match_reasoning as user_match_reasoning,
                     ujm.key_alignments as user_key_alignments,
                     ujm.potential_gaps as user_potential_gaps,
-                    ujm.status as user_status,
-                    ujm.feedback_type,
-                    ujm.feedback_reason,
-                    ujm.user_score
+                    ujm.status as user_status
                 FROM jobs j
                 LEFT JOIN user_job_matches ujm
                     ON j.id = ujm.job_id AND ujm.user_id = %s
@@ -631,26 +628,24 @@ class PostgresDatabase:
             if job.get('user_match_reasoning'):
                 job['match_reasoning'] = job['user_match_reasoning']
 
-            # Parse JSON fields if they are strings
-            if job.get('user_key_alignments'):
-                if isinstance(job['user_key_alignments'], str):
-                    try:
-                        import json
-                        job['key_alignments'] = json.loads(job['user_key_alignments'])
-                    except:
-                        job['key_alignments'] = []
-                else:
-                    job['key_alignments'] = job['user_key_alignments']
+            # Parse JSON fields - prefer user-specific, fallback to job table
+            import json
 
+            # Key alignments
+            if job.get('user_key_alignments'):
+                job['key_alignments'] = self._parse_json_field(job['user_key_alignments'])
+            elif job.get('key_alignments'):
+                job['key_alignments'] = self._parse_json_field(job['key_alignments'])
+            else:
+                job['key_alignments'] = []
+
+            # Potential gaps
             if job.get('user_potential_gaps'):
-                if isinstance(job['user_potential_gaps'], str):
-                    try:
-                        import json
-                        job['potential_gaps'] = json.loads(job['user_potential_gaps'])
-                    except:
-                        job['potential_gaps'] = []
-                else:
-                    job['potential_gaps'] = job['user_potential_gaps']
+                job['potential_gaps'] = self._parse_json_field(job['user_potential_gaps'])
+            elif job.get('potential_gaps'):
+                job['potential_gaps'] = self._parse_json_field(job['potential_gaps'])
+            else:
+                job['potential_gaps'] = []
 
             if job.get('user_status'):
                 job['status'] = job['user_status']
