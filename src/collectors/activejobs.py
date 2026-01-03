@@ -195,9 +195,8 @@ class ActiveJobsCollector:
             }
 
             # Add title filter using advanced_title_filter (required for proper API results)
-            # Format: 'query' with single quotes for proper parsing
             if query:
-                params['advanced_title_filter'] = f"'{query}'"
+                params['advanced_title_filter'] = query
             
             # Add location filter
             if location:
@@ -228,8 +227,16 @@ class ActiveJobsCollector:
                 params['ai_industry_filter'] = ai_industry
 
             try:
+                # Debug logging
+                if page_num == 0:  # Only log first page to avoid spam
+                    print(f"  DEBUG: Calling {endpoint}")
+                    print(f"  DEBUG: Params: {params}")
+
                 response = requests.get(endpoint, headers=self.headers, params=params)
-                
+
+                if page_num == 0:
+                    print(f"  DEBUG: Response status: {response.status_code}")
+
                 # Check for quota/rate limit errors
                 if response.status_code == 429:
                     # Check headers for details
@@ -269,14 +276,19 @@ class ActiveJobsCollector:
                 
                 response.raise_for_status()
                 data = response.json()
-                
+
+                if page_num == 0:
+                    print(f"  DEBUG: Response type: {type(data)}, len: {len(data) if isinstance(data, list) else 'N/A'}")
+
                 # Extract jobs from response - API returns list directly
                 if isinstance(data, list):
                     jobs_data = data
                 else:
                     jobs_data = data.get('data', [])
-                
+
                 if not jobs_data:
+                    if page_num == 0:
+                        print(f"  DEBUG: No jobs returned (empty response)")
                     break  # No more results
                 
                 # Check rate limit headers
