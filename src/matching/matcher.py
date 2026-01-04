@@ -467,13 +467,13 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
             matching_status[user_id].update({
                 'stage': 'claude_analysis',
                 'progress': 60,
-                'message': f'Running AI analysis on {min(len(high_score_matches), 20)} top matches...'
+                'message': f'Running AI analysis on {len(high_score_matches)} high-scoring matches...'
             })
-            
+
             # Collect all Claude analyses first, then batch update
             claude_batch_updates = []
-            
-            for idx, match in enumerate(high_score_matches[:20]):  # Limit to top 20
+
+            for idx, match in enumerate(high_score_matches):  # Analyze all high-scoring matches
                 job = match['job']
                 
                 try:
