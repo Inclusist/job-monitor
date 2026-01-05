@@ -223,8 +223,8 @@ class PostgresDatabase:
             """)
             
             cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_jobs_job_id 
-                ON jobs(job_id)
+                CREATE INDEX IF NOT EXISTS idx_jobs_external_id
+                ON jobs(external_id)
             """)
             
             cursor.execute("""
@@ -245,11 +245,11 @@ class PostgresDatabase:
     
     def add_job(self, job_data: Dict[str, Any]) -> Optional[int]:
         """
-        Add a new job to the database
-        
+        Add a new job to the database (new clean architecture - global data only)
+
         Args:
-            job_data: Dictionary containing job information
-            
+            job_data: Dictionary containing job information from API
+
         Returns:
             Job ID if successful, None if job already exists
         """
@@ -257,7 +257,7 @@ class PostgresDatabase:
             now = datetime.now()
             conn = self._get_connection()
             cursor = conn.cursor()
-            
+
             # Parse posted_date if it's a string
             posted_date = job_data.get('posted_date')
             if isinstance(posted_date, str):
@@ -265,44 +265,61 @@ class PostgresDatabase:
                     posted_date = datetime.fromisoformat(posted_date.replace('Z', '+00:00'))
                 except:
                     posted_date = None
-            
+
+            # Helper to safely get lists
+            def get_list(key, default=None):
+                val = job_data.get(key, default)
+                return val if isinstance(val, list) else default
+
             cursor.execute("""
                 INSERT INTO jobs (
-                    job_id, source, title, company, location, description,
-                    url, posted_date, salary, discovered_date, last_updated,
-                    match_score, match_reasoning, key_alignments, potential_gaps,
-                    priority, status,
-                    ai_employment_type, ai_work_arrangement, ai_seniority, ai_industry
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    external_id, title, company, location, description, url, source,
+                    source_domain, source_type,
+                    posted_date, salary, employment_type, remote,
+                    organization_url, organization_logo,
+                    locations_derived, cities_derived,
+                    ai_employment_type, ai_work_arrangement, ai_experience_level,
+                    ai_key_skills, ai_keywords, ai_taxonomies_a,
+                    ai_core_responsibilities, ai_requirements_summary,
+                    discovered_date, last_updated
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (external_id) DO UPDATE SET
+                    last_updated = EXCLUDED.last_updated
                 RETURNING id
             """, (
-                job_data.get('job_id') or job_data.get('external_id'),
-                job_data.get('source'),
+                job_data.get('external_id'),
                 job_data.get('title'),
                 job_data.get('company'),
                 job_data.get('location'),
                 job_data.get('description'),
                 job_data.get('url'),
+                job_data.get('source'),
+                job_data.get('source_domain'),
+                job_data.get('source_type'),
                 posted_date,
                 job_data.get('salary'),
-                now,
-                now,
-                job_data.get('match_score'),
-                job_data.get('match_reasoning') or job_data.get('reasoning'),
-                json.dumps(job_data.get('key_alignments', [])),
-                json.dumps(job_data.get('potential_gaps', [])),
-                job_data.get('priority', 'medium'),
-                'new',
-                job_data.get('ai_employment_type'),
+                job_data.get('employment_type'),
+                job_data.get('remote', False),
+                job_data.get('organization_url'),
+                job_data.get('organization_logo'),
+                get_list('locations_derived', []),
+                get_list('cities_derived', []),
+                get_list('ai_employment_type', []),
                 job_data.get('ai_work_arrangement'),
-                job_data.get('ai_seniority'),
-                job_data.get('ai_industry')
+                job_data.get('ai_seniority') or job_data.get('ai_experience_level'),  # Handle both names
+                get_list('ai_key_skills', []),
+                get_list('ai_keywords', []),
+                get_list('ai_industry', []) if isinstance(job_data.get('ai_industry'), list) else get_list('ai_taxonomies_a', []),
+                job_data.get('ai_core_responsibilities'),
+                job_data.get('ai_requirements_summary'),
+                now,
+                now
             ))
-            
+
             job_id = cursor.fetchone()[0]
             conn.commit()
             return job_id
-            
+
         except psycopg2.IntegrityError:
             conn.rollback()
             return None
@@ -315,11 +332,11 @@ class PostgresDatabase:
             self._return_connection(conn)
     
     def job_exists(self, job_id: str) -> bool:
-        """Check if a job already exists in database"""
+        """Check if a job already exists in database by external_id"""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT 1 FROM jobs WHERE job_id = %s", (job_id,))
+            cursor.execute("SELECT 1 FROM jobs WHERE external_id = %s", (job_id,))
             result = cursor.fetchone() is not None
             return result
         finally:
@@ -681,17 +698,12 @@ class PostgresDatabase:
         Used to prevent re-adding deleted jobs in future searches
         
         Returns:
-            Set of job_id strings for deleted jobs
+            Set of external_id strings for deleted jobs
         """
-        conn = self._get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute("SELECT job_id FROM jobs WHERE status = 'deleted'")
-            deleted_ids = {row[0] for row in cursor.fetchall()}
-            return deleted_ids
-        finally:
-            cursor.close()
-            self._return_connection(conn)
+        # Note: In new architecture, 'deleted' is user-specific (in user_job_matches)
+        # Jobs table doesn't have global 'deleted' status
+        # Return empty set - user-specific deletion handled in user_job_matches
+        return set()
     
     def update_job_status(self, job_id: str, status: str, notes: str = None):
         """Update job status and optionally add notes"""
@@ -727,39 +739,52 @@ class PostgresDatabase:
         try:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             
-            # Total jobs
+            # Total jobs (global)
             cursor.execute("SELECT COUNT(*) as total FROM jobs")
             total_jobs = cursor.fetchone()['total']
-            
-            # Jobs by status
-            cursor.execute("""
-                SELECT status, COUNT(*) as count 
-                FROM jobs 
-                GROUP BY status
-            """)
-            status_counts = {row['status']: row['count'] for row in cursor.fetchall()}
-            
+
             # Jobs by source
             cursor.execute("""
-                SELECT source, COUNT(*) as count 
-                FROM jobs 
-                GROUP BY source 
+                SELECT source, COUNT(*) as count
+                FROM jobs
+                GROUP BY source
                 ORDER BY count DESC
             """)
             source_counts = {row['source']: row['count'] for row in cursor.fetchall()}
-            
-            # Recent jobs
+
+            # Jobs by work arrangement (AI metadata)
             cursor.execute("""
-                SELECT COUNT(*) as count 
-                FROM jobs 
-                WHERE discovered_date >= CURRENT_DATE
+                SELECT ai_work_arrangement, COUNT(*) as count
+                FROM jobs
+                WHERE ai_work_arrangement IS NOT NULL
+                GROUP BY ai_work_arrangement
+                ORDER BY count DESC
+            """)
+            work_arrangement_counts = {row['ai_work_arrangement']: row['count'] for row in cursor.fetchall()}
+
+            # Jobs by experience level (AI metadata)
+            cursor.execute("""
+                SELECT ai_experience_level, COUNT(*) as count
+                FROM jobs
+                WHERE ai_experience_level IS NOT NULL
+                GROUP BY ai_experience_level
+                ORDER BY count DESC
+            """)
+            experience_counts = {row['ai_experience_level']: row['count'] for row in cursor.fetchall()}
+
+            # Recent jobs (last 24 hours)
+            cursor.execute("""
+                SELECT COUNT(*) as count
+                FROM jobs
+                WHERE discovered_date >= NOW() - INTERVAL '24 hours'
             """)
             today_count = cursor.fetchone()['count']
-            
+
             return {
                 'total_jobs': total_jobs,
-                'by_status': status_counts,
                 'by_source': source_counts,
+                'by_work_arrangement': work_arrangement_counts,
+                'by_experience_level': experience_counts,
                 'discovered_today': today_count
             }
         finally:
@@ -912,17 +937,17 @@ class PostgresDatabase:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             
             query = """
-                SELECT 
+                SELECT
                     ujm.*,
                     j.id as job_table_id,
-                    j.job_id,
-                    j.source, 
-                    j.title, 
-                    j.company, 
+                    j.external_id,
+                    j.source,
+                    j.title,
+                    j.company,
                     j.location as job_location,
-                    j.description, 
-                    j.url, 
-                    j.posted_date, 
+                    j.description,
+                    j.url,
+                    j.posted_date,
                     j.salary,
                     j.discovered_date
                 FROM user_job_matches ujm
@@ -956,14 +981,14 @@ class PostgresDatabase:
             self._return_connection(conn)
     
     def get_jobs_discovered_today(self) -> List[Dict]:
-        """Get jobs discovered today (excludes deleted jobs)"""
+        """Get jobs discovered today"""
         conn = self._get_connection()
         try:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute("""
-                SELECT * FROM jobs 
-                WHERE DATE(discovered_date) = CURRENT_DATE AND status != 'deleted'
-                ORDER BY COALESCE(match_score, 0) DESC
+                SELECT * FROM jobs
+                WHERE DATE(discovered_date) = CURRENT_DATE
+                ORDER BY discovered_date DESC
             """)
             results = [dict(row) for row in cursor.fetchall()]
             return results
@@ -972,14 +997,14 @@ class PostgresDatabase:
             self._return_connection(conn)
     
     def get_jobs_discovered_before_today(self, limit: int = 50) -> List[Dict]:
-        """Get jobs discovered before today (excludes deleted jobs)"""
+        """Get jobs discovered before today"""
         conn = self._get_connection()
         try:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute("""
-                SELECT * FROM jobs 
-                WHERE DATE(discovered_date) < CURRENT_DATE AND status != 'deleted'
-                ORDER BY COALESCE(match_score, 0) DESC, discovered_date DESC
+                SELECT * FROM jobs
+                WHERE DATE(discovered_date) < CURRENT_DATE
+                ORDER BY discovered_date DESC
                 LIMIT %s
             """, (limit,))
             results = [dict(row) for row in cursor.fetchall()]
@@ -990,20 +1015,10 @@ class PostgresDatabase:
     
     def get_deleted_jobs(self, limit: int = 50) -> List[Dict]:
         """Get all deleted/hidden jobs"""
-        conn = self._get_connection()
-        try:
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            cursor.execute("""
-                SELECT * FROM jobs 
-                WHERE status = 'deleted'
-                ORDER BY last_updated DESC
-                LIMIT %s
-            """, (limit,))
-            results = [dict(row) for row in cursor.fetchall()]
-            return results
-        finally:
-            cursor.close()
-            self._return_connection(conn)
+        # Note: In new architecture, 'deleted' is user-specific (in user_job_matches)
+        # Jobs table doesn't have global 'deleted' status
+        # Return empty list - use get_user_job_matches with status='deleted' for user-specific
+        return []
     
     def permanently_delete_job(self, job_id: int) -> bool:
         """Permanently remove a job from the database"""
@@ -1196,7 +1211,7 @@ class PostgresDatabase:
             cursor.execute("""
                 SELECT j.* FROM jobs j
                 LEFT JOIN user_job_matches ujm ON j.id = ujm.job_id AND ujm.user_id = %s
-                WHERE ujm.id IS NULL AND j.status != 'deleted'
+                WHERE ujm.id IS NULL
                 ORDER BY j.discovered_date DESC
             """, (user_id,))
             results = [dict(row) for row in cursor.fetchall()]
@@ -1212,7 +1227,7 @@ class PostgresDatabase:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT COUNT(*) FROM jobs
-                WHERE discovered_date >= %s AND status != 'deleted'
+                WHERE discovered_date >= %s
             """, (since_date,))
             count = cursor.fetchone()[0]
             return count

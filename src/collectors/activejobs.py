@@ -61,8 +61,10 @@ class ActiveJobsCollector:
         Returns:
             List of all job dictionaries
         """
-        # Choose endpoint
-        if date_posted == "24h":
+        # Choose endpoint based on date_posted
+        if date_posted == "1h":
+            endpoint = f"{self.base_url}/active-ats-1h"  # Ultra plan only
+        elif date_posted == "24h":
             endpoint = f"{self.base_url}/active-ats-24h"
         else:
             endpoint = f"{self.base_url}/active-ats-7d"
@@ -179,7 +181,9 @@ class ActiveJobsCollector:
             List of job dictionaries
         """
         # Choose endpoint based on date_posted
-        if date_posted == "24h":
+        if date_posted == "1h":
+            endpoint = f"{self.base_url}/active-ats-1h"  # Ultra plan only
+        elif date_posted == "24h":
             endpoint = f"{self.base_url}/active-ats-24h"
         else:
             endpoint = f"{self.base_url}/active-ats-7d"  # Default to 7 days
@@ -358,23 +362,38 @@ class ActiveJobsCollector:
         # locations_derived is a list of strings like ["Hamburg, Hamburg, Germany"]
         locations = job_data.get('locations_derived', [])
         if locations and isinstance(locations, list):
-            # Join location strings, they already contain city, region, country
-            location_str = ', '.join([loc for loc in locations if isinstance(loc, str)])
+            # Join location strings, filtering out None values
+            location_str = ', '.join([loc for loc in locations if loc and isinstance(loc, str)])
         else:
             location_str = ""
-        
-        # Get employment type
+
+        # Get employment type - filter out None values
         employment_types = job_data.get('employment_type', [])
-        employment_type = ', '.join(employment_types) if employment_types else ''
-        
+        if employment_types and isinstance(employment_types, list):
+            employment_type = ', '.join([et for et in employment_types if et])
+        else:
+            employment_type = ''
+
         # Format posted date
         posted_date = job_data.get('date_posted', '')
 
-        # Extract AI-powered fields
-        ai_employment_type = job_data.get('ai_employment_type_filter', '')
-        ai_work_arrangement = job_data.get('ai_work_arrangement_filter', '')
-        ai_seniority = job_data.get('ai_seniority_filter', '')
-        ai_industry = job_data.get('ai_industry_filter', '')
+        # Extract AI-powered fields (using correct field names from API response)
+        # Filter out None values when joining arrays
+        ai_employment_type_list = job_data.get('ai_employment_type', [])
+        if isinstance(ai_employment_type_list, list):
+            ai_employment_type = ', '.join([et for et in ai_employment_type_list if et])
+        else:
+            ai_employment_type = str(ai_employment_type_list) if ai_employment_type_list else ''
+
+        ai_work_arrangement = job_data.get('ai_work_arrangement', '')
+
+        ai_seniority = job_data.get('ai_experience_level', '')  # This is seniority (e.g., "0-2", "3-5", etc.)
+
+        ai_industry_list = job_data.get('ai_taxonomies_a', [])  # This contains industries
+        if isinstance(ai_industry_list, list):
+            ai_industry = ', '.join([ind for ind in ai_industry_list if ind])
+        else:
+            ai_industry = str(ai_industry_list) if ai_industry_list else ''
 
         return {
             "title": job_data.get('title', ''),
@@ -390,10 +409,12 @@ class ActiveJobsCollector:
             # Additional metadata
             "organization_url": job_data.get('organization_url', ''),
             "organization_logo": job_data.get('organization_logo', ''),
-            "remote": job_data.get('location_type') == 'TELECOMMUTE',
+            "remote": job_data.get('remote_derived', False),  # Use remote_derived instead of location_type
             # AI-extracted metadata for better matching
             "ai_employment_type": ai_employment_type,
             "ai_work_arrangement": ai_work_arrangement,
             "ai_seniority": ai_seniority,
             "ai_industry": ai_industry,
+            # Locations array
+            "locations_derived": job_data.get('locations_derived', []),
         }

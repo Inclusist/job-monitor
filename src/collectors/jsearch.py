@@ -103,15 +103,34 @@ class JSearchCollector:
             jobs = []
             if data.get("status") == "OK" and data.get("data"):
                 for job in data["data"]:
-                    jobs.append(self._parse_job(job))
+                    parsed_job = self._parse_job(job)
+
+                    # Apply country filter if specified
+                    if country and country == 'de':
+                        # Only include German jobs
+                        job_country = job.get("job_country", "")
+                        job_city = job.get("job_city", "")
+                        job_state = job.get("job_state", "")
+
+                        # Check if job is in Germany
+                        is_german = (
+                            job_country == "DE" or
+                            "Germany" in str(job_country) or
+                            job_city in ["Berlin", "Munich", "Hamburg", "Frankfurt", "Cologne", "Stuttgart", "Dusseldorf", "Dortmund", "Essen", "Leipzig", "Bremen", "Dresden", "Hannover", "Nuremberg", "Duisburg", "Bochum", "Wuppertal", "Bielefeld", "Bonn", "Munster", "Karlsruhe", "Mannheim", "Augsburg", "Wiesbaden", "Gelsenkirchen", "Monchengladbach", "Braunschweig", "Chemnitz", "Kiel", "Aachen", "Halle", "Magdeburg", "Freiburg", "Krefeld", "Lubeck", "Oberhausen", "Erfurt", "Mainz", "Rostock", "Kassel", "Hagen", "Hamm", "Saarbrucken", "Mulheim", "Potsdam", "Ludwigshafen", "Oldenburg", "Osnabruck", "Leverkusen", "Solingen", "Heidelberg", "Herne", "Neuss", "Darmstadt", "Paderborn", "Regensburg", "Ingolstadt", "Wurzburg", "Fürth", "Wolfsburg", "Offenbach", "Ulm", "Heilbronn", "Pforzheim", "Gottingen", "Bottrop", "Trier", "Recklinghausen", "Reutlingen", "Bremerhaven", "Koblenz", "Bergisch Gladbach", "Jena", "Remscheid", "Erlangen", "Moers", "Siegen", "Hildesheim", "Salzgitter"]
+                        )
+
+                        if not is_german:
+                            continue  # Skip non-German jobs
+
+                    jobs.append(parsed_job)
             else:
                 print(f"API returned: {data}")
-            
+
             # Apply source filtering if enabled
             if self.enable_filtering and self.source_filter and jobs:
                 print(f"\nApplying source quality filter (min_quality={self.min_quality})...")
                 jobs = self.source_filter.filter_jobs(jobs, min_quality=self.min_quality)
-            
+
             return jobs
             
         except requests.exceptions.RequestException as e:

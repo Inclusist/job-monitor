@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""
+Hourly Job Cron Service
+
+Runs every hour to load jobs posted in the last hour from Active Jobs DB.
+Uses the 1-hour endpoint for maximum freshness.
+
+Usage:
+    # Run once (for testing)
+    python scripts/hourly_job_cron.py --run-once
+
+    # Run as cron service (continuous, every hour)
+    python scripts/hourly_job_cron.py
+
+    # Run at custom interval (minutes)
+    python scripts/hourly_job_cron.py --interval 30
+"""
+
+import os
+import sys
+from datetime import datetime
+from dotenv import load_dotenv
+from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+import pytz
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.collectors.activejobs import ActiveJobsCollector
+from src.database.factory import get_database
+from scripts.enrich_missing_jobs import enrich_jobs  # Import enrichment agent
+import psycopg2
+from psycopg2.extras import execute_values
+import json
+
+load_dotenv()
+
+
+def collect_hourly_jobs(db, api_key):
+    """
+    Collect jobs from the last hour using Active Jobs DB 1-hour endpoint
+
+    Uses the Ultra plan 1h endpoint for maximum freshness - jobs are captured
+    within 1 hour of posting.
+
+    Returns:
+        dict: Statistics about the collection
+    """
+    print("\n📥 Collecting jobs from last hour...")
+
+    collector = ActiveJobsCollector(
+        api_key=api_key,
+        enable_filtering=False,  # No filtering - get everything
+        min_quality=1
+    )
+
+    # Fetch jobs from last hour (Ultra plan endpoint)
+    jobs = collector.search_all_recent_jobs(
+        location="Germany",
+        max_pages=10,  # Up to 1000 jobs per hour
+        date_posted="1h",  # 1-HOUR endpoint (requires Ultra plan)
+        remote_only=False
+    )
+
+    if not jobs:
+        print("  No new jobs in the last hour")
+        return {
+            'new_jobs': 0,
+            'duplicates': 0,
+            'quota_used': 0
+        }
+
+    print(f"  ✓ Fetched {len(jobs)} jobs from API")
+
+    # Store jobs in database
+    conn = db._get_connection()
+    cursor = conn.cursor()
+
+    new_count = 0
+    duplicate_count = 0
+
+    for job in jobs:
+        try:
+            job_id = db.add_job(job)
+            if job_id:
+                new_count += 1
+            else:
+                duplicate_count += 1
+        except Exception as e:
+            print(f"  ⚠️ Error adding job: {e}")
+            continue
+
+    cursor.close()
+    db._return_connection(conn)
+
+    return {
+        'new_jobs': new_count,
+        'duplicates': duplicate_count,
+        'quota_used': len(jobs)
+    }
+
+
+def run_hourly_job():
+    """
+    Execute hourly job collection
+
+    Collects jobs posted in the last hour from Active Jobs DB
+    """
+    print("\n" + "=" * 80)
+    print(f"HOURLY JOB STARTED - {datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    print("=" * 80)
+
+    try:
+        # Get API key
+        activejobs_key = os.getenv('ACTIVEJOBS_API_KEY')
+
+        if not activejobs_key:
+            print("❌ ERROR: ACTIVEJOBS_API_KEY not set in environment")
+            return False
+
+        # Initialize database
+        db = get_database()
+
+        # Collect jobs
+        stats = collect_hourly_jobs(db, activejobs_key)
+
+        # Print summary
+        print(f"\n✅ Hourly job completed successfully!")
+        print(f"   • New jobs added: {stats['new_jobs']}")
+        print(f"   • Duplicates skipped: {stats['duplicates']}")
+        print(f"   • API quota used: {stats['quota_used']}")
+
+        # Get current total
+        conn = db._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM jobs")
+        total = cursor.fetchone()[0]
+        cursor.close()
+        db._return_connection(conn)
+
+        print(f"   • Total jobs in database: {total:,}")
+
+        # --- Trigger Enrichment Agent ---
+        print("\n🤖 specific enrichment agent starting...")
+        # We need a raw pyscopg2 connection for the agent, 
+        # but the db object might be a wrapper. Let's get a raw connection.
+        agent_conn = db._get_connection() 
+        try:
+            enrich_stats = enrich_jobs(agent_conn, limit=50) # Limit 50 per hour to be safe
+            print(f"   • Enrichment Agent: Processed {enrich_stats['processed']} (Success: {enrich_stats['success']}, Failed: {enrich_stats['failed']})")
+        except Exception as e:
+            print(f"   ⚠️ Enrichment Agent failed: {e}")
+        finally:
+            db._return_connection(agent_conn)
+        # --------------------------------
+        
+        db.close()
+        return True
+
+    except Exception as e:
+        print(f"\n❌ ERROR during hourly job: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+    finally:
+        print("\n" + "=" * 80)
+        print(f"HOURLY JOB FINISHED - {datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        print("=" * 80 + "\n")
+
+
+def main():
+    """Main entry point for hourly cron service"""
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Hourly job cron service')
+    parser.add_argument(
+        '--run-once',
+        action='store_true',
+        help='Run once and exit (for testing)'
+    )
+    parser.add_argument(
+        '--interval',
+        type=int,
+        default=60,
+        help='Interval in minutes (default: 60)'
+    )
+    args = parser.parse_args()
+
+    if args.run_once:
+        # Run once and exit
+        print("Running in TEST MODE (run once and exit)")
+        success = run_hourly_job()
+        sys.exit(0 if success else 1)
+
+    # Run as scheduled cron service
+    print("=" * 80)
+    print("HOURLY JOB CRON SERVICE")
+    print("=" * 80)
+    print(f"Interval: Every {args.interval} minutes")
+    print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 80)
+    print("\nPress Ctrl+C to stop the service\n")
+
+    # Create scheduler
+    cest = pytz.timezone('Europe/Berlin')
+    scheduler = BlockingScheduler(timezone=cest)
+
+    # Schedule hourly job
+    trigger = IntervalTrigger(
+        minutes=args.interval,
+        timezone=cest
+    )
+
+    scheduler.add_job(
+        run_hourly_job,
+        trigger=trigger,
+        id='hourly_job',
+        name='Hourly Job Collector',
+        misfire_grace_time=600  # Allow up to 10 minutes delay
+    )
+
+    print(f"✓ Scheduled hourly job (every {args.interval} minutes)")
+    print(f"  Next run: {scheduler.get_jobs()[0].next_run_time}")
+    print()
+
+    # Run immediately on start
+    print("▶ Running initial collection...")
+    run_hourly_job()
+
+    try:
+        # Start scheduler (blocking)
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        print("\n\nShutting down scheduler...")
+        scheduler.shutdown()
+        print("✓ Scheduler stopped gracefully")
+
+
+if __name__ == "__main__":
+    main()

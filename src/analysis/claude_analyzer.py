@@ -190,8 +190,8 @@ class ClaudeJobAnalyzer:
         return analyzed_jobs
     
     def _create_analysis_prompt(self, job: Dict[str, Any]) -> str:
-        """Create the analysis prompt for Claude"""
-        
+        """Create the enhanced analysis prompt for Claude using rich AI metadata"""
+
         # Helper to safely format list items
         def format_list_item(item):
             if isinstance(item, dict):
@@ -200,19 +200,19 @@ class ClaudeJobAnalyzer:
                     return f"{item['language']} ({item['level']})"
                 return str(item)
             return str(item)
-        
+
         # Format key experience
         key_exp = self.profile.get('key_experience', []) or []
         key_exp_str = chr(10).join(f'- {format_list_item(exp)}' for exp in key_exp) if key_exp else '- Not specified'
-        
+
         # Format technical skills
         tech_skills = self.profile.get('technical_skills', []) or []
         tech_skills_str = ', '.join(format_list_item(s) for s in tech_skills) if tech_skills else 'Not specified'
-        
+
         # Format languages
         languages = self.profile.get('languages', []) or []
         languages_str = ', '.join(format_list_item(lang) for lang in languages) if languages else 'Not specified'
-        
+
         # Format preferences
         prefs = self.profile.get('preferences', []) or []
         prefs_str = chr(10).join(f'- {format_list_item(pref)}' for pref in prefs) if prefs else '- Not specified'
@@ -224,13 +224,20 @@ class ClaudeJobAnalyzer:
         preferred_locs = self.profile.get('preferred_work_locations', []) or []
         preferred_locs_str = ', '.join(str(loc) for loc in preferred_locs) if preferred_locs else 'Not specified'
 
+        # Get user's experience and industries for matching
+        user_years = self.profile.get('total_years_experience', 0)
+        user_industries = self.profile.get('industries', []) or []
+        user_industries_str = ', '.join(user_industries) if user_industries else 'Not specified'
+
         profile_summary = f"""
 **Candidate Profile:**
 - Name: {self.profile.get('name')}
 - Current Role: {self.profile.get('current_role')}
+- Total Experience: {user_years} years
 - Location: {self.profile.get('location')}
 - Work Arrangement Preference: {work_arrangement}
 - Preferred Work Locations: {preferred_locs_str}
+- Industry Background: {user_industries_str}
 
 **Key Experience:**
 {key_exp_str}
@@ -244,12 +251,54 @@ class ClaudeJobAnalyzer:
 **Preferences:**
 {prefs_str}
 """
-        
-        # Get AI-extracted metadata
+
+        # Extract rich AI metadata from job (all available fields)
+        ai_key_skills = job.get('ai_key_skills', []) or []
+        ai_keywords = job.get('ai_keywords', []) or []
+        ai_core_responsibilities = job.get('ai_core_responsibilities', '')
+        ai_requirements_summary = job.get('ai_requirements_summary', '')
+        ai_experience_level = job.get('ai_experience_level', 'Not specified')
+        ai_taxonomies_a = job.get('ai_taxonomies_a', []) or []
         ai_work_arrangement = job.get('ai_work_arrangement', 'Not specified')
-        ai_employment_type = job.get('ai_employment_type', 'Not specified')
-        ai_seniority = job.get('ai_seniority', 'Not specified')
-        ai_industry = job.get('ai_industry', 'Not specified')
+        ai_employment_type = job.get('ai_employment_type', []) or []
+        ai_benefits = job.get('ai_benefits', []) or []
+
+        # Handle employment_type - could be string or array
+        if isinstance(ai_employment_type, list):
+            employment_type_str = ', '.join([str(et) for et in ai_employment_type if et]) if ai_employment_type else 'Not specified'
+        else:
+            employment_type_str = str(ai_employment_type) if ai_employment_type else 'Not specified'
+
+        # Pre-calculate skill matches
+        user_skills_set = set(skill.lower().strip() for skill in tech_skills if skill)
+        job_skills_set = set(skill.lower().strip() for skill in ai_key_skills if skill)
+
+        matching_skills = user_skills_set & job_skills_set
+        missing_skills = job_skills_set - user_skills_set
+        extra_skills = user_skills_set - job_skills_set
+
+        # Calculate skill match percentage
+        if job_skills_set:
+            skill_match_pct = len(matching_skills) / len(job_skills_set) * 100
+        else:
+            skill_match_pct = 0
+
+        # Format skill analysis
+        matching_skills_str = ', '.join(sorted(matching_skills)) if matching_skills else 'None'
+        missing_skills_str = ', '.join(sorted(missing_skills)[:10]) if missing_skills else 'None'
+        extra_skills_str = ', '.join(sorted(extra_skills)[:10]) if extra_skills else 'None'
+
+        # Industry match check
+        job_industries_set = set(ind.lower().strip() for ind in ai_taxonomies_a if ind)
+        user_industries_set = set(ind.lower().strip() for ind in user_industries if ind)
+        matching_industries = user_industries_set & job_industries_set
+        industry_match = 'Yes' if matching_industries else 'No'
+
+        # Format job metadata sections
+        job_skills_str = ', '.join(ai_key_skills[:15]) if ai_key_skills else 'Not specified'
+        job_keywords_str = ', '.join(ai_keywords[:12]) if ai_keywords else 'Not specified'
+        job_industries_str = ', '.join(ai_taxonomies_a) if ai_taxonomies_a else 'Not specified'
+        job_benefits_str = ', '.join(ai_benefits[:8]) if ai_benefits else 'Not specified'
 
         job_details = f"""
 **Job Posting:**
@@ -259,22 +308,36 @@ class ClaudeJobAnalyzer:
 - Posted: {job.get('posted_date', 'Unknown')}
 - Salary: {job.get('salary', 'Not specified')}
 
-**AI-Extracted Job Metadata:**
+**AI-Extracted Job Requirements:**
+- Required Skills: {job_skills_str}
+- Experience Level: {ai_experience_level}
+- Industries: {job_industries_str}
+- Keywords: {job_keywords_str}
 - Work Arrangement: {ai_work_arrangement}
-- Employment Type: {ai_employment_type}
-- Seniority Level: {ai_seniority}
-- Industry: {ai_industry}
+- Employment Type: {employment_type_str}
+- Benefits: {job_benefits_str}
 
-**Description:**
-{job.get('description', 'No description available')[:2000]}
+**Core Responsibilities (AI Summary):**
+{ai_core_responsibilities or 'Not available'}
+
+**Requirements Summary (AI Summary):**
+{ai_requirements_summary or 'Not available'}
+
+**PRE-CALCULATED MATCH ANALYSIS:**
+- Skill Match: {skill_match_pct:.1f}% ({len(matching_skills)}/{len(job_skills_set)} required skills)
+- Matching Skills: {matching_skills_str}
+- Missing Skills: {missing_skills_str}
+- Additional Skills (Candidate): {extra_skills_str}
+- Industry Match: {industry_match}
+- Experience Match: User has {user_years} years, Job requires {ai_experience_level}
 """
-        
+
         # Add learning context if available
         learning_section = ""
         if self.learning_context:
             learning_section = self.learning_context
-        
-        prompt = f"""You are an expert career advisor. Analyze this job posting against the candidate's profile and provide a detailed assessment.
+
+        prompt = f"""You are an expert career advisor. Analyze this job posting against the candidate's profile using the PRE-CALCULATED MATCH ANALYSIS provided.
 
 {profile_summary}
 
@@ -293,35 +356,54 @@ Evaluate this job opportunity and provide your assessment in the following JSON 
   "reasoning": "<2-3 sentence summary explaining the match score and priority>"
 }}
 
-**Scoring Guidelines:**
-- 90-100: Exceptional match, rare opportunity, immediate application recommended
-- 80-89: Strong match, most requirements met, high priority
-- 70-79: Good match, some gaps but worth pursuing
-- 60-69: Moderate match, stretch opportunity, consider if interested
-- Below 60: Weak match, significant gaps
+**Enhanced Scoring Guidelines (Use Pre-Calculated Data):**
+
+**Base Score (Skills + Experience):**
+- Skill Match ≥80%: Start at 85-90
+- Skill Match 60-79%: Start at 75-84
+- Skill Match 40-59%: Start at 60-74
+- Skill Match 20-39%: Start at 45-59
+- Skill Match <20%: Start at 30-44
+
+**Adjustments:**
+- Experience match (within 1-2 years of requirement): +5 points
+- Experience mismatch (too junior by 3+ years): -10 points
+- Experience mismatch (too senior by 5+ years): -5 points
+- Industry match: +5 points
+- Work arrangement match: +5 points
+- Work arrangement mismatch: -10 to -15 points
+- Location match: +3 points
+- Benefits/compensation attractive: +2-5 points
+
+**Final Score Ranges:**
+- 90-100: Exceptional match (80%+ skill match, experience aligned, industry match)
+- 80-89: Strong match (60-79% skills or strong compensating factors)
+- 70-79: Good match (40-59% skills or acceptable gaps)
+- 60-69: Moderate match (stretch opportunity, significant learning required)
+- Below 60: Weak match (fundamental gaps)
 
 **Priority Guidelines:**
 - High: Score 85+, strong alignment with career goals, good location/company
 - Medium: Score 70-84, decent fit with some reservations
 - Low: Score below 70, significant gaps or misalignment
 
-**Matching Considerations:**
-1. Technical skill match
-2. Leadership/management experience match
-3. Location compatibility (preferred locations vs job location)
-4. **Work arrangement match (IMPORTANT):**
-   - If candidate prefers "remote" and job is "Remote" → strong positive
-   - If candidate prefers "hybrid" and job is "Hybrid" → strong positive
-   - If candidate prefers "onsite" and job is "Onsite" → strong positive
-   - If candidate is "flexible" → neutral, no penalty
-   - Mismatch (e.g., candidate wants remote but job is onsite) → reduce score by 10-15 points
-5. Seniority level alignment (AI-extracted seniority vs candidate experience)
-6. Employment type match (full-time, part-time, contract)
-7. Industry fit (AI-extracted industry vs candidate's industry experience)
-8. Language requirements
-9. Career progression alignment
+**Key Alignment Examples:**
+- "Strong skill overlap: Python, SQL, Machine Learning"
+- "Experience level matches: 5 years required, candidate has 6 years"
+- "Industry alignment: Both in Technology/Finance"
+- "Work arrangement compatible: Remote preference, Remote job"
 
-**Note:** Work arrangement compatibility is critical. A mismatch here can be a dealbreaker even if other aspects align well.
+**Potential Gap Examples:**
+- "Missing required skills: AWS, Kubernetes, Docker"
+- "Experience gap: Requires 8+ years, candidate has 3 years"
+- "No industry experience in Healthcare (job requirement)"
+- "Work arrangement mismatch: Onsite required, candidate prefers remote"
+
+**Critical Notes:**
+1. **USE the pre-calculated data** - don't recalculate skill matches from scratch
+2. **Work arrangement compatibility is critical** - a mismatch should lower score by 10-15 points
+3. **Focus on gaps that matter** - missing "nice-to-have" skills ≠ dealbreaker
+4. **Be realistic** - most jobs won't be 90+ matches, that's okay
 
 Respond ONLY with valid JSON, no additional text.
 """

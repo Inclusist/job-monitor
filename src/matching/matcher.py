@@ -441,9 +441,9 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
         cv_manager_inst.update_filter_run_time(user_id)
         t_save = time.time() - t_save_start
         print(f"✓ Saved {saved_count} semantic matches in {t_save:.2f}s")
-        
-        # Step 2: Claude analysis on high-scoring matches (>= 70%)
-        high_score_matches = [m for m in matches if m['score'] >= 70]
+
+        # Step 2: Claude analysis on high-scoring matches (>= 50%)
+        high_score_matches = [m for m in matches if m['score'] >= 50]
         
         # Initialize Claude analyzer
         try:
