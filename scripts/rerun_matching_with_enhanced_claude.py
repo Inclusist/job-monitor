@@ -8,7 +8,9 @@ This script:
 3. Shows statistics
 
 Usage:
-    python scripts/rerun_matching_with_enhanced_claude.py
+    python scripts/rerun_matching_with_enhanced_claude.py [email]
+
+    If email is not provided, uses user with most matches
 """
 import sys
 import os
@@ -35,14 +37,45 @@ def main():
     # Get user
     conn = db._get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, email FROM users LIMIT 1")
-    row = cursor.fetchone()
 
-    if not row:
-        print("❌ No users found")
-        cursor.close()
-        db._return_connection(conn)
-        return
+    # Check if email provided as argument
+    if len(sys.argv) > 1:
+        target_email = sys.argv[1]
+        cursor.execute("SELECT id, email FROM users WHERE email = %s", (target_email,))
+        row = cursor.fetchone()
+        if not row:
+            print(f"❌ User not found: {target_email}")
+            print("\nAvailable users with matches:")
+            cursor.execute("""
+                SELECT u.email, COUNT(ujm.id) as match_count
+                FROM users u
+                LEFT JOIN user_job_matches ujm ON u.id = ujm.user_id
+                GROUP BY u.email
+                HAVING COUNT(ujm.id) > 0
+                ORDER BY match_count DESC
+                LIMIT 10
+            """)
+            for email, count in cursor.fetchall():
+                print(f"  {email}: {count:,} matches")
+            cursor.close()
+            db._return_connection(conn)
+            return
+    else:
+        # Auto-select user with most matches
+        cursor.execute("""
+            SELECT u.id, u.email, COUNT(ujm.id) as match_count
+            FROM users u
+            LEFT JOIN user_job_matches ujm ON u.id = ujm.user_id
+            GROUP BY u.id, u.email
+            ORDER BY match_count DESC
+            LIMIT 1
+        """)
+        row = cursor.fetchone()
+        if not row:
+            print("❌ No users found")
+            cursor.close()
+            db._return_connection(conn)
+            return
 
     user_id, user_email = row[0], row[1]
 

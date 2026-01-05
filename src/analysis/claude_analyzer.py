@@ -205,6 +205,23 @@ class ClaudeJobAnalyzer:
         key_exp = self.profile.get('key_experience', []) or []
         key_exp_str = chr(10).join(f'- {format_list_item(exp)}' for exp in key_exp) if key_exp else '- Not specified'
 
+        # Format detailed work history (roles, achievements, leadership experience)
+        work_exp = self.profile.get('work_experience', []) or []
+        work_history_str = ""
+        if work_exp:
+            work_history_str = "\n\n**Detailed Work History:**\n"
+            for i, exp in enumerate(work_exp[:5], 1):  # Show last 5 roles
+                if isinstance(exp, dict):
+                    title = exp.get('title', exp.get('role', 'Unknown'))
+                    company = exp.get('company', 'Unknown')
+                    duration = exp.get('duration', '')
+                    description = exp.get('description', '')
+
+                    work_history_str += f"\n{i}. **{title}** at {company} ({duration})\n"
+                    if description:
+                        # Highlight leadership keywords
+                        work_history_str += f"   {description[:300]}\n"
+
         # Format technical skills
         tech_skills = self.profile.get('technical_skills', []) or []
         tech_skills_str = ', '.join(format_list_item(s) for s in tech_skills) if tech_skills else 'Not specified'
@@ -241,6 +258,7 @@ class ClaudeJobAnalyzer:
 
 **Key Experience:**
 {key_exp_str}
+{work_history_str}
 
 **Technical Skills:**
 {tech_skills_str}

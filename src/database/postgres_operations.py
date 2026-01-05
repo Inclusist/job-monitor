@@ -949,7 +949,8 @@ class PostgresDatabase:
                     j.url,
                     j.posted_date,
                     j.salary,
-                    j.discovered_date
+                    j.discovered_date,
+                    COALESCE(ujm.claude_score, ujm.semantic_score) as match_score
                 FROM user_job_matches ujm
                 JOIN jobs j ON ujm.job_id = j.id
                 WHERE ujm.user_id = %s
@@ -1102,20 +1103,22 @@ class PostgresDatabase:
         conn = self._get_connection()
         try:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
-            
+
             cursor.execute("""
-                SELECT 
+                SELECT
                     f.id, f.job_id, f.feedback_type, f.match_score_original,
                     f.match_score_user, f.feedback_reason, f.created_date,
                     j.title, j.company, j.location, j.description,
-                    j.key_alignments, j.potential_gaps
+                    ujm.key_alignments, ujm.potential_gaps
                 FROM job_feedback f
                 JOIN jobs j ON f.job_id = j.id
+                JOIN users u ON f.user_email = u.email
+                LEFT JOIN user_job_matches ujm ON j.id = ujm.job_id AND u.id = ujm.user_id
                 WHERE f.user_email = %s
                 ORDER BY f.created_date DESC
                 LIMIT %s
             """, (user_email, limit))
-            
+
             results = [dict(row) for row in cursor.fetchall()]
             return results
         finally:
@@ -1185,15 +1188,16 @@ class PostgresDatabase:
                 SELECT j.*,
                        ujm.status as user_status,
                        ujm.claude_score,
+                       ujm.semantic_score,
                        ujm.match_reasoning,
                        ujm.key_alignments,
                        ujm.potential_gaps,
-                       COALESCE(ujm.claude_score, ujm.semantic_score, j.match_score) as effective_score
+                       COALESCE(ujm.claude_score, ujm.semantic_score) as match_score
                 FROM jobs j
                 INNER JOIN user_job_matches ujm ON j.id = ujm.job_id
                 WHERE ujm.user_id = %s
                 AND ujm.status = 'shortlisted'
-                ORDER BY effective_score DESC NULLS LAST,
+                ORDER BY match_score DESC NULLS LAST,
                          j.discovered_date DESC
             """, (user_id,))
 
