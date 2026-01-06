@@ -212,21 +212,25 @@ class ClaudeJobAnalyzer:
             # Step 1: Extract competencies for jobs missing them
             jobs_needing_competencies = [j for j in batch if not j.get('ai_competencies')]
             if jobs_needing_competencies:
-                print(f"   Extracting competencies for {len(jobs_needing_competencies)} jobs...")
+                print(f"   Extracting competencies + skills for {len(jobs_needing_competencies)} jobs...")
                 try:
-                    competencies_map = self.extract_competencies_batch(jobs_needing_competencies)
-                    # Merge competencies back into jobs
+                    extraction_map = self.extract_competencies_batch(jobs_needing_competencies)
+                    # Merge BOTH competencies and skills back into jobs
                     for idx, job in enumerate(jobs_needing_competencies):
                         job_key = f"job_{idx + 1}"
-                        job['ai_competencies'] = competencies_map.get(job_key, [])
+                        extracted = extraction_map.get(job_key, {"competencies": [], "skills": []})
+                        job['ai_competencies'] = extracted.get('competencies', [])
+                        job['ai_key_skills'] = extracted.get('skills', [])
+                        
                         # Also cache in database if DB connection available
                         if self.db and job.get('id'):
                             try:
                                 self.db.update_job_competencies(job['id'], job['ai_competencies'])
+                                # Note: update_job_skills would need to be added to DB class
                             except:
                                 pass  # Silently fail if DB update doesn't work
                 except Exception as e:
-                    logger.warning(f"Failed to extract competencies: {e}")
+                    logger.warning(f"Failed to extract competencies/skills: {e}")
                     # Continue without competencies
             
             # Step 2: Score all jobs in this batch with one API call
@@ -291,7 +295,7 @@ class ClaudeJobAnalyzer:
             return {f"job_{i+1}": [] for i in range(len(jobs))}
     
     def _create_batch_extraction_prompt(self, jobs: list) -> str:
-        """Create prompt to extract competencies from multiple job descriptions"""
+        """Create prompt to extract competencies AND key skills from multiple job descriptions"""
         jobs_section = ""
         for i, job in enumerate(jobs, 1):
             # Use responsibilities if available, otherwise use description
@@ -305,30 +309,32 @@ Content: {content}
 
 """
         
-        return f"""Extract competencies from the following {len(jobs)} job postings.
+        return f"""Extract competencies AND key skills from the following {len(jobs)} job postings.
 
 {jobs_section}
 
 INSTRUCTIONS:
-- Extract 3-7 abstract COMPETENCIES per job (not tools!)
-- Competencies are capabilities like "Stakeholder Management", "Technical Leadership", "Strategic Planning"
-- Focus on what someone DOES, not what tools they use
+- Extract 3-7 COMPETENCIES per job (capabilities: "Leadership", "Planning", "Stakeholder Management")
+- Extract 5-12 KEY SKILLS per job (technologies: "Python", "AWS", "React", "PostgreSQL")
+- Competencies = what someone DOES, Skills = what tools/tech someone USES
 - Use consistent naming across jobs
-- If responsibilities are unclear, extract from job title/description
 
 OUTPUT FORMAT (JSON):
 {{
-  "job_1": ["Competency 1", "Competency 2", ...],
-  "job_2": ["Competency 1", "Competency 2", ...],
+  "job_1": {{
+    "competencies": ["Competency 1", "Competency 2", ...],
+    "skills": ["Skill 1", "Skill 2", ...]
+  }},
+  "job_2": {{...}},
   ...
-  "job_{len(jobs)}": ["Competency 1", "Competency 2", ...]
+  "job_{len(jobs)}": {{...}}
 }}
 
-Output PURE JSON only, no markdown formatting.
+Output PURE JSON only, no markdown.
 """
     
     def _parse_batch_extraction(self, response_text: str, expected_count: int) -> dict:
-        """Parse batch competency extraction response"""
+        """Parse batch extraction response for both competencies and skills"""
         try:
             # Strip markdown if present
             clean_text = response_text.strip()
@@ -341,18 +347,24 @@ Output PURE JSON only, no markdown formatting.
             
             result = json.loads(clean_text.strip())
             
-            # Validate and ensure all jobs have entries
+            # Validate and ensure all jobs have both fields
             for i in range(1, expected_count + 1):
                 job_key = f"job_{i}"
                 if job_key not in result:
-                    result[job_key] = []
-                elif not isinstance(result[job_key], list):
-                    result[job_key] = []
+                    result[job_key] = {"competencies": [], "skills": []}
+                elif not isinstance(result[job_key], dict):
+                    result[job_key] = {"competencies": [], "skills": []}
+                else:
+                    # Ensure both fields exist
+                    if 'competencies' not in result[job_key]:
+                        result[job_key]['competencies'] = []
+                    if 'skills' not in result[job_key]:
+                        result[job_key]['skills'] = []
             
             return result
         except Exception as e:
             logger.error(f"Failed to parse batch extraction: {e}")
-            return {f"job_{i+1}": [] for i in range(expected_count)}
+            return {f"job_{i+1}": {"competencies": [], "skills": []} for i in range(expected_count)}
     
     def _score_jobs_batch(self, jobs: list) -> list:
         """
