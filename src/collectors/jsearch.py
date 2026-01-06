@@ -5,9 +5,12 @@ Collects jobs from LinkedIn, Indeed, Google Jobs and more via RapidAPI
 
 import requests
 import os
+import logging
 from typing import List, Dict, Optional
 from datetime import datetime
 from .source_filter import SourceFilter
+
+logger = logging.getLogger(__name__)
 
 
 class JSearchCollector:
@@ -106,21 +109,23 @@ class JSearchCollector:
                     parsed_job = self._parse_job(job)
 
                     # Apply country filter if specified
-                    if country and country == 'de':
-                        # Only include German jobs
-                        job_country = job.get("job_country", "")
+                    if country:
+                        job_country = job.get("job_country", "").upper()
                         job_city = job.get("job_city", "")
-                        job_state = job.get("job_state", "")
-
-                        # Check if job is in Germany
-                        is_german = (
-                            job_country == "DE" or
-                            "Germany" in str(job_country) or
-                            job_city in ["Berlin", "Munich", "Hamburg", "Frankfurt", "Cologne", "Stuttgart", "Dusseldorf", "Dortmund", "Essen", "Leipzig", "Bremen", "Dresden", "Hannover", "Nuremberg", "Duisburg", "Bochum", "Wuppertal", "Bielefeld", "Bonn", "Munster", "Karlsruhe", "Mannheim", "Augsburg", "Wiesbaden", "Gelsenkirchen", "Monchengladbach", "Braunschweig", "Chemnitz", "Kiel", "Aachen", "Halle", "Magdeburg", "Freiburg", "Krefeld", "Lubeck", "Oberhausen", "Erfurt", "Mainz", "Rostock", "Kassel", "Hagen", "Hamm", "Saarbrucken", "Mulheim", "Potsdam", "Ludwigshafen", "Oldenburg", "Osnabruck", "Leverkusen", "Solingen", "Heidelberg", "Herne", "Neuss", "Darmstadt", "Paderborn", "Regensburg", "Ingolstadt", "Wurzburg", "Fürth", "Wolfsburg", "Offenbach", "Ulm", "Heilbronn", "Pforzheim", "Gottingen", "Bottrop", "Trier", "Recklinghausen", "Reutlingen", "Bremerhaven", "Koblenz", "Bergisch Gladbach", "Jena", "Remscheid", "Erlangen", "Moers", "Siegen", "Hildesheim", "Salzgitter"]
-                        )
-
-                        if not is_german:
-                            continue  # Skip non-German jobs
+                        
+                        # STRICT filtering: Only include if country matches
+                        if country == 'de':
+                            # Must be in Germany - reject if explicitly US or other country
+                            if job_country and job_country not in ["DE", "GERMANY"]:
+                                logger.debug(f"Rejected: {job.get('job_title')} - Country: {job_country}")
+                                continue
+                        elif country == 'us':
+                            if job_country and job_country not in ["US", "USA", "UNITED STATES"]:
+                                continue
+                        else:
+                            # For other countries, use the country code
+                            if job_country and job_country != country.upper():
+                                continue
 
                     jobs.append(parsed_job)
             else:

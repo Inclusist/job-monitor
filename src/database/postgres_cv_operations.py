@@ -426,20 +426,21 @@ class PostgresCVManager:
             now = datetime.now()
             cursor.execute("""
                 INSERT INTO cv_profiles (
-                    cv_id, user_id, technical_skills, soft_skills, languages,
+                    cv_id, user_id, technical_skills, soft_skills, competencies, languages,
                     education, work_history, achievements, expertise_summary,
                     career_level, preferred_roles, industries, raw_analysis,
                     created_date, last_updated
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             """, (
                 cv_id, user_id,
                 json.dumps(profile_data.get('technical_skills', [])),
                 json.dumps(profile_data.get('soft_skills', [])),
+                json.dumps(profile_data.get('competencies', [])),
                 json.dumps(profile_data.get('languages', [])),
                 json.dumps(profile_data.get('education', [])),
-                json.dumps(profile_data.get('work_history', [])),
-                json.dumps(profile_data.get('achievements', [])),
+                json.dumps(profile_data.get('work_history', []) or profile_data.get('work_experience', [])),
+                json.dumps(profile_data.get('achievements', []) or profile_data.get('career_highlights', [])),
                 profile_data.get('expertise_summary', ''),
                 profile_data.get('career_level', ''),
                 json.dumps(profile_data.get('preferred_roles', [])),
@@ -631,6 +632,59 @@ class PostgresCVManager:
                 self._return_connection(conn)
             logger.error(f"Error getting primary CV: {e}")
             return None
+
+    def get_primary_profile(self, user_id: int) -> Optional[Dict]:
+        """
+        Get the specific profile associated with the user's Primary CV.
+        This effectively acts as the 'Primary Profile'.
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            cursor.execute("""
+                SELECT p.* 
+                FROM cv_profiles p
+                JOIN cvs c ON p.cv_id = c.id
+                WHERE c.user_id = %s AND c.is_primary = 1
+                ORDER BY p.created_date DESC
+                LIMIT 1
+            """, (user_id,))
+            
+            profile = cursor.fetchone()
+            
+            cursor.close()
+            self._return_connection(conn)
+            
+            if profile:
+                # Reuse parsing logic via get_cv_profile if possible, but for now duplicate parsing:
+                profile_dict = dict(profile)
+                json_fields = ['technical_skills', 'soft_skills', 'competencies', 'languages', 'education',
+                              'work_history', 'achievements', 'preferred_roles', 'industries', 'raw_analysis']
+                for field in json_fields:
+                    if profile_dict.get(field):
+                        try:
+                            profile_dict[field] = json.loads(profile_dict[field])
+                        except:
+                            profile_dict[field] = []
+                
+                # Use raw_analysis competencies as fallback if column is empty (legacy support)
+                if not profile_dict.get('competencies'):
+                    raw = profile_dict.get('raw_analysis', {})
+                    if isinstance(raw, dict):
+                         profile_dict['competencies'] = raw.get('competencies', [])
+
+                return profile_dict
+            
+            return None
+            
+        except Exception as e:
+            if 'cursor' in locals():
+                cursor.close()
+            if 'conn' in locals():
+                self._return_connection(conn)
+            logger.error(f"Error getting primary profile: {e}")
+            return None
     
     def get_cv_profile(self, cv_id: int, include_full_text: bool = False) -> Optional[Dict]:
         """Get CV profile by CV ID"""
@@ -652,14 +706,23 @@ class PostgresCVManager:
             
             if profile:
                 profile_dict = dict(profile)
-                json_fields = ['technical_skills', 'soft_skills', 'languages', 'education',
+                json_fields = ['technical_skills', 'soft_skills', 'competencies', 'languages', 'education',
                               'work_history', 'achievements', 'preferred_roles', 'industries', 'raw_analysis']
                 for field in json_fields:
-                    if profile_dict.get(field):
-                        try:
-                            profile_dict[field] = json.loads(profile_dict[field])
-                        except:
-                            profile_dict[field] = []
+                    val = profile_dict.get(field)
+                    if val:
+                        if isinstance(val, str):
+                            try:
+                                profile_dict[field] = json.loads(val)
+                            except:
+                                profile_dict[field] = []
+                        # already list/dict (JSONB or prev parsed) - do nothing
+
+                # Use raw_analysis competencies as fallback
+                if not profile_dict.get('competencies'):
+                    raw = profile_dict.get('raw_analysis', {})
+                    if isinstance(raw, dict):
+                         profile_dict['competencies'] = raw.get('competencies', [])
                 
                 # Map PostgreSQL field names to template-expected names
                 if 'work_history' in profile_dict:
@@ -980,7 +1043,7 @@ class PostgresCVManager:
                 profile_data.get('career_level'),
                 json.dumps(profile_data.get('preferred_roles', [])),
                 json.dumps(profile_data.get('industries', [])),
-                json.dumps(profile_data.get('full_text', profile_data.get('raw_analysis', {}))),
+                json.dumps({k: v for k, v in profile_data.items() if k != 'full_text'}),
                 now,
                 now
             ))
@@ -1224,7 +1287,7 @@ class PostgresCVManager:
             logger.error(f"Error updating CV status: {e}")
             return False
     
-    def update_cv_profile(self, profile_id: int, profile_data: Dict):
+    def update_cv_profile(self, cv_id: int, profile_data: Dict):
         """Update CV profile data"""
         try:
             conn = self._get_connection()
@@ -1236,8 +1299,8 @@ class PostgresCVManager:
                 SET technical_skills = %s, soft_skills = %s, languages = %s,
                     education = %s, work_history = %s, achievements = %s,
                     total_years_experience = %s, expertise_summary = %s, career_level = %s,
-                    preferred_roles = %s, industries = %s, last_updated = %s
-                WHERE id = %s
+                    preferred_roles = %s, industries = %s, raw_analysis = %s, last_updated = %s
+                WHERE cv_id = %s
             """, (
                 json.dumps(profile_data.get('technical_skills', [])),
                 json.dumps(profile_data.get('soft_skills', [])),
@@ -1250,8 +1313,9 @@ class PostgresCVManager:
                 profile_data.get('career_level'),
                 json.dumps(profile_data.get('preferred_roles', [])),
                 json.dumps(profile_data.get('industries', [])),
+                json.dumps({k: v for k, v in profile_data.items() if k != 'full_text'}),
                 now,
-                profile_id
+                cv_id
             ))
             
             conn.commit()
@@ -1264,6 +1328,7 @@ class PostgresCVManager:
                 cursor.close()
                 self._return_connection(conn)
             logger.error(f"Error updating CV profile: {e}")
+            print(f"CRITICAL SQL ERROR in update_cv_profile: {e}")
     
     def get_cv_statistics(self, user_id: int) -> Dict:
         """Get CV statistics for a user - alias for get_user_statistics"""

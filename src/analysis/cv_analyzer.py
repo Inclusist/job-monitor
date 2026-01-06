@@ -72,21 +72,38 @@ class CVAnalyzer:
         if len(cv_text) > 8000:
             cv_text = cv_text[:8000] + "\n...[truncated]"
 
-        prompt = f"""You are an expert CV/resume parser. Extract structured information from the following CV text.
+        prompt = f"""You are an expert Executive Recruiter and Technical Hiring Manager.
+Your goal is not just to "parse" this CV, but to "understand" the candidate's core value proposition, seniority, and potential.
 
 CV TEXT:
 {cv_text}
 
-Extract the following information in JSON format:
+Analyze the CV and extract structured data in JSON format.
+You MUST infer "Abstract" fields that might not be explicitly written, based on the depth of their experience.
 
+Output JSON structure:
 {{
   "technical_skills": ["skill1", "skill2", ...],
-  "soft_skills": ["skill1", "skill2", ...],
+  "soft_skills": ["skill1", ...],
   "languages": [
     {{"language": "English", "level": "C1"}},
     {{"language": "German", "level": "B2"}}
   ],
-  "certifications": ["cert1", "cert2", ...],
+  
+  "semantic_summary": "A rich, executive-style bio (3-4 sentences). Synthesize their KEY value. Mention their seniority (e.g. 'Senior Leader'), the SCALE of systems they worked on (e.g. 'High-traffic distributed systems'), their primary DOMAIN focus, and their LEADERSHIP style.",
+  
+  "derived_seniority": "Junior|Mid|Senior|Staff|Principal|Head of|CTO",
+  "extracted_role": "The best canonical job title for them (e.g. 'Staff Backend Engineer')",
+  
+  "domain_expertise": ["Fintech", "AdTech", "Health", "E-commerce", "B2B SaaS", ...],
+  
+  "competencies": [
+    {{"name": "Strategic Leadership", "evidence": "Led the pivot to..."}},
+    {{"name": "Hiring & Team Building", "evidence": "Recruited 2 data teams..."}}
+  ],
+  
+  "search_keywords_abstract": "A space-separated string of 10-15 keywords that best describe what this person SHOULD be found for (including synonyms). e.g. 'Python Backend Distributed-Systems Tech-Lead System-Design'",
+
   "work_experience": [
     {{
       "title": "Job Title",
@@ -97,7 +114,7 @@ Extract the following information in JSON format:
     }}
   ],
   "total_years_experience": 10.5,
-  "leadership_experience": ["Led team of 8 engineers", "Managed $2M budget", ...],
+  "leadership_experience": ["Led team of 8 engineers", ...],
   "education": [
     {{
       "degree": "M.Sc. Computer Science",
@@ -107,40 +124,28 @@ Extract the following information in JSON format:
     }}
   ],
   "highest_degree": "Master",
-  "expertise_summary": "<2-3 sentence summary of key expertise and career focus>",
-  "career_highlights": ["highlight1", "highlight2", ...],
-  "industries": ["Industry1", "Industry2", ...],
+  "expertise_summary": "<2-3 sentence summary - kept for backward compatibility>",
+  "career_highlights": ["highlight1", ...],
+  "industries": ["Industry1", ...],
+  "certifications": [],
   "current_location": "City, Country",
-  "preferred_work_locations": ["Location1", "Location2", "Remote"],
-  "desired_job_titles": ["Title1", "Title2", "Title3"],
+  "preferred_work_locations": ["Location1", ...],
+  "desired_job_titles": ["Title1", ...],
   "work_arrangement_preference": "remote/hybrid/onsite/flexible"
 }}
 
-IMPORTANT EXTRACTION GUIDELINES:
-- technical_skills: Extract ALL technical skills mentioned (programming languages, frameworks, tools, methodologies, platforms). Be comprehensive.
-- soft_skills: Extract interpersonal and professional skills (leadership, communication, problem-solving, etc.)
-- languages: Include all spoken/written languages with proficiency levels if mentioned (A1, A2, B1, B2, C1, C2, or descriptive like "fluent", "native")
-- work_experience: List jobs in reverse chronological order. For each role, focus on concrete achievements and responsibilities.
-- total_years_experience: Calculate by summing all work experience durations. Use decimals (e.g., 5.5 for 5 years 6 months)
-- leadership_experience: Extract specific examples of leadership, management, or team coordination
-- education: Include all degrees, certifications, and relevant coursework
-- highest_degree: Choose from: "PhD", "Master", "Bachelor", "Associate", "High School", "Other"
-- expertise_summary: Write a concise 2-3 sentence summary capturing the candidate's core expertise and career trajectory
-- career_highlights: 3-5 most impressive achievements across entire career
-- industries: List all industries the candidate has worked in
-- current_location: Extract from contact info, address, or most recent job location. Format as "City, Country" (e.g., "Berlin, Germany"). If not found, use null.
-- preferred_work_locations: Infer from work history, mentioned preferences, or desired locations. Include "Remote" if candidate mentions remote work. Use format "City, Country" for each location. If not clear, include current location and major cities in the same country.
-- desired_job_titles: Based on career progression, infer 3-5 job titles the candidate would likely search for next. Consider seniority level and specialization (e.g., "Senior Data Scientist" → ["Lead Data Scientist", "Data Science Manager", "Principal Data Scientist", "Head of Data Science"]).
-- work_arrangement_preference: Infer from CV if mentioned (remote, hybrid, onsite). If not explicitly stated, use "flexible".
+GUIDELINES for Abstract Fields:
+1. semantic_summary: Do NOT just list skills. Tell a story. "A seasoned engineering leader with 10+ years in Fintech..."
+2. derived_seniority: Look at their scope. Did they lead teams? Did they own architecture? Ignore "inflated" titles, look at responsibility.
+3. domain_expertise: Infer this from the companies they worked at.
+4. competencies: This is CRITICAL. Look at their entire Work Experience.
+   - Extract a COMPREHENSIVE list of 6-10 distinct competencies.
+   - Ensure a balance of "Technical Leadership" (e.g. Architecture, Code Quality, Tech Stack Strategy), "Strategic Leadership" (e.g. Roadmap, Hiring), and "People Management" (e.g. Mentoring, Conflicts).
+   - Valid examples: "Technical Leadership", "System Architecture", "Cloud Strategy", "Hiring & Team Building", "Stakeholder Management", "Budgeting", "Product Strategy".
+   - For "evidence", paste the specific bullet point that proves it.
+5. search_keywords_abstract: This will be used for vector matching. Include terms that imply their level and niche.
 
-FORMATTING RULES:
-- Be thorough but concise
-- If information is not available in the CV, use empty arrays [] or null
-- For total_years_experience, make your best estimate if exact dates aren't clear
-- Ensure all JSON is valid and properly formatted
-- Do not include explanatory text outside the JSON structure
-
-Respond ONLY with valid JSON, no additional text or explanation."""
+Respond ONLY with valid JSON, no additional text."""
 
         return prompt
 
@@ -200,6 +205,14 @@ Respond ONLY with valid JSON, no additional text or explanation."""
             profile.setdefault('preferred_work_locations', [])
             profile.setdefault('desired_job_titles', [])
             profile.setdefault('work_arrangement_preference', 'flexible')
+            
+            # Default values for new Abstract fields
+            profile.setdefault('semantic_summary', profile.get('expertise_summary', ''))
+            profile.setdefault('derived_seniority', 'Mid')
+            profile.setdefault('domain_expertise', [])
+            profile.setdefault('competencies', [])
+            profile.setdefault('extracted_role', 'Software Engineer')
+            profile.setdefault('search_keywords_abstract', '')
 
             return profile
 

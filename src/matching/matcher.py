@@ -349,10 +349,58 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
             }
             return
         
-        # Get user preferences for keyword boosting
+        # Get user preferences for keyword boosting and pre-filtering
         user = cv_manager_inst.get_user_by_id(user_id)
         preferences = user.get('preferences', {})
         config_keywords = preferences.get('search_keywords', [])
+        
+        # 🎯 PRE-FILTER: Location & Work Arrangement (before semantic matching)
+        work_pref = profile.get('work_arrangement_preference', 'flexible')
+        preferred_locs = preferences.get('search_locations', preferences.get('preferred_locations', []))
+        user_location = profile.get('current_location', profile.get('location', ''))
+        
+        if preferred_locs or work_pref != 'flexible':
+            print(f"\n🎯 Pre-filtering by location/work arrangement...")
+            print(f"   User location: {user_location}")
+            print(f"   Preferred locations: {preferred_locs}")
+            print(f"   Work preference: {work_pref}")
+            
+            filtered_jobs = []
+            for job in jobs_to_filter:
+                job_work = job.get('ai_work_arrangement', '').lower()
+                job_location = job.get('location', '')
+                job_cities = job.get('cities_derived', [])
+                
+                # Allow job if:
+                # 1. Remote job and user accepts remote
+                # 2. Location matches user's preferred locations
+                # 3. Work arrangement matches user's preference
+                
+                include = False
+                
+                if job_work == 'remote' and work_pref in ['remote', 'flexible', 'remote_preferred']:
+                    include = True  # Remote jobs OK
+                elif job_work == 'hybrid' and work_pref in ['hybrid', 'flexible', 'hybrid_preferred']:
+                    # Hybrid OK if location matches
+                    if any(loc.lower() in job_location.lower() for loc in (preferred_locs or [user_location]) if loc):
+                        include = True
+                elif job_work in ['on-site', 'onsite']:
+                    # On-site only if in user's immediate location
+                    if user_location and user_location.lower() in job_location.lower():
+                        include = True
+                else:
+                    # No work arrangement specified - apply location filter only
+                    if preferred_locs:
+                        if any(loc.lower() in job_location.lower() for loc in preferred_locs):
+                            include = True
+                    else:
+                        include = True  # No filter, include all
+                
+                if include:
+                    filtered_jobs.append(job)
+            
+            print(f"   Pre-filter: {len(jobs_to_filter)} → {len(filtered_jobs)} jobs ({100*len(filtered_jobs)//len(jobs_to_filter) if jobs_to_filter else 0}% kept)")
+            jobs_to_filter = filtered_jobs
         
         # Filter jobs with semantic similarity
         matching_status[user_id].update({
@@ -462,7 +510,7 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
             print(f"\n🤖 Running Claude analysis on {len(high_score_matches)} high-scoring jobs...")
             
             # Set the profile once for all analyses
-            analyzer.set_profile(profile)
+            analyzer.set_profile_from_cv(profile)  # Use set_profile_from_cv for richer data
             
             matching_status[user_id].update({
                 'stage': 'claude_analysis',
@@ -470,20 +518,25 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                 'message': f'Running AI analysis on {len(high_score_matches)} high-scoring matches...'
             })
 
-            # Collect all Claude analyses first, then batch update
-            claude_batch_updates = []
-
-            for idx, match in enumerate(high_score_matches):  # Analyze all high-scoring matches
-                job = match['job']
+            # 🚀 BATCH SCORING: Analyze all jobs in one/few API calls
+            jobs_to_analyze = [match['job'] for match in high_score_matches]
+            
+            try:
+                t_batch_start = time.time()
+                # This will process jobs in batches of 50, extracting competencies on-the-fly
+                analyzed_jobs = analyzer.analyze_batch(jobs_to_analyze, batch_size=50)
+                t_batch = time.time() - t_batch_start
                 
-                try:
-                    # Analyze with Claude
-                    analysis = analyzer.analyze_job(job)
-                    
-                    if analysis and 'match_score' in analysis:
+                print(f\"✓ Batch analysis complete: {len(analyzed_jobs)} jobs in {t_batch:.2f}s ({t_batch/len(analyzed_jobs):.2f}s/job avg)\")
+
+                # Process batch results
+                claude_batch_updates = []
+                for idx, job in enumerate(analyzed_jobs):
+                    # Job now has analysis fields added by analyze_batch
+                    if 'match_score' in job:
                         # Convert lists to strings for database storage
-                        key_alignments = analysis.get('key_alignments', [])
-                        potential_gaps = analysis.get('potential_gaps', [])
+                        key_alignments = job.get('key_alignments', [])
+                        potential_gaps = job.get('potential_gaps', [])
                         
                         # Handle both list of strings and list of dicts
                         if key_alignments and isinstance(key_alignments[0], dict):
@@ -495,27 +548,27 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                         claude_batch_updates.append({
                             'user_id': user_id,
                             'job_id': job['id'],
-                            'claude_score': analysis['match_score'],
-                            'priority': analysis.get('priority', 'medium'),
-                            'match_reasoning': analysis.get('reasoning', ''),
+                            'claude_score': job['match_score'],
+                            'priority': job.get('priority', 'medium'),
+                            'match_reasoning': job.get('reasoning', ''),
                             'key_alignments': key_alignments,
                             'potential_gaps': potential_gaps
                         })
                         
-                        print(f"  ✓ {job.get('title', 'Unknown')[:50]} - Claude: {analysis['match_score']}%")
+                        print(f"  ✓ {job.get('title', 'Unknown')[:50]} - Claude: {job['match_score']}%")
                         jobs_analyzed += 1
                         
                         # Update progress
-                        progress = 60 + int((idx + 1) / min(len(high_score_matches), 20) * 30)  # 60-90%
+                        progress = 60 + int((idx + 1) / len(analyzed_jobs) * 30)  # 60-90%
                         matching_status[user_id].update({
                             'progress': progress,
-                            'message': f'AI analyzed {idx + 1}/{min(len(high_score_matches), 20)} jobs...',
+                            'message': f'AI analyzed {idx + 1}/{len(analyzed_jobs)} jobs...',
                             'jobs_analyzed': jobs_analyzed
                         })
-                    
-                except Exception as e:
-                    print(f"  ⚠ Error analyzing job {job['id']}: {e}")
-                    continue
+                
+            except Exception as e:
+                print(f"  ⚠️  Batch analysis failed: {e}")
+                claude_batch_updates = []  # Empty list if batch failed
             
             # Batch update all Claude analyses at once (much faster than individual updates)
             if claude_batch_updates:

@@ -50,6 +50,7 @@ REQUIRED OUTPUT SCHEMA (JSON):
     "ai_job_language": "de" | "en" | "fr" | "other",
     "ai_key_skills": ["skill1", "skill2", ...],  // Extract 5-15 top technical and soft skills
     "ai_keywords": ["keyword1", "keyword2", ...], // Broader keywords for search
+    "ai_competencies": ["Competency1", "Competency2", ...], // Abstract capabilities from RESPONSIBILITIES
     "ai_core_responsibilities": "Summary of main responsibilities...",
     "ai_requirements_summary": "Summary of key requirements...",
     "ai_benefits": ["benefit1", "benefit2", ...],
@@ -60,10 +61,11 @@ REQUIRED OUTPUT SCHEMA (JSON):
 }}
 
 INSTRUCTIONS:
-1. Extract all fields based *only* on the provided text.
-2. If specific info is missing, make a best educated guess based on context (e.g. if "Berlin", inference "de" lang if text is German).
-3. For lats_derived/lngs_derived, provide the coordinates of the main city center if identified.
-4. Output PURE JSON only. No markdown formatting.
+1. Extract ai_competencies ONLY from the "Responsibilities" / "Role" section. Look for abstract capabilities like "Stakeholder Management", "People Leadership", "System Architecture", "Budgeting", "Mentoring".
+2. Extract ai_key_skills primarily from the "Requirements" section. Focus on HARD skills and Tools (e.g. "Python", "AWS", "Jira").
+3. If specific info is missing, make a best educated guess based on context.
+4. For lats_derived/lngs_derived, provide the coordinates of the main city center if identified.
+5. Output PURE JSON only. No markdown formatting.
 """
 
 def parse_llm_response(response_text: str) -> Optional[Dict[str, Any]]:
@@ -121,6 +123,7 @@ def update_job_in_db(conn, job_id: int, data: Dict[str, Any]):
             ai_job_language = %s,
             ai_key_skills = %s,
             ai_keywords = %s,
+            ai_competencies = %s,
             ai_core_responsibilities = %s,
             ai_requirements_summary = %s,
             ai_benefits = %s,
@@ -138,7 +141,8 @@ def update_job_in_db(conn, job_id: int, data: Dict[str, Any]):
         data.get('ai_experience_level'),
         data.get('ai_job_language'),
         data.get('ai_key_skills', []),
-        data.get('ai_keywords', []),
+        list(set(data.get('ai_keywords', []) + data.get('ai_competencies', []))), # Merge competencies into keywords for backward compat
+        data.get('ai_competencies', []),  # Store competencies in dedicated column
         data.get('ai_core_responsibilities'),
         data.get('ai_requirements_summary'),
         data.get('ai_benefits', []),

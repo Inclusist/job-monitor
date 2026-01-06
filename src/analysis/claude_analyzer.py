@@ -54,6 +54,12 @@ class ClaudeJobAnalyzer:
             cv_profile: CV profile dictionary from database
         """
         # Transform CV profile to analyzer profile format
+        raw = cv_profile.get('raw_analysis') or {}
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except:
+                raw = {}
         self.profile = {
             'name': cv_profile.get('name', 'User'),
             'current_role': self._extract_current_role(cv_profile),
@@ -74,7 +80,14 @@ class ClaudeJobAnalyzer:
             'work_arrangement_preference': cv_profile.get('work_arrangement_preference', 'flexible'),
             'desired_job_titles': cv_profile.get('desired_job_titles', []),
             'current_location': cv_profile.get('current_location', ''),
-            'preferred_work_locations': cv_profile.get('preferred_work_locations', [])
+            'preferred_work_locations': cv_profile.get('preferred_work_locations', []),
+            # Abstract/Semantic Fields (Enhanced Matching) - Try top level, then raw_analysis
+            'semantic_summary': cv_profile.get('semantic_summary') or raw.get('semantic_summary', ''),
+            'derived_seniority': cv_profile.get('derived_seniority') or raw.get('derived_seniority', ''),
+            'domain_expertise': cv_profile.get('domain_expertise') or raw.get('domain_expertise', []),
+            'competencies': cv_profile.get('competencies') or raw.get('competencies', []),
+            'extracted_role': cv_profile.get('extracted_role') or raw.get('extracted_role', ''),
+            'search_keywords_abstract': cv_profile.get('search_keywords_abstract') or raw.get('search_keywords_abstract', '')
         }
 
     def _extract_current_role(self, cv_profile: Dict) -> str:
@@ -90,7 +103,7 @@ class ClaudeJobAnalyzer:
         key_exp = []
 
         # Add years of experience
-        years = cv_profile.get('total_years_experience', 0)
+        years = cv_profile.get('total_years_experience') or 0
         if years > 0:
             key_exp.append(f"{years}+ years of professional experience")
 
@@ -163,31 +176,334 @@ class ClaudeJobAnalyzer:
                 'reasoning': f'Error during analysis: {str(e)}'
             }
     
-    def analyze_batch(self, jobs: list) -> list:
+    def analyze_batch(self, jobs: list, batch_size: int = 50) -> list:
         """
-        Analyze multiple jobs in batch
-        Note: For now, we'll do sequential calls. Can optimize later.
+        Analyze multiple jobs using true batch processing (multiple jobs per API call).
+        
+        This method:
+        1. Extracts competencies for jobs that don't have them (batched)
+        2. Scores all jobs in batches using single API calls
+        
+        Args:
+            jobs: List of job dictionaries
+            batch_size: Number of jobs to process per API call (default: 50)
+            
+        Returns:
+            List of jobs with analysis added
+        """
+        if not self.profile:
+            raise ValueError("Profile not set. Call set_profile() or set_profile_from_cv() first.")
+        
+        if not jobs:
+            return []
+        
+        all_results = []
+        total_jobs = len(jobs)
+        
+        # Process in chunks of batch_size
+        for batch_start in range(0, total_jobs, batch_size):
+            batch_end = min(batch_start + batch_size, total_jobs)
+            batch = jobs[batch_start:batch_end]
+            batch_num = (batch_start // batch_size) + 1
+            total_batches = (total_jobs + batch_size - 1) // batch_size
+            
+            print(f"\n🔄 Processing batch {batch_num}/{total_batches} ({len(batch)} jobs)...")
+            
+            # Step 1: Extract competencies for jobs missing them
+            jobs_needing_competencies = [j for j in batch if not j.get('ai_competencies')]
+            if jobs_needing_competencies:
+                print(f"   Extracting competencies for {len(jobs_needing_competencies)} jobs...")
+                try:
+                    competencies_map = self.extract_competencies_batch(jobs_needing_competencies)
+                    # Merge competencies back into jobs
+                    for idx, job in enumerate(jobs_needing_competencies):
+                        job_key = f"job_{idx + 1}"
+                        job['ai_competencies'] = competencies_map.get(job_key, [])
+                        # Also cache in database if DB connection available
+                        if self.db and job.get('id'):
+                            try:
+                                self.db.update_job_competencies(job['id'], job['ai_competencies'])
+                            except:
+                                pass  # Silently fail if DB update doesn't work
+                except Exception as e:
+                    logger.warning(f"Failed to extract competencies: {e}")
+                    # Continue without competencies
+            
+            # Step 2: Score all jobs in this batch with one API call
+            print(f"   Scoring {len(batch)} jobs...")
+            try:
+                batch_analyses = self._score_jobs_batch(batch)
+                
+                # Merge analyses into jobs
+                for job, analysis in zip(batch, batch_analyses):
+                    job.update(analysis)
+                
+                all_results.extend(batch)
+            except Exception as e:
+                logger.error(f"Batch scoring failed: {e}")
+                # Fallback to sequential processing for this batch
+                print(f"   ⚠️  Falling back to sequential processing...")
+                for job in batch:
+                    try:
+                        analysis = self.analyze_job(job)
+                        job.update(analysis)
+                        all_results.append(job)
+                    except:
+                        # Add default low-score analysis
+                        job.update({
+                            'match_score': 30,
+                            'priority': 'low',
+                            'key_alignments': [],
+                            'potential_gaps': ['Analysis failed'],
+                            'reasoning': 'Could not analyze this job'
+                        })
+                        all_results.append(job)
+        
+        return all_results
+    
+    def extract_competencies_batch(self, jobs: list) -> dict:
+        """
+        Extract competencies for multiple jobs in a single API call.
         
         Args:
             jobs: List of job dictionaries
             
         Returns:
-            List of jobs with analysis added
+            Dictionary mapping job_N -> list of competencies
         """
-        analyzed_jobs = []
+        if not jobs:
+            return {}
         
-        for i, job in enumerate(jobs):
-            print(f"Analyzing job {i+1}/{len(jobs)}: {job.get('title')} at {job.get('company')}")
-            
-            analysis = self.analyze_job(job)
-            job.update(analysis)
-            analyzed_jobs.append(job)
-            
-            # Small delay to avoid rate limiting
-            if i < len(jobs) - 1:
-                time.sleep(0.5)
+        prompt = self._create_batch_extraction_prompt(jobs)
         
-        return analyzed_jobs
+        try:
+            response = self.client.messages.create(
+                model="claude-3-haiku-20240307",  # Use Haiku for cost efficiency
+                max_tokens=4000,  # Haiku max is 4096
+                temperature=0,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            return self._parse_batch_extraction(response.content[0].text, len(jobs))
+        except Exception as e:
+            logger.error(f"Batch competency extraction failed: {e}")
+            # Return empty competencies for all jobs
+            return {f"job_{i+1}": [] for i in range(len(jobs))}
+    
+    def _create_batch_extraction_prompt(self, jobs: list) -> str:
+        """Create prompt to extract competencies from multiple job descriptions"""
+        jobs_section = ""
+        for i, job in enumerate(jobs, 1):
+            # Use responsibilities if available, otherwise use description
+            content = job.get('ai_core_responsibilities', '') or job.get('description', '')[:2000]
+            
+            jobs_section += f"""
+JOB_{i}:
+Title: {job.get('title', 'Unknown')}
+Company: {job.get('company', 'Unknown')}
+Content: {content}
+
+"""
+        
+        return f"""Extract competencies from the following {len(jobs)} job postings.
+
+{jobs_section}
+
+INSTRUCTIONS:
+- Extract 3-7 abstract COMPETENCIES per job (not tools!)
+- Competencies are capabilities like "Stakeholder Management", "Technical Leadership", "Strategic Planning"
+- Focus on what someone DOES, not what tools they use
+- Use consistent naming across jobs
+- If responsibilities are unclear, extract from job title/description
+
+OUTPUT FORMAT (JSON):
+{{
+  "job_1": ["Competency 1", "Competency 2", ...],
+  "job_2": ["Competency 1", "Competency 2", ...],
+  ...
+  "job_{len(jobs)}": ["Competency 1", "Competency 2", ...]
+}}
+
+Output PURE JSON only, no markdown formatting.
+"""
+    
+    def _parse_batch_extraction(self, response_text: str, expected_count: int) -> dict:
+        """Parse batch competency extraction response"""
+        try:
+            # Strip markdown if present
+            clean_text = response_text.strip()
+            if clean_text.startswith("```json"):
+                clean_text = clean_text[7:]
+            if clean_text.startswith("```"):
+                clean_text = clean_text[3:]
+            if clean_text.endswith("```"):
+                clean_text = clean_text[:-3]
+            
+            result = json.loads(clean_text.strip())
+            
+            # Validate and ensure all jobs have entries
+            for i in range(1, expected_count + 1):
+                job_key = f"job_{i}"
+                if job_key not in result:
+                    result[job_key] = []
+                elif not isinstance(result[job_key], list):
+                    result[job_key] = []
+            
+            return result
+        except Exception as e:
+            logger.error(f"Failed to parse batch extraction: {e}")
+            return {f"job_{i+1}": [] for i in range(expected_count)}
+    
+    def _score_jobs_batch(self, jobs: list) -> list:
+        """
+        Score multiple jobs in a single API call.
+        
+        Args:
+            jobs: List of job dictionaries (with competencies already extracted)
+            
+        Returns:
+            List of analysis dictionaries in same order as jobs
+        """
+        prompt = self._create_batch_scoring_prompt(jobs)
+        
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=min(10000, len(jobs) * 200 + 2000),  # Scale with job count
+                temperature=0,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            return self._parse_batch_scoring_response(response.content[0].text, len(jobs))
+        except Exception as e:
+            logger.error(f"Batch scoring failed: {e}")
+            raise  # Let analyze_batch handle fallback
+    
+    def _create_batch_scoring_prompt(self, jobs: list) -> str:
+        """Create prompt to score multiple jobs in one API call"""
+        
+        # Format user profile once (shared across all jobs)
+        profile_section = self._format_profile_for_batch()
+        
+        # Format all jobs compactly
+        jobs_section = ""
+        for i, job in enumerate(jobs, 1):
+            ai_key_skills = job.get('ai_key_skills', []) or []
+            ai_competencies = job.get('ai_competencies', []) or []
+            ai_keywords = job.get('ai_keywords', []) or []
+            
+            jobs_section += f"""
+---
+JOB_{i}:
+Title: {job.get('title', 'Unknown')}
+Company: {job.get('company', 'Unknown')}
+Location: {job.get('location', '')}
+Skills: {', '.join(ai_key_skills[:12])}
+Competencies: {', '.join(ai_competencies)}
+Experience: {job.get('ai_experience_level', 'Not specified')}
+Work: {job.get('ai_work_arrangement', 'Not specified')}
+Responsibilities: {(job.get('ai_core_responsibilities', '') or '')[:250]}
+Requirements: {(job.get('ai_requirements_summary', '') or '')[:250]}
+
+"""
+        
+        return f"""You are an expert career advisor. Score these {len(jobs)} jobs against the candidate's profile.
+
+{profile_section}
+
+{jobs_section}
+
+OUTPUT FORMAT (JSON):
+{{
+  "job_1": {{
+    "match_score": <0-100>,
+    "priority": "<high|medium|low>",
+    "key_alignments": ["alignment 1", "alignment 2"],
+    "potential_gaps": ["gap 1", "gap 2"],
+    "reasoning": "2-3 sentence explanation"
+  }},
+  "job_2": {{...}},
+  ...
+  "job_{len(jobs)}": {{...}}
+}}
+
+SCORING GUIDELINES:
+- Skills Match 80%+: Start 85-90
+- Skills Match 60-79%: Start 75-84
+- Skills Match 40-59%: Start 60-74
+- Skills Match <40%: Start 45-59
+- Adjust for seniority, domain, competency matches
+- Priority: high (85+), medium (70-84), low (<70)
+
+Respond with ONLY valid JSON for ALL {len(jobs)} jobs, no additional text.
+"""
+    
+    def _format_profile_for_batch(self) -> str:
+        """Format user profile compactly for batch scoring"""
+        tech_skills = self.profile.get('technical_skills', []) or []
+        competencies = self.profile.get('competencies', []) or []
+        
+        # Format competencies
+        if competencies and isinstance(competencies[0], dict):
+            comp_str = ', '.join(c.get('name', str(c)) for c in competencies if c)
+        else:
+            comp_str = ', '.join(str(c) for c in competencies if c)
+        
+        return f"""
+CANDIDATE PROFILE:
+- Role: {self.profile.get('extracted_role') or self.profile.get('current_role', 'Professional')}
+- Seniority: {self.profile.get('derived_seniority', 'Not specified')}
+- Experience: {self.profile.get('total_years_experience', 0)} years
+- Domain: {', '.join(self.profile.get('domain_expertise', []) or [])}
+- Skills: {', '.join(str(s) for s in tech_skills[:20])}
+- Competencies: {comp_str}
+- Work Preference: {self.profile.get('work_arrangement_preference', 'flexible')}
+- Location: {self.profile.get('location', '')}
+"""
+    
+    def _parse_batch_scoring_response(self, response_text: str, expected_count: int) -> list:
+        """Parse batch scoring response and return list of analyses"""
+        try:
+            # Strip markdown
+            clean_text = response_text.strip()
+            if clean_text.startswith("```json"):
+                clean_text = clean_text[7:]
+            if clean_text.startswith("```"):
+                clean_text = clean_text[3:]
+            if clean_text.endswith("```"):
+                clean_text = clean_text[:-3]
+            
+            result = json.loads(clean_text.strip())
+            
+            # Convert dict to list, maintaining order
+            analyses = []
+            for i in range(1, expected_count + 1):
+                job_key = f"job_{i}"
+                if job_key in result:
+                    analysis = result[job_key]
+                    
+                    # Validate and fix priority if needed
+                    score = analysis.get('match_score', 50)
+                    correct_priority = self._calculate_priority(score)
+                    if analysis.get('priority') != correct_priority:
+                        analysis['priority'] = correct_priority
+                    
+                    analyses.append(analysis)
+                else:
+                    # Missing job - add default
+                    analyses.append({
+                        'match_score': 50,
+                        'priority': 'medium',
+                        'key_alignments': [],
+                        'potential_gaps': ['Analysis incomplete'],
+                        'reasoning': 'Could not analyze this job'
+                    })
+            
+            return analyses
+        except Exception as e:
+            logger.error(f"Failed to parse batch scoring: {e}")
+            logger.debug(f"Response text: {response_text[:500]}")
+            raise
     
     def _create_analysis_prompt(self, job: Dict[str, Any]) -> str:
         """Create the enhanced analysis prompt for Claude using rich AI metadata"""
@@ -247,7 +563,16 @@ class ClaudeJobAnalyzer:
         user_industries_str = ', '.join(user_industries) if user_industries else 'Not specified'
 
         profile_summary = f"""
-**Candidate Profile:**
+**Candidate Persona (Strategic Fit):**
+- Core Role: {self.profile.get('extracted_role') or self.profile.get('current_role')}
+- Seniority Level: {self.profile.get('derived_seniority') or 'Not specified'}
+- Domain Expertise: {', '.join(self.profile.get('domain_expertise', []) or []) or 'Not specified'}
+- Executive Summary: {self.profile.get('semantic_summary') or self.profile.get('expertise_summary')}
+
+**Competencies (Evidence-Based):**
+{chr(10).join(f"- {c.get('name')}: {c.get('evidence')}" for c in self.profile.get('competencies', []) if isinstance(c, dict)) or 'Not specified'}
+
+**Candidate Detail:**
 - Name: {self.profile.get('name')}
 - Current Role: {self.profile.get('current_role')}
 - Total Experience: {user_years} years
@@ -374,31 +699,39 @@ Evaluate this job opportunity and provide your assessment in the following JSON 
   "reasoning": "<2-3 sentence summary explaining the match score and priority>"
 }}
 
-**Enhanced Scoring Guidelines (Use Pre-Calculated Data):**
+**Enhanced Scoring Guidelines:**
 
-**Base Score (Skills + Experience):**
-- Skill Match ≥80%: Start at 85-90
-- Skill Match 60-79%: Start at 75-84
-- Skill Match 40-59%: Start at 60-74
-- Skill Match 20-39%: Start at 45-59
-- Skill Match <20%: Start at 30-44
+1.  **Strategic Fit (Primary Signal):**
+    - **Seniority Match:** If candidate is "{self.profile.get('derived_seniority', 'Unknown')}" and job requires similar level -> HIGH MATCH (ignores missing keywords).
+    - **Domain Match:** If candidate has expertise in {', '.join(self.profile.get('domain_expertise', []) or [])} and job is in same domain -> BOOST SCORE.
+    - **Competency Symmetry:** Check if candidate's "Competencies" (e.g., 'Hiring', 'Technical Strategy') appear in the Job's KEYWORDS or RESPONSIBILITIES.
+    - **Persona Match:** Does the candidate's "Semantic Summary" sound like the person described in the job?
 
-**Adjustments:**
-- Experience match (within 1-2 years of requirement): +5 points
-- Experience mismatch (too junior by 3+ years): -10 points
-- Experience mismatch (too senior by 5+ years): -5 points
-- Industry match: +5 points
-- Work arrangement match: +5 points
-- Work arrangement mismatch: -10 to -15 points
-- Location match: +3 points
-- Benefits/compensation attractive: +2-5 points
+2.  **Base Score (Skills + Experience):**
+    - Skill Match ≥80%: Start at 85-90
+    - Skill Match 60-79%: Start at 75-84
+    - Skill Match 40-59%: Start at 60-74
+    - Skill Match 20-39%: Start at 45-59
+    - Skill Match <20%: Start at 30-44
+
+3.  **Adjustments:**
+    - **Seniority Mismatch:** If Job is "Junior" and Candidate is "Staff/Lead" -> DOWNGRADE PRIORITY (unless "Hands-on" specified).
+    - **Domain Bonus:** +10 points for strong Industry/Domain alignment.
+    - Experience match (within 1-2 years of requirement): +5 points
+    - Experience mismatch (too junior by 3+ years): -10 points
+    - Experience mismatch (too senior by 5+ years): -5 points
+    - Industry match: +5 points
+    - Work arrangement match: +5 points
+    - Work arrangement mismatch: -10 to -15 points
+    - Location match: +3 points
+    - Benefits/compensation attractive: +2-5 points
 
 **Final Score Ranges:**
-- 90-100: Exceptional match (80%+ skill match, experience aligned, industry match)
-- 80-89: Strong match (60-79% skills or strong compensating factors)
-- 70-79: Good match (40-59% skills or acceptable gaps)
-- 60-69: Moderate match (stretch opportunity, significant learning required)
-- Below 60: Weak match (fundamental gaps)
+- 90-100: Strategic Fit + Skill Match. (Perfect seniority, domain, and core skills).
+- 80-89: Strong Fit. (Right seniority/domain, but maybe missing some specific tools).
+- 70-79: Good Match. (Skills match, but maybe domain/seniority is slightly off).
+- 60-69: Potential Stretch.
+- Below 60: Fundamental Mismatch (Wrong seniority, wrong domain, wrong role).
 
 **Priority Guidelines:**
 - High: Score 85+, strong alignment with career goals, good location/company

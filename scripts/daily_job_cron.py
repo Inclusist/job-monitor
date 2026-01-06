@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src.collectors.activejobs import ActiveJobsCollector
 from src.database.factory import get_database
-from scripts.enrich_missing_jobs import enrich_jobs  # Import enrichment agent
+from scripts.enrich_lightweight import run_lightweight_enrichment  # Lightweight enrichment only
 import psycopg2
 from psycopg2.extras import execute_values
 import json
@@ -139,19 +139,17 @@ def run_daily_job():
 
         print(f"   • Total jobs in database: {total:,}")
 
-        # --- Trigger Enrichment Agent ---
-        print("\n🤖 Enrichment agent starting...")
-        # We need a raw pyscopg2 connection for the agent,
-        # but the db object might be a wrapper. Let's get a raw connection.
-        agent_conn = db._get_connection()
-        try:
-            enrich_stats = enrich_jobs(agent_conn, limit=100) # Enrich 100 jobs per day
-            print(f"   • Enrichment Agent: Processed {enrich_stats['processed']} (Success: {enrich_stats['success']}, Failed: {enrich_stats['failed']})")
-        except Exception as e:
-            print(f"   ⚠️ Enrichment Agent failed: {e}")
-        finally:
-            db._return_connection(agent_conn)
-        # --------------------------------
+        # --- Trigger Lightweight Enrichment ---
+        if stats['new_jobs'] > 0:
+            print(f"\n🎯 Lightweight enrichment starting ({stats['new_jobs']} new jobs)...")
+            print("   Extracts: location, work arrangement, employment type")
+            print(f"   Estimated cost: ${stats['new_jobs'] * 0.0003:.2f}")
+            try:
+                run_lightweight_enrichment(limit=stats['new_jobs'])
+                print(f"   ✓ Lightweight enrichment complete")
+            except Exception as e:
+                print(f"   ⚠️  Lightweight enrichment failed: {e}")
+        # -----------------------------------------
         
         db.close()
         return True

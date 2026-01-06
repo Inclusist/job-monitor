@@ -110,15 +110,14 @@ google = oauth.register(
     }
 )
 
-# Configure LinkedIn OAuth (using OpenID Connect - manual configuration)
+# Configure LinkedIn OAuth (OpenID Connect with manual server metadata)
 linkedin = oauth.register(
     name='linkedin',
     client_id=os.getenv('LINKEDIN_CLIENT_ID'),
     client_secret=os.getenv('LINKEDIN_CLIENT_SECRET'),
-    authorize_url='https://www.linkedin.com/oauth/v2/authorization',
-    access_token_url='https://www.linkedin.com/oauth/v2/accessToken',
+    server_metadata_url='https://www.linkedin.com/oauth/.well-known/openid-configuration',
     client_kwargs={
-        'scope': 'profile email',
+        'scope': 'openid profile email',
         'token_endpoint_auth_method': 'client_secret_post',
     }
 )
@@ -382,25 +381,23 @@ def authorize_google():
 def login_linkedin():
     """Initiate LinkedIn OAuth login"""
     redirect_uri = url_for('authorize_linkedin', _external=True)
-    return linkedin.authorize_redirect(redirect_uri)
+    # Generate nonce for OpenID Connect security
+    import secrets
+    nonce = secrets.token_urlsafe(16)
+    return linkedin.authorize_redirect(redirect_uri, nonce=nonce)
 
 
 @app.route('/authorize/linkedin')
 def authorize_linkedin():
-    """LinkedIn OAuth callback"""
+    """LinkedIn OAuth callback (OpenID Connect)"""
     try:
         token = linkedin.authorize_access_token()
         
-        # Manually fetch user info from LinkedIn OpenID Connect endpoint
-        resp = linkedin.get('https://api.linkedin.com/v2/userinfo', token=token)
-        user_info = resp.json()
+        # Use OpenID Connect userinfo endpoint
+        user_info = linkedin.userinfo(token=token)
         
-        # Debug: Print what LinkedIn returns
+        # Debug print
         print("LinkedIn userinfo response:", user_info)
-        
-        if not user_info:
-            flash('Failed to get user information from LinkedIn', 'error')
-            return redirect(url_for('login'))
         
         email = user_info.get('email')
         name = user_info.get('name')
@@ -563,11 +560,21 @@ def view_profile():
     if not profile:
         flash(f"CV uploaded but profile not parsed. Please try uploading again.", 'warning')
 
+    print(f"DEBUG: Viewing Profile for User {user['id']}")
+    if cv:
+        print(f"DEBUG: CV ID: {cv['id']} (File: {cv['file_name']})")
+    
+    if profile:
+        print(f"DEBUG: Profile ID: {profile.get('id')}")
+        comps = profile.get('competencies')
+        print(f"DEBUG: Competencies Type: {type(comps)}")
+        print(f"DEBUG: Competencies Value: {comps}")
+
     # Parse JSON fields
     if profile:
-        json_fields = ['technical_skills', 'soft_skills', 'languages', 'certifications',
+        json_fields = ['technical_skills', 'soft_skills', 'competencies', 'languages', 'certifications',
                       'work_experience', 'leadership_experience', 'education',
-                      'career_highlights', 'industries']
+                      'career_highlights', 'industries', 'raw_analysis']
 
         for field in json_fields:
             if field in profile and isinstance(profile[field], str):
@@ -575,6 +582,9 @@ def view_profile():
                     profile[field] = json.loads(profile[field])
                 except:
                     profile[field] = []
+        
+        # DEBUG after parsing
+        print(f"DEBUG: Post-Parsing Competencies: {profile.get('competencies')}")
 
     return render_template('profile.html', user=user, profile=profile, cv=cv, all_cvs=all_cvs)
 
