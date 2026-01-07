@@ -794,7 +794,8 @@ class PostgresDatabase:
     def add_user_job_match(self, user_id: int, job_id: int, semantic_score: int = None,
                           claude_score: int = None, match_reasoning: str = None,
                           key_alignments: list = None, potential_gaps: list = None,
-                          priority: str = 'medium') -> bool:
+                          priority: str = 'medium', competency_mappings: list = None,
+                          skill_mappings: list = None) -> bool:
         """Add or update a user-job match"""
         conn = self._get_connection()
         try:
@@ -805,13 +806,19 @@ class PostgresDatabase:
             key_alignments_str = ', '.join(key_alignments) if key_alignments else ''
             potential_gaps_str = ', '.join(potential_gaps) if potential_gaps else ''
             
+            # Convert mappings to JSON strings
+            import json
+            competency_mappings_json = json.dumps(competency_mappings) if competency_mappings else None
+            skill_mappings_json = json.dumps(skill_mappings) if skill_mappings else None
+            
             # PostgreSQL upsert
             cursor.execute("""
                 INSERT INTO user_job_matches (
                     user_id, job_id, semantic_score, semantic_date,
                     claude_score, claude_date, priority, match_reasoning,
-                    key_alignments, potential_gaps, created_date, last_updated
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    key_alignments, potential_gaps, competency_mappings, skill_mappings,
+                    created_date, last_updated
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (user_id, job_id) 
                 DO UPDATE SET
                     semantic_score = COALESCE(EXCLUDED.semantic_score, user_job_matches.semantic_score),
@@ -826,11 +833,14 @@ class PostgresDatabase:
                     match_reasoning = COALESCE(EXCLUDED.match_reasoning, user_job_matches.match_reasoning),
                     key_alignments = COALESCE(EXCLUDED.key_alignments, user_job_matches.key_alignments),
                     potential_gaps = COALESCE(EXCLUDED.potential_gaps, user_job_matches.potential_gaps),
+                    competency_mappings = COALESCE(EXCLUDED.competency_mappings, user_job_matches.competency_mappings),
+                    skill_mappings = COALESCE(EXCLUDED.skill_mappings, user_job_matches.skill_mappings),
                     last_updated = EXCLUDED.last_updated
             """, (
                 user_id, job_id, semantic_score, now if semantic_score else None,
                 claude_score, now if claude_score else None, priority, match_reasoning,
-                key_alignments_str, potential_gaps_str, now, now
+                key_alignments_str, potential_gaps_str, competency_mappings_json, skill_mappings_json,
+                now, now
             ))
             
             conn.commit()
