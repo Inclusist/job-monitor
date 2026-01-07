@@ -1560,17 +1560,19 @@ def job_feedback(job_id):
     feedback_reason = request.form.get('feedback_reason', '')
     
     # Get original job score
+    # Get original job score for this user
     conn = job_db._get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT match_score FROM jobs WHERE id = %s', (job_id,))
-    row = cursor.fetchone()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        cursor.execute('SELECT claude_score FROM user_job_matches WHERE job_id = %s AND user_id = %s', (job_id, user['id']))
+        row = cursor.fetchone()
+    finally:
+        # Proper pool management
+        cursor.close()
+        job_db._return_connection(conn)
     
-    if not row:
-        flash('Job not found', 'error')
-        return redirect(url_for('jobs'))
-    
-    original_score = row[0] or 0
+    # If no match record found, default to 0
+    original_score = row[0] if row else 0
     
     # Save feedback
     success = job_db.add_feedback(
