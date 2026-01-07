@@ -1003,6 +1003,36 @@ def job_detail(job_id):
                                     break
                             
                 matches[comp] = is_matched
+            
+            # C. Semantic matching fallback for unmatched competencies
+            # This catches cases like "End-to-End Model Development" vs "Technical Leadership"
+            unmatched_comps = [comp for comp, matched in matches.items() if not matched]
+            if unmatched_comps and user_cv_profile:
+                try:
+                    from src.analysis.semantic_matcher import get_semantic_matcher
+                    semantic_matcher = get_semantic_matcher()
+                    
+                    # Get original (non-lowercased) user data for semantic matching
+                    user_comp_list = user_cv_profile.get('competencies', []) or []
+                    user_skill_list = user_cv_profile.get('technical_skills', []) or []
+                    
+                    semantic_matches = semantic_matcher.match_competencies(
+                        unmatched_comps,
+                        user_comp_list,
+                        user_skill_list,
+                        threshold=0.45
+                    )
+                    
+                    # Update matches with semantic results
+                    for comp, sem_matched in semantic_matches.items():
+                        if sem_matched:
+                            matches[comp] = True
+                            
+                except Exception as e:
+                    # Semantic matching is optional fallback, don't break if it fails
+                    import logging
+                    logging.getLogger(__name__).warning(f"Semantic matching failed: {e}")
+            
             job['competency_match_map'] = matches
 
         # 2. Skills Matching
@@ -1025,6 +1055,31 @@ def job_detail(job_id):
                                  break
                 
                 skill_matches[skill] = is_matched
+            
+            # C. Semantic matching fallback for unmatched skills
+            unmatched_skills = [skill for skill, matched in skill_matches.items() if not matched]
+            if unmatched_skills and user_cv_profile:
+                try:
+                    from src.analysis.semantic_matcher import get_semantic_matcher
+                    semantic_matcher = get_semantic_matcher()
+                    
+                    user_skill_list = user_cv_profile.get('technical_skills', []) or []
+                    
+                    semantic_matches = semantic_matcher.match_skills(
+                        unmatched_skills,
+                        user_skill_list,
+                        threshold=0.50  # Slightly higher threshold for skills
+                    )
+                    
+                    # Update matches with semantic results
+                    for skill, sem_matched in semantic_matches.items():
+                        if sem_matched:
+                            skill_matches[skill] = True
+                            
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Semantic skill matching failed: {e}")
+            
             job['skill_match_map'] = skill_matches
 
     return render_template('job_detail.html', job=job)
