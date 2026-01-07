@@ -188,9 +188,14 @@
 
     <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
         {% for skill in job.ai_key_skills %}
-        <span
-            style="padding: 0.5rem 1rem; background: #f8f9fa; border: 1px solid #28a745; border-radius: 20px; font-size: 0.875rem; color: #333;">
-            {{ skill }}
+        {% set s_matched = job.skill_match_map.get(skill, false) if job.skill_match_map else false %}
+        <span style="padding: 0.5rem 1rem; 
+                   background: {% if s_matched %}#d4edda{% else %}#f8f9fa{% endif %}; 
+                   border: 1px solid {% if s_matched %}#28a745{% else %}#dee2e6{% endif %}; 
+                   border-radius: 20px; font-size: 0.875rem; 
+                   color: {% if s_matched %}#155724{% else %}#555{% endif %};
+                   {% if s_matched %}font-weight: 500;{% endif %}">
+            {% if s_matched %}✓ {% endif %}{{ skill }}
         </span>
         {% endfor %}
     </div>

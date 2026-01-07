@@ -935,44 +935,97 @@ def job_detail(job_id):
     # Note: match_score, priority, match_reasoning, key_alignments, and potential_gaps
     # are already set and parsed by get_job_with_user_data()
 
-    # Calculate competency match status for UI visualization
-    if job and job.get('ai_competencies') and job.get('key_alignments'):
-        matches = {}
-        alignments = job['key_alignments']
-        # Handle case where alignments might be raw strings or dicts
-        align_texts = []
-        for a in alignments:
-            if isinstance(a, str):
-                align_texts.append(a.lower())
-            elif isinstance(a, dict):
-                align_texts.append(str(a.get('text', '')).lower())
+    # Fetch User Profile for accurate matching
+    user_cv_profile = cv_manager.get_primary_profile(user_id)
+    
+    user_skills = set()
+    user_competencies = set()
+    
+    if user_cv_profile:
+        # Normalize for matching
+        raw_skills = user_cv_profile.get('technical_skills', []) or []
+        user_skills = set(str(s).lower().strip() for s in raw_skills)
         
-        for comp in job['ai_competencies']:
-            is_matched = False
-            comp_lower = comp.lower()
+        raw_comps = user_cv_profile.get('competencies', []) or []
+        user_competencies = set(str(c).lower().strip() for c in raw_comps)
+
+    # Calculate match status for UI visualization
+    if job:
+        # 1. Competencies Matching
+        if job.get('ai_competencies'):
+            matches = {}
             
-            # 1. Direct substring match
-            for align in align_texts:
-                if comp_lower in align:
+            # Prepare alignment texts (from Claude's reasoning)
+            align_texts = []
+            if job.get('key_alignments'):
+                for a in job['key_alignments']:
+                    if isinstance(a, str):
+                        align_texts.append(a.lower())
+                    elif isinstance(a, dict):
+                        align_texts.append(str(a.get('text', '')).lower())
+            
+            for comp in job['ai_competencies']:
+                is_matched = False
+                comp_lower = comp.lower().strip()
+                
+                # A. Check User Profile directly (Strongest evidence)
+                # Check against both competencies and technical skills (often interchangeable)
+                if comp_lower in user_competencies or comp_lower in user_skills:
                     is_matched = True
-                    break
-            
-            # 2. Key word overlap (if not matched by substring)
-            if not is_matched:
-                # Filter out small words
-                comp_words = set(w for w in comp_lower.split() if len(w) > 3)
-                if comp_words:
+                
+                # Also check fuzzy profile match
+                if not is_matched and (user_competencies or user_skills):
+                     all_user_terms = user_competencies.union(user_skills)
+                     for term in all_user_terms:
+                         if term and (comp_lower in term or term in comp_lower):
+                             # Only match if term specific enough (len > 3)
+                             if len(term) > 3 and len(comp_lower) > 3:
+                                 is_matched = True
+                                 break
+
+                # B. Check against Key Alignments (Claude's reasoning)
+                if not is_matched and align_texts:
+                    # Direct substring match
                     for align in align_texts:
-                        align_words = set(w for w in align.split() if len(w) > 3)
-                        # If >50% of competency words appear in alignment
-                        overlap = comp_words.intersection(align_words)
-                        if len(overlap) / len(comp_words) >= 0.5:
+                        if comp_lower in align:
                             is_matched = True
                             break
+                    
+                    # Key word overlap (if not matched by substring)
+                    if not is_matched:
+                        comp_words = set(w for w in comp_lower.split() if len(w) > 3)
+                        if comp_words:
+                            for align in align_texts:
+                                align_words = set(w for w in align.split() if len(w) > 3)
+                                overlap = comp_words.intersection(align_words)
+                                if len(overlap) / len(comp_words) >= 0.5:
+                                    is_matched = True
+                                    break
                             
-            matches[comp] = is_matched
-        
-        job['competency_match_map'] = matches
+                matches[comp] = is_matched
+            job['competency_match_map'] = matches
+
+        # 2. Skills Matching
+        if job.get('ai_key_skills'):
+            skill_matches = {}
+            for skill in job['ai_key_skills']:
+                s_lower = str(skill).lower().strip()
+                is_matched = False
+                
+                # Check direct match in user skills
+                if s_lower in user_skills:
+                    is_matched = True
+                
+                # Check fuzzy match
+                if not is_matched:
+                     for us in user_skills:
+                         if len(us) > 2 and len(s_lower) > 2: # Avoid tiny matches
+                             if s_lower in us or us in s_lower:
+                                 is_matched = True
+                                 break
+                
+                skill_matches[skill] = is_matched
+            job['skill_match_map'] = skill_matches
 
     return render_template('job_detail.html', job=job)
 
