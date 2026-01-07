@@ -147,22 +147,42 @@
 
 {% if job.ai_competencies %}
 <div class="card" style="border-left: 4px solid #667eea;">
-    <h3 style="color: #667eea;">🎯 Competency Alignment</h3>
+    <h3 style="color: #667eea;">🎯 Required Competencies</h3>
     <p style="color: #666; margin-bottom: 1.5rem;">
-        Strategic fit between your leadership capabilities and this role's requirements
+        Strategic fit between your capabilities and this role's requirements
     </p>
 
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem;">
         {% for competency in job.ai_competencies %}
-        <div style="padding: 1rem; background: #f8f9fa; border-left: 3px solid #667eea; border-radius: 6px;">
-            <div style="font-weight: 600; color: #333; margin-bottom: 0.5rem;">{{ competency }}</div>
-            <span class="badge" style="background: #667eea; font-size: 0.75rem;">Required</span>
+        {# Simple heuristic to check if competency is matched #}
+        {% set matched = false %}
+        {% if job.key_alignments %}
+        {% for alignment in job.key_alignments %}
+        {# Check if significant overlapping words exist #}
+        {% if competency|lower in alignment|lower or (alignment|length > 10 and alignment|lower in competency|lower) %}
+        {% set matched = true %}
+        {% endif %}
+        {% endfor %}
+        {% endif %}
+
+        <div style="padding: 1rem; background: {% if matched %}#d4edda{% else %}#f8f9fa{% endif %}; 
+                        border-left: 3px solid {% if matched %}#28a745{% else %}#6c757d{% endif %}; 
+                        border-radius: 6px; position: relative;">
+            <div
+                style="font-weight: 600; color: {% if matched %}#155724{% else %}#333{% endif %}; margin-bottom: 0.5rem;">
+                {{ competency }}
+            </div>
+            {% if matched %}
+            <span class="badge" style="background: #28a745; font-size: 0.75rem;">✓ Matched</span>
+            {% else %}
+            <span class="badge" style="background: #6c757d; font-size: 0.75rem;">Required</span>
+            {% endif %}
         </div>
         {% endfor %}
     </div>
 
     <p style="margin-top: 1rem; font-size: 0.9rem; color: #666; font-style: italic;">
-        💡 Competencies are strategic capabilities extracted from the role's responsibilities, not technical skills
+        💡 Green highlights indicate competencies that explicitly align with your profile based on the AI analysis.
     </p>
 </div>
 {% endif %}
