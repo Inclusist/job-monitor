@@ -348,7 +348,7 @@ class PostgresCVManager:
     
     def should_refilter(self, user_id: int) -> tuple:
         """
-        Check if user needs re-filtering based on last run and preferences
+        Check if user needs re-filtering based on last run, preferences, and new jobs
         
         Returns:
             (should_refilter, reason)
@@ -362,20 +362,37 @@ class PostgresCVManager:
             """, (user_id,))
             row = cursor.fetchone()
             
-            cursor.close()
-            self._return_connection(conn)
-            
             if not row:
+                cursor.close()
+                self._return_connection(conn)
                 return (True, "User not found")
             
             last_filter = row['last_filter_run']
             prefs_updated = row['preferences_updated']
             
             if not last_filter:
+                cursor.close()
+                self._return_connection(conn)
                 return (True, "Never filtered")
             
             if prefs_updated and prefs_updated > last_filter:
+                cursor.close()
+                self._return_connection(conn)
                 return (True, "Preferences changed since last filter")
+            
+            # Check if there are new jobs since last filter run
+            cursor.execute("""
+                SELECT COUNT(*) as new_jobs
+                FROM jobs
+                WHERE created_at > %s
+            """, (last_filter,))
+            new_jobs_count = cursor.fetchone()['new_jobs']
+            
+            cursor.close()
+            self._return_connection(conn)
+            
+            if new_jobs_count > 0:
+                return (True, f"{new_jobs_count} new jobs since last run")
             
             return (False, "Up to date")
             
