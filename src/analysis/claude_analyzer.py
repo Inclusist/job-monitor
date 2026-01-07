@@ -432,7 +432,23 @@ OUTPUT FORMAT (JSON):
     "priority": "<high|medium|low>",
     "key_alignments": ["alignment 1", "alignment 2"],
     "potential_gaps": ["gap 1", "gap 2"],
-    "reasoning": "2-3 sentence explanation"
+    "reasoning": "2-3 sentence explanation",
+    "competency_mappings": [
+      {{
+        "job_requirement": "<competency from job>",
+        "user_strength": "<matching competency from candidate>",
+        "match_confidence": "<high|medium|low>",
+        "explanation": "<brief explanation>"
+      }}
+    ],
+    "skill_mappings": [
+      {{
+        "job_skill": "<skill from job>",
+        "user_skill": "<matching skill from candidate>",
+        "match_confidence": "<high|medium|low>",
+        "explanation": "<brief explanation>"
+      }}
+    ]
   }},
   "job_2": {{...}},
   ...
@@ -446,6 +462,8 @@ SCORING GUIDELINES:
 - Skills Match <40%: Start 45-59
 - Adjust for seniority, domain, competency matches
 - Priority: high (85+), medium (70-84), low (<70)
+- For mappings: find semantic connections even when wording differs
+- Use high confidence for direct matches, medium for related, low for weak
 
 Respond with ONLY valid JSON for ALL {len(jobs)} jobs, no additional text.
 """
