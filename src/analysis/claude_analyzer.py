@@ -708,7 +708,23 @@ Evaluate this job opportunity and provide your assessment in the following JSON 
   "priority": "<high|medium|low>",
   "key_alignments": ["<alignment 1>", "<alignment 2>", ...],
   "potential_gaps": ["<gap 1>", "<gap 2>", ...],
-  "reasoning": "<2-3 sentence summary explaining the match score and priority>"
+  "reasoning": "<2-3 sentence summary explaining the match score and priority>",
+  "competency_mappings": [
+    {{
+      "job_requirement": "<competency from job requirements>",
+      "user_strength": "<matching competency from candidate profile>",
+      "match_confidence": "<high|medium|low>",
+      "explanation": "<brief explanation of semantic connection>"
+    }}
+  ],
+  "skill_mappings": [
+    {{
+      "job_skill": "<skill from job requirements>",
+      "user_skill": "<matching skill from candidate profile>",
+      "match_confidence": "<high|medium|low>",
+      "explanation": "<brief explanation (for non-exact matches)>"
+    }}
+  ]
 }}
 
 **Enhanced Scoring Guidelines:**
@@ -761,6 +777,18 @@ Evaluate this job opportunity and provide your assessment in the following JSON 
 - "Experience gap: Requires 8+ years, candidate has 3 years"
 - "No industry experience in Healthcare (job requirement)"
 - "Work arrangement mismatch: Onsite required, candidate prefers remote"
+
+**Competency & Skill Mapping Instructions:**
+- For `competency_mappings`: Map job competency requirements to candidate's competencies semantically
+  - Example: "End-to-End Model Development" (job) → "Technical Leadership" (candidate) if candidate led full product cycles
+  - Include explanation of the semantic connection
+  - Use match_confidence: "high" for direct evidence, "medium" for related, "low" for weak correlation
+- For `skill_mappings`: Map job technical skills to candidate's skills
+  - Example: "Large Language Models (LLMs)" (job) → "AI" or "Machine Learning" (candidate) if semantically related
+  - Exact matches get "high" confidence
+  - Related skills (e.g., "Spark" → "Data Pipeline Development") get "medium"
+  - Only include if there's a reasonable semantic connection
+- Focus on finding meaningful alignments even when exact wording differs
 
 **Critical Notes:**
 1. **USE the pre-calculated data** - don't recalculate skill matches from scratch
