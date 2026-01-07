@@ -1007,6 +1007,7 @@ def job_detail(job_id):
             # C. Semantic matching fallback for unmatched competencies
             # This catches cases like "End-to-End Model Development" vs "Technical Leadership"
             unmatched_comps = [comp for comp, matched in matches.items() if not matched]
+            print(f"🔍 DEBUG: {len(unmatched_comps)} unmatched competencies")
             if unmatched_comps and user_cv_profile:
                 try:
                     from src.analysis.semantic_matcher import get_semantic_matcher
@@ -1016,21 +1017,56 @@ def job_detail(job_id):
                     user_comp_list = user_cv_profile.get('competencies', []) or []
                     user_skill_list = user_cv_profile.get('technical_skills', []) or []
                     
+                    # Ensure they're lists (might be JSON strings from DB)
+                    import json
+                    if isinstance(user_comp_list, str):
+                        try:
+                            user_comp_list = json.loads(user_comp_list)
+                        except:
+                            user_comp_list = []
+                    if isinstance(user_skill_list, str):
+                        try:
+                            user_skill_list = json.loads(user_skill_list)
+                        except:
+                            user_skill_list = []
+                    
+                    # Extract 'name' from competency dicts if structured
+                    comp_names = []
+                    for comp in user_comp_list:
+                        if isinstance(comp, dict):
+                            comp_names.append(comp.get('name', str(comp)))
+                        else:
+                            comp_names.append(str(comp))
+                    
+                    # Skills should already be strings
+                    skill_names = [str(s) for s in user_skill_list]
+                    
+                    print(f"🔍 DEBUG: User has {len(comp_names)} competencies, {len(skill_names)} skills")
+                    print(f"🔍 DEBUG: Sample unmatched: {unmatched_comps[:3]}")
+                    print(f"🔍 DEBUG: Sample user comp names: {comp_names[:3]}")
+                    print(f"🔍 DEBUG: Sample user skills: {skill_names[:3]}")
+                    
                     semantic_matches = semantic_matcher.match_competencies(
                         unmatched_comps,
-                        user_comp_list,
-                        user_skill_list,
+                        comp_names,
+                        skill_names,
                         threshold=0.45
                     )
+                    
+                    print(f"🔍 DEBUG: Semantic matches: {sum(semantic_matches.values())} / {len(semantic_matches)}")
                     
                     # Update matches with semantic results
                     for comp, sem_matched in semantic_matches.items():
                         if sem_matched:
                             matches[comp] = True
+                            print(f"✓ Semantic match: {comp}")
                             
                 except Exception as e:
                     # Semantic matching is optional fallback, don't break if it fails
                     import logging
+                    import traceback
+                    print(f"❌ Semantic matching failed: {e}")
+                    print(traceback.format_exc())
                     logging.getLogger(__name__).warning(f"Semantic matching failed: {e}")
             
             job['competency_match_map'] = matches
@@ -1058,6 +1094,7 @@ def job_detail(job_id):
             
             # C. Semantic matching fallback for unmatched skills
             unmatched_skills = [skill for skill, matched in skill_matches.items() if not matched]
+            print(f"🔍 DEBUG Skills: {len(unmatched_skills)} unmatched skills")
             if unmatched_skills and user_cv_profile:
                 try:
                     from src.analysis.semantic_matcher import get_semantic_matcher
@@ -1065,16 +1102,38 @@ def job_detail(job_id):
                     
                     user_skill_list = user_cv_profile.get('technical_skills', []) or []
                     
+                    # Parse JSON if needed
+                    import json
+                    if isinstance(user_skill_list, str):
+                        try:
+                            user_skill_list = json.loads(user_skill_list)
+                        except:
+                            user_skill_list = []
+                    
+                    # Extract names if dict format
+                    skill_names = []
+                    for s in user_skill_list:
+                        if isinstance(s, dict):
+                            skill_names.append(s.get('name', str(s)))
+                        else:
+                            skill_names.append(str(s))
+                    
+                    print(f"🔍 DEBUG Skills: Sample unmatched: {unmatched_skills[:3]}")
+                    print(f"🔍 DEBUG Skills: Sample user skills: {skill_names[:5]}")
+                    
                     semantic_matches = semantic_matcher.match_skills(
                         unmatched_skills,
-                        user_skill_list,
-                        threshold=0.50  # Slightly higher threshold for skills
+                        skill_names,
+                        threshold=0.45  # Lowered from 0.50 to catch more matches
                     )
+                    
+                    print(f"🔍 DEBUG Skills: Semantic matches: {sum(semantic_matches.values())} / {len(semantic_matches)}")
                     
                     # Update matches with semantic results
                     for skill, sem_matched in semantic_matches.items():
                         if sem_matched:
                             skill_matches[skill] = True
+                            print(f"✓ Semantic skill match: {skill}")
                             
                 except Exception as e:
                     import logging
