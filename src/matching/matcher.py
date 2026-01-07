@@ -367,10 +367,10 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
             
             filtered_jobs = []
             for job in jobs_to_filter:
-                job_work = job.get('ai_work_arrangement', '').lower()
-                job_location = job.get('location', '')
+                job_work = (job.get('ai_work_arrangement') or '').lower()
+                job_location = job.get('location') or ''
                 # Use locations_derived from API (cities_derived is from enrichment, which may be empty)
-                job_locations = job.get('locations_derived', []) or []
+                job_locations = job.get('locations_derived') or []
                 
                 # Helper: check if any user location matches job location
                 def location_matches(user_locs, job_loc_str, job_loc_array):
@@ -550,7 +550,7 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                 analyzed_jobs = analyzer.analyze_batch(jobs_to_analyze, batch_size=50)
                 t_batch = time.time() - t_batch_start
                 
-                print(f\"✓ Batch analysis complete: {len(analyzed_jobs)} jobs in {t_batch:.2f}s ({t_batch/len(analyzed_jobs):.2f}s/job avg)\")
+                print(f"✓ Batch analysis complete: {len(analyzed_jobs)} jobs in {t_batch:.2f}s ({t_batch/len(analyzed_jobs):.2f}s/job avg)")
 
                 # Process batch results
                 claude_batch_updates = []

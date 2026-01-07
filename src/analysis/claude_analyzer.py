@@ -176,7 +176,7 @@ class ClaudeJobAnalyzer:
                 'reasoning': f'Error during analysis: {str(e)}'
             }
     
-    def analyze_batch(self, jobs: list, batch_size: int = 50) -> list:
+    def analyze_batch(self, jobs: list, batch_size: int = 15) -> list:
         """
         Analyze multiple jobs using true batch processing (multiple jobs per API call).
         
@@ -282,8 +282,8 @@ class ClaudeJobAnalyzer:
         
         try:
             response = self.client.messages.create(
-                model="claude-3-haiku-20240307",  # Use Haiku for cost efficiency
-                max_tokens=4000,  # Haiku max is 4096
+                model="claude-3-5-haiku-20241022",  # Use newer Haiku with 8192 token limit
+                max_tokens=4096,  # Safe limit for batch extraction
                 temperature=0,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -381,7 +381,7 @@ Output PURE JSON only, no markdown.
         try:
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=min(10000, len(jobs) * 200 + 2000),  # Scale with job count
+                max_tokens=min(8192, len(jobs) * 200 + 2000),  # Haiku max is 8192
                 temperature=0,
                 messages=[{"role": "user", "content": prompt}]
             )

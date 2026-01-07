@@ -80,12 +80,12 @@ class FeedbackLearner:
         
         for fb in feedback_list[:limit]:
             examples.append({
-                'title': fb['job_title'],
-                'company': fb['job_company'],
-                'location': fb['job_location'],
-                'score': fb['match_score_original'],
-                'alignments': fb['key_alignments'],
-                'gaps': fb['potential_gaps'],
+                'title': fb.get('job_title', 'Unknown'),
+                'company': fb.get('job_company', 'Unknown'),
+                'location': fb.get('job_location', 'Unknown'),
+                'score': fb.get('match_score_original', 0),
+                'alignments': fb.get('key_alignments', []),
+                'gaps': fb.get('potential_gaps', []),
                 'feedback_reason': fb.get('feedback_reason')
             })
         
