@@ -951,193 +951,211 @@ def job_detail(job_id):
 
     # Calculate match status for UI visualization
     if job:
-        # 1. Competencies Matching
+        # 1. Competencies Matching (HYBRID: Claude → Keyword → Semantic)
         if job.get('ai_competencies'):
             matches = {}
             
-            # Prepare alignment texts (from Claude's reasoning)
-            align_texts = []
-            if job.get('key_alignments'):
-                for a in job['key_alignments']:
-                    if isinstance(a, str):
-                        align_texts.append(a.lower())
-                    elif isinstance(a, dict):
-                        align_texts.append(str(a.get('text', '')).lower())
-            
-            for comp in job['ai_competencies']:
-                is_matched = False
-                comp_lower = comp.lower().strip()
+            # Option 1: Try using Claude's structured mappings first (NEW JOBS)
+            claude_comp_mappings = job.get('competency_mappings')
+            if claude_comp_mappings and isinstance(claude_comp_mappings, list):
+                # Use Claude's expert mappings
+                print(f"✨ Using Claude competency mappings ({len(claude_comp_mappings)} mappings)")
+                mapped_comps = set()
+                for mapping in claude_comp_mappings:
+                    if isinstance(mapping, dict):
+                        job_req = mapping.get('job_requirement', '')
+                        if job_req:
+                            matches[job_req] = True
+                            mapped_comps.add(job_req.lower())
                 
-                # A. Check User Profile directly (Strongest evidence)
-                # Check against both competencies and technical skills (often interchangeable)
-                if comp_lower in user_competencies or comp_lower in user_skills:
-                    is_matched = True
+                # Mark unmapped competencies as unmatched
+                for comp in job['ai_competencies']:
+                    if comp.lower() not in mapped_comps:
+                        matches[comp] = False
+            else:
+                # Option 2: Fallback to keyword/semantic matching (EXISTING JOBS)
+                print(f"🔄 Using fallback matching for competencies")
                 
-                # Also check fuzzy profile match
-                if not is_matched and (user_competencies or user_skills):
-                     all_user_terms = user_competencies.union(user_skills)
-                     for term in all_user_terms:
-                         if term and (comp_lower in term or term in comp_lower):
-                             # Only match if term specific enough (len > 3)
-                             if len(term) > 3 and len(comp_lower) > 3:
-                                 is_matched = True
-                                 break
+                # Prepare alignment texts (from Claude's reasoning)
+                align_texts = []
+                if job.get('key_alignments'):
+                    for a in job['key_alignments']:
+                        if isinstance(a, str):
+                            align_texts.append(a.lower())
+                        elif isinstance(a, dict):
+                            align_texts.append(str(a.get('text', '')).lower())
+                
+                for comp in job['ai_competencies']:
+                    is_matched = False
+                    comp_lower = comp.lower().strip()
+                    
+                    # A. Check User Profile directly (Strongest evidence)
+                    if comp_lower in user_competencies or comp_lower in user_skills:
+                        is_matched = True
+                    
+                    # Fuzzy profile match
+                    if not is_matched and (user_competencies or user_skills):
+                         all_user_terms = user_competencies.union(user_skills)
+                         for term in all_user_terms:
+                             if term and (comp_lower in term or term in comp_lower):
+                                 if len(term) > 3 and len(comp_lower) > 3:
+                                     is_matched = True
+                                     break
 
-                # B. Check against Key Alignments (Claude's reasoning)
-                if not is_matched and align_texts:
-                    # Direct substring match
-                    for align in align_texts:
-                        if comp_lower in align:
-                            is_matched = True
-                            break
-                    
-                    # Key word overlap (if not matched by substring)
-                    if not is_matched:
-                        comp_words = set(w for w in comp_lower.split() if len(w) > 3)
-                        if comp_words:
-                            for align in align_texts:
-                                align_words = set(w for w in align.split() if len(w) > 3)
-                                overlap = comp_words.intersection(align_words)
-                                if len(overlap) / len(comp_words) >= 0.5:
-                                    is_matched = True
-                                    break
-                            
-                matches[comp] = is_matched
-            
-            # C. Semantic matching fallback for unmatched competencies
-            # This catches cases like "End-to-End Model Development" vs "Technical Leadership"
-            unmatched_comps = [comp for comp, matched in matches.items() if not matched]
-            print(f"🔍 DEBUG: {len(unmatched_comps)} unmatched competencies")
-            if unmatched_comps and user_cv_profile:
-                try:
-                    from src.analysis.semantic_matcher import get_semantic_matcher
-                    semantic_matcher = get_semantic_matcher()
-                    
-                    # Get original (non-lowercased) user data for semantic matching
-                    user_comp_list = user_cv_profile.get('competencies', []) or []
-                    user_skill_list = user_cv_profile.get('technical_skills', []) or []
-                    
-                    # Ensure they're lists (might be JSON strings from DB)
-                    import json
-                    if isinstance(user_comp_list, str):
-                        try:
-                            user_comp_list = json.loads(user_comp_list)
-                        except:
-                            user_comp_list = []
-                    if isinstance(user_skill_list, str):
-                        try:
-                            user_skill_list = json.loads(user_skill_list)
-                        except:
-                            user_skill_list = []
-                    
-                    # Extract 'name' from competency dicts if structured
-                    comp_names = []
-                    for comp in user_comp_list:
-                        if isinstance(comp, dict):
-                            comp_names.append(comp.get('name', str(comp)))
-                        else:
-                            comp_names.append(str(comp))
-                    
-                    # Skills should already be strings
-                    skill_names = [str(s) for s in user_skill_list]
-                    
-                    print(f"🔍 DEBUG: User has {len(comp_names)} competencies, {len(skill_names)} skills")
-                    print(f"🔍 DEBUG: Sample unmatched: {unmatched_comps[:3]}")
-                    print(f"🔍 DEBUG: Sample user comp names: {comp_names[:3]}")
-                    print(f"🔍 DEBUG: Sample user skills: {skill_names[:3]}")
-                    
-                    semantic_matches = semantic_matcher.match_competencies(
-                        unmatched_comps,
-                        comp_names,
-                        skill_names,
-                        threshold=0.45
-                    )
-                    
-                    print(f"🔍 DEBUG: Semantic matches: {sum(semantic_matches.values())} / {len(semantic_matches)}")
-                    
-                    # Update matches with semantic results
-                    for comp, sem_matched in semantic_matches.items():
-                        if sem_matched:
-                            matches[comp] = True
-                            print(f"✓ Semantic match: {comp}")
-                            
-                except Exception as e:
-                    # Semantic matching is optional fallback, don't break if it fails
-                    import logging
-                    import traceback
-                    print(f"❌ Semantic matching failed: {e}")
-                    print(traceback.format_exc())
-                    logging.getLogger(__name__).warning(f"Semantic matching failed: {e}")
+                    # B. Check against Key Alignments
+                    if not is_matched and align_texts:
+                        for align in align_texts:
+                            if comp_lower in align:
+                                is_matched = True
+                                break
+                        
+                        if not is_matched:
+                            comp_words = set(w for w in comp_lower.split() if len(w) > 3)
+                            if comp_words:
+                                for align in align_texts:
+                                    align_words = set(w for w in align.split() if len(w) > 3)
+                                    overlap = comp_words.intersection(align_words)
+                                    if len(overlap) / len(comp_words) >= 0.5:
+                                        is_matched = True
+                                        break
+                                
+                    matches[comp] = is_matched
+                
+                # C. Semantic matching fallback for unmatched competencies
+                unmatched_comps = [comp for comp, matched in matches.items() if not matched]
+                if unmatched_comps and user_cv_profile:
+                    try:
+                        from src.analysis.semantic_matcher import get_semantic_matcher
+                        semantic_matcher = get_semantic_matcher()
+                        
+                        user_comp_list = user_cv_profile.get('competencies', []) or []
+                        user_skill_list = user_cv_profile.get('technical_skills', []) or []
+                        
+                        # Parse JSON if needed
+                        import json
+                        if isinstance(user_comp_list, str):
+                            try:
+                                user_comp_list = json.loads(user_comp_list)
+                            except:
+                                user_comp_list = []
+                        if isinstance(user_skill_list, str):
+                            try:
+                                user_skill_list = json.loads(user_skill_list)
+                            except:
+                                user_skill_list = []
+                        
+                        # Extract 'name' from competency dicts
+                        comp_names = []
+                        for comp in user_comp_list:
+                            if isinstance(comp, dict):
+                                comp_names.append(comp.get('name', str(comp)))
+                            else:
+                                comp_names.append(str(comp))
+                        
+                        skill_names = [str(s) for s in user_skill_list]
+                        
+                        semantic_matches = semantic_matcher.match_competencies(
+                            unmatched_comps,
+                            comp_names,
+                            skill_names,
+                            threshold=0.45
+                        )
+                        
+                        # Update matches with semantic results
+                        for comp, sem_matched in semantic_matches.items():
+                            if sem_matched:
+                                matches[comp] = True
+                                print(f"✓ Semantic match: {comp}")
+                                
+                    except Exception as e:
+                        import logging
+                        logging.getLogger(__name__).warning(f"Semantic matching failed: {e}")
             
             job['competency_match_map'] = matches
 
-        # 2. Skills Matching
+        # 2. Skills Matching (HYBRID: Claude → Keyword → Semantic)
         if job.get('ai_key_skills'):
             skill_matches = {}
-            for skill in job['ai_key_skills']:
-                s_lower = str(skill).lower().strip()
-                is_matched = False
-                
-                # Check direct match in user skills
-                if s_lower in user_skills:
-                    is_matched = True
-                
-                # Check fuzzy match
-                if not is_matched:
-                     for us in user_skills:
-                         if len(us) > 2 and len(s_lower) > 2: # Avoid tiny matches
-                             if s_lower in us or us in s_lower:
-                                 is_matched = True
-                                 break
-                
-                skill_matches[skill] = is_matched
             
-            # C. Semantic matching fallback for unmatched skills
-            unmatched_skills = [skill for skill, matched in skill_matches.items() if not matched]
-            print(f"🔍 DEBUG Skills: {len(unmatched_skills)} unmatched skills")
-            if unmatched_skills and user_cv_profile:
-                try:
-                    from src.analysis.semantic_matcher import get_semantic_matcher
-                    semantic_matcher = get_semantic_matcher()
+            # Option 1: Try using Claude's structured skill mappings first (NEW JOBS)
+            claude_skill_mappings = job.get('skill_mappings')
+            if claude_skill_mappings and isinstance(claude_skill_mappings, list):
+                # Use Claude's expert mappings
+                print(f"✨ Using Claude skill mappings ({len(claude_skill_mappings)} mappings)")
+                mapped_skills = set()
+                for mapping in claude_skill_mappings:
+                    if isinstance(mapping, dict):
+                        job_skill = mapping.get('job_skill', '')
+                        if job_skill:
+                            skill_matches[job_skill] = True
+                            mapped_skills.add(job_skill.lower())
+                
+                # Mark unmapped skills as unmatched
+                for skill in job['ai_key_skills']:
+                    if skill.lower() not in mapped_skills:
+                        skill_matches[skill] = False
+            else:
+                # Option 2: Fallback to keyword/semantic matching (EXISTING JOBS)
+                print(f"🔄 Using fallback matching for skills")
+                
+                for skill in job['ai_key_skills']:
+                    s_lower = str(skill).lower().strip()
+                    is_matched = False
                     
-                    user_skill_list = user_cv_profile.get('technical_skills', []) or []
+                    # Check direct match
+                    if s_lower in user_skills:
+                        is_matched = True
                     
-                    # Parse JSON if needed
-                    import json
-                    if isinstance(user_skill_list, str):
-                        try:
-                            user_skill_list = json.loads(user_skill_list)
-                        except:
-                            user_skill_list = []
+                    # Check fuzzy match
+                    if not is_matched:
+                         for us in user_skills:
+                             if len(us) > 2 and len(s_lower) > 2:
+                                 if s_lower in us or us in s_lower:
+                                     is_matched = True
+                                     break
                     
-                    # Extract names if dict format
-                    skill_names = []
-                    for s in user_skill_list:
-                        if isinstance(s, dict):
-                            skill_names.append(s.get('name', str(s)))
-                        else:
-                            skill_names.append(str(s))
-                    
-                    print(f"🔍 DEBUG Skills: Sample unmatched: {unmatched_skills[:3]}")
-                    print(f"🔍 DEBUG Skills: Sample user skills: {skill_names[:5]}")
-                    
-                    semantic_matches = semantic_matcher.match_skills(
-                        unmatched_skills,
-                        skill_names,
-                        threshold=0.45  # Lowered from 0.50 to catch more matches
-                    )
-                    
-                    print(f"🔍 DEBUG Skills: Semantic matches: {sum(semantic_matches.values())} / {len(semantic_matches)}")
-                    
-                    # Update matches with semantic results
-                    for skill, sem_matched in semantic_matches.items():
-                        if sem_matched:
-                            skill_matches[skill] = True
-                            print(f"✓ Semantic skill match: {skill}")
-                            
-                except Exception as e:
-                    import logging
-                    logging.getLogger(__name__).warning(f"Semantic skill matching failed: {e}")
+                    skill_matches[skill] = is_matched
+                
+                # C. Semantic matching fallback for unmatched skills
+                unmatched_skills = [skill for skill, matched in skill_matches.items() if not matched]
+                if unmatched_skills and user_cv_profile:
+                    try:
+                        from src.analysis.semantic_matcher import get_semantic_matcher
+                        semantic_matcher = get_semantic_matcher()
+                        
+                        user_skill_list = user_cv_profile.get('technical_skills', []) or []
+                        
+                        # Parse JSON if needed
+                        import json
+                        if isinstance(user_skill_list, str):
+                            try:
+                                user_skill_list = json.loads(user_skill_list)
+                            except:
+                                user_skill_list = []
+                        
+                        # Extract names if dict format
+                        skill_names = []
+                        for s in user_skill_list:
+                            if isinstance(s, dict):
+                                skill_names.append(s.get('name', str(s)))
+                            else:
+                                skill_names.append(str(s))
+                        
+                        semantic_matches = semantic_matcher.match_skills(
+                            unmatched_skills,
+                            skill_names,
+                            threshold=0.45
+                        )
+                        
+                        # Update matches with semantic results
+                        for skill, sem_matched in semantic_matches.items():
+                            if sem_matched:
+                                skill_matches[skill] = True
+                                print(f"✓ Semantic skill match: {skill}")
+                                
+                    except Exception as e:
+                        import logging
+                        logging.getLogger(__name__).warning(f"Semantic skill matching failed: {e}")
             
             job['skill_match_map'] = skill_matches
 
