@@ -5,139 +5,160 @@
 {% block content %}
 
 <!-- Progress Indicator -->
-<div id="matchingProgress" style="display: none; position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 1000; width: 90%; max-width: 600px;">
-    <div style="background: white; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 20px rgba(0,0,0,0.15); border-left: 4px solid #667eea;">
+<div id="matchingProgress"
+    style="display: none; position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 1000; width: 90%; max-width: 600px;">
+    <div
+        style="background: white; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 20px rgba(0,0,0,0.15); border-left: 4px solid #667eea;">
         <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
-            <div class="spinner" style="width: 24px; height: 24px; border: 3px solid #f3f3f3; border-top: 3px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+            <div class="spinner"
+                style="width: 24px; height: 24px; border: 3px solid #f3f3f3; border-top: 3px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite;">
+            </div>
             <h3 style="margin: 0; color: #667eea;" id="progressTitle">Job Matching in Progress</h3>
         </div>
         <p id="progressMessage" style="margin-bottom: 1rem; color: #666;">Initializing...</p>
         <div style="background: #f0f0f0; border-radius: 8px; height: 24px; overflow: hidden; position: relative;">
-            <div id="progressBar" style="background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); height: 100%; width: 0%; transition: width 0.3s ease; display: flex; align-items: center; justify-content: center;">
+            <div id="progressBar"
+                style="background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); height: 100%; width: 0%; transition: width 0.3s ease; display: flex; align-items: center; justify-content: center;">
                 <span id="progressPercent" style="color: white; font-weight: 600; font-size: 0.875rem;">0%</span>
             </div>
         </div>
         <div id="progressStats" style="margin-top: 0.75rem; font-size: 0.875rem; color: #666; display: none;">
-            <span id="matchesFound">0 matches found</span> · 
+            <span id="matchesFound">0 matches found</span> ·
             <span id="jobsAnalyzed">0 jobs analyzed</span>
         </div>
     </div>
 </div>
 
 <style>
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
+    @keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+
+        100% {
+            transform: rotate(360deg);
+        }
+    }
 </style>
 
 <script>
-let pollInterval = null;
-let progressShown = false;
+    let pollInterval = null;
+    let progressShown = false;
 
-function checkMatchingStatus() {
-    fetch('/matching-status')
-        .then(response => response.json())
-        .then(data => {
-            const progressDiv = document.getElementById('matchingProgress');
-            const progressBar = document.getElementById('progressBar');
-            const progressPercent = document.getElementById('progressPercent');
-            const progressMessage = document.getElementById('progressMessage');
-            const progressTitle = document.getElementById('progressTitle');
-            const progressStats = document.getElementById('progressStats');
-            const matchesFound = document.getElementById('matchesFound');
-            const jobsAnalyzed = document.getElementById('jobsAnalyzed');
-            
-            if (data.status === 'running') {
-                progressShown = true;
-                progressDiv.style.display = 'block';
-                progressBar.style.width = data.progress + '%';
-                progressPercent.textContent = data.progress + '%';
-                progressMessage.textContent = data.message || 'Processing...';
-                
-                if (data.matches_found !== undefined || data.jobs_analyzed !== undefined) {
-                    progressStats.style.display = 'block';
-                    matchesFound.textContent = (data.matches_found || 0) + ' matches found';
-                    jobsAnalyzed.textContent = (data.jobs_analyzed || 0) + ' jobs analyzed';
-                }
-                
-                if (!pollInterval) {
-                    pollInterval = setInterval(checkMatchingStatus, 1000);
-                }
-            } else if (data.status === 'completed') {
-                progressBar.style.width = '100%';
-                progressPercent.textContent = '100%';
-                progressTitle.textContent = '✅ Matching Complete!';
-                progressTitle.style.color = '#28a745';
-                progressMessage.textContent = data.message || 'Job matching completed successfully!';
-                
-                if (data.matches_found !== undefined || data.jobs_analyzed !== undefined) {
-                    progressStats.style.display = 'block';
-                    matchesFound.textContent = (data.matches_found || 0) + ' matches found';
-                    jobsAnalyzed.textContent = (data.jobs_analyzed || 0) + ' jobs analyzed';
-                }
-                
-                // Hide after 3 seconds and reload
-                setTimeout(() => {
-                    progressDiv.style.display = 'none';
-                    window.location.reload();
-                }, 3000);
-                
-                if (pollInterval) {
-                    clearInterval(pollInterval);
-                    pollInterval = null;
-                }
-            } else if (data.status === 'error') {
-                progressTitle.textContent = '❌ Error';
-                progressTitle.style.color = '#dc3545';
-                progressMessage.textContent = data.message || 'An error occurred during matching';
-                progressBar.style.background = '#dc3545';
-                
-                setTimeout(() => {
-                    progressDiv.style.display = 'none';
-                }, 5000);
-                
-                if (pollInterval) {
-                    clearInterval(pollInterval);
-                    pollInterval = null;
-                }
-            } else if (progressShown) {
-                // Was running but now idle - probably completed
-                if (pollInterval) {
-                    clearInterval(pollInterval);
-                    pollInterval = null;
-                }
-            }
-        })
-        .catch(error => {
-            console.error('Error checking status:', error);
-        });
-}
+    function checkMatchingStatus() {
+        fetch('/matching-status')
+            .then(response => response.json())
+            .then(data => {
+                const progressDiv = document.getElementById('matchingProgress');
+                const progressBar = document.getElementById('progressBar');
+                const progressPercent = document.getElementById('progressPercent');
+                const progressMessage = document.getElementById('progressMessage');
+                const progressTitle = document.getElementById('progressTitle');
+                const progressStats = document.getElementById('progressStats');
+                const matchesFound = document.getElementById('matchesFound');
+                const jobsAnalyzed = document.getElementById('jobsAnalyzed');
 
-// Check status on page load
-document.addEventListener('DOMContentLoaded', () => {
-    checkMatchingStatus();
-});
+                if (data.status === 'running') {
+                    progressShown = true;
+                    progressDiv.style.display = 'block';
+                    progressBar.style.width = data.progress + '%';
+                    progressPercent.textContent = data.progress + '%';
+                    progressMessage.textContent = data.message || 'Processing...';
 
-// Also check when Run Matching button is clicked
-document.addEventListener('DOMContentLoaded', () => {
-    const form = document.querySelector('form[action="{{ url_for("run_job_matching") }}"]');
-    if (form) {
-        form.addEventListener('submit', () => {
-            setTimeout(checkMatchingStatus, 500);
-        });
+                    if (data.matches_found !== undefined || data.jobs_analyzed !== undefined) {
+                        progressStats.style.display = 'block';
+                        matchesFound.textContent = (data.matches_found || 0) + ' matches found';
+                        jobsAnalyzed.textContent = (data.jobs_analyzed || 0) + ' jobs analyzed';
+                    }
+
+                    if (!pollInterval) {
+                        pollInterval = setInterval(checkMatchingStatus, 1000);
+                    }
+                } else if (data.status === 'completed') {
+                    progressBar.style.width = '100%';
+                    progressPercent.textContent = '100%';
+                    progressTitle.textContent = '✅ Matching Complete!';
+                    progressTitle.style.color = '#28a745';
+                    progressMessage.textContent = data.message || 'Job matching completed successfully!';
+
+                    if (data.matches_found !== undefined || data.jobs_analyzed !== undefined) {
+                        progressStats.style.display = 'block';
+                        matchesFound.textContent = (data.matches_found || 0) + ' matches found';
+                        jobsAnalyzed.textContent = (data.jobs_analyzed || 0) + ' jobs analyzed';
+                    }
+
+                    // Stop polling immediately
+                    if (pollInterval) {
+                        clearInterval(pollInterval);
+                        pollInterval = null;
+                    }
+
+                    // Show manual refresh button instead of auto-reloading
+                    if (!document.getElementById('manualRefreshBtn')) {
+                        const btn = document.createElement('button');
+                        btn.id = 'manualRefreshBtn';
+                        btn.className = 'btn';
+                        btn.style.marginTop = '1rem';
+                        btn.style.width = '100%';
+                        btn.style.background = '#28a745';
+                        btn.innerHTML = '🔄 Refresh Page to View Results';
+                        btn.onclick = () => window.location.reload();
+
+                        // Append to the progress card
+                        progressDiv.querySelector('div[style*="background: white"]').appendChild(btn);
+                    }
+                } else if (data.status === 'error') {
+                    progressTitle.textContent = '❌ Error';
+                    progressTitle.style.color = '#dc3545';
+                    progressMessage.textContent = data.message || 'An error occurred during matching';
+                    progressBar.style.background = '#dc3545';
+
+                    setTimeout(() => {
+                        progressDiv.style.display = 'none';
+                    }, 5000);
+
+                    if (pollInterval) {
+                        clearInterval(pollInterval);
+                        pollInterval = null;
+                    }
+                } else if (progressShown) {
+                    // Was running but now idle - probably completed
+                    if (pollInterval) {
+                        clearInterval(pollInterval);
+                        pollInterval = null;
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error checking status:', error);
+            });
     }
-});
+
+    // Check status on page load
+    document.addEventListener('DOMContentLoaded', () => {
+        checkMatchingStatus();
+    });
+
+    // Also check when Run Matching button is clicked
+    document.addEventListener('DOMContentLoaded', () => {
+        const form = document.querySelector('form[action="{{ url_for("run_job_matching") }}"]');
+        if (form) {
+            form.addEventListener('submit', () => {
+                setTimeout(checkMatchingStatus, 500);
+            });
+        }
+    });
 </script>
 
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center;">
         <div>
             <h2>Matched Jobs</h2>
-            <p>{{ new_jobs|length + previous_jobs|length }} job{{ 's' if (new_jobs|length + previous_jobs|length) != 1 else '' }} found
-            {% if new_jobs|length > 0 %}
+            <p>{{ new_jobs|length + previous_jobs|length }} job{{ 's' if (new_jobs|length + previous_jobs|length) != 1
+                else '' }} found
+                {% if new_jobs|length > 0 %}
                 <span style="color: #28a745; font-weight: 600;">· {{ new_jobs|length }} new today</span>
-            {% endif %}
+                {% endif %}
             </p>
         </div>
         <div style="display: flex; gap: 1rem;">
@@ -146,7 +167,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     🔄 Run Matching
                 </button>
             </form>
-            <a href="{{ url_for('deleted_jobs') }}" class="btn btn-secondary" style="font-size: 0.9rem;">🗑️ Hidden Jobs</a>
+            <a href="{{ url_for('deleted_jobs') }}" class="btn btn-secondary" style="font-size: 0.9rem;">🗑️ Hidden
+                Jobs</a>
             <a href="{{ url_for('run_search') }}" class="btn">🔍 Run New Search</a>
         </div>
     </div>
@@ -156,26 +178,30 @@ document.addEventListener('DOMContentLoaded', () => {
     <form method="GET" style="display: flex; gap: 1rem; align-items: end;">
         <div class="form-group" style="flex: 1; margin-bottom: 0;">
             <label for="priority">Filter by Priority</label>
-            <select id="priority" name="priority" style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;">
+            <select id="priority" name="priority"
+                style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;">
                 <option value="">All Priorities</option>
-                <option value="high" {% if priority == 'high' %}selected{% endif %}>High</option>
-                <option value="medium" {% if priority == 'medium' %}selected{% endif %}>Medium</option>
-                <option value="low" {% if priority == 'low' %}selected{% endif %}>Low</option>
+                <option value="high" {% if priority=='high' %}selected{% endif %}>High</option>
+                <option value="medium" {% if priority=='medium' %}selected{% endif %}>Medium</option>
+                <option value="low" {% if priority=='low' %}selected{% endif %}>Low</option>
             </select>
         </div>
         <div class="form-group" style="flex: 1; margin-bottom: 0;">
             <label for="status">Filter by Status</label>
-            <select id="status" name="status" style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;">
+            <select id="status" name="status"
+                style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;">
                 <option value="">All Statuses</option>
-                <option value="new" {% if status == 'new' %}selected{% endif %}>New</option>
-                <option value="reviewed" {% if status == 'reviewed' %}selected{% endif %}>Reviewed</option>
-                <option value="shortlisted" {% if status == 'shortlisted' %}selected{% endif %}>Shortlisted</option>
-                <option value="applying" {% if status == 'applying' %}selected{% endif %}>Applying</option>
+                <option value="new" {% if status=='new' %}selected{% endif %}>New</option>
+                <option value="reviewed" {% if status=='reviewed' %}selected{% endif %}>Reviewed</option>
+                <option value="shortlisted" {% if status=='shortlisted' %}selected{% endif %}>Shortlisted</option>
+                <option value="applying" {% if status=='applying' %}selected{% endif %}>Applying</option>
             </select>
         </div>
         <div class="form-group" style="flex: 1; margin-bottom: 0;">
             <label for="min_score">Min Claude Score</label>
-            <input type="number" id="min_score" name="min_score" value="{{ min_score or 70 }}" min="0" max="100" placeholder="70-100" style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;">
+            <input type="number" id="min_score" name="min_score" value="{{ min_score or 70 }}" min="0" max="100"
+                placeholder="70-100"
+                style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;">
         </div>
         <button type="submit" class="btn">Apply Filters</button>
         {% if priority or min_score or status %}
@@ -194,9 +220,10 @@ document.addEventListener('DOMContentLoaded', () => {
 <div class="card" style="border-left: 4px solid #28a745;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
         <h3 style="margin: 0; color: #28a745;">✨ New Jobs (Discovered Today)</h3>
-        <span class="badge" style="background: #28a745; font-size: 1rem; padding: 0.5rem 1rem;">{{ new_jobs|length }} new</span>
+        <span class="badge" style="background: #28a745; font-size: 1rem; padding: 0.5rem 1rem;">{{ new_jobs|length }}
+            new</span>
     </div>
-    
+
     <table>
         <thead>
             <tr>
@@ -221,7 +248,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>{{ job.location if job.location else '-' }}</td>
                 <td>
                     {% if job.match_score is not none %}
-                    <span style="font-weight: bold; color: {% if job.match_score >= 85 %}#155724{% elif job.match_score >= 70 %}#856404{% else %}#721c24{% endif %};">
+                    <span
+                        style="font-weight: bold; color: {% if job.match_score >= 85 %}#155724{% elif job.match_score >= 70 %}#856404{% else %}#721c24{% endif %};">
                         {{ job.match_score }}
                     </span>
                     {% else %}
@@ -234,17 +262,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     </span>
                 </td>
                 <td>
-                    <span class="badge" style="background: {% if job.status == 'new' %}#6c757d{% elif job.status == 'reviewed' %}#17a2b8{% elif job.status == 'shortlisted' %}#ffc107; color: #000{% elif job.status == 'applying' %}#28a745{% else %}#6c757d{% endif %}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 500;">
+                    <span class="badge"
+                        style="background: {% if job.status == 'new' %}#6c757d{% elif job.status == 'reviewed' %}#17a2b8{% elif job.status == 'shortlisted' %}#ffc107; color: #000{% elif job.status == 'applying' %}#28a745{% else %}#6c757d{% endif %}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 500;">
                         {{ job.status|capitalize }}
                     </span>
                 </td>
                 <td>{{ job.posted_date.strftime('%Y-%m-%d') if job.posted_date else 'Unknown' }}</td>
                 <td>
                     <div style="display: flex; gap: 0.5rem;">
-                        <a href="{{ url_for('job_detail', job_id=job.job_table_id) }}" class="btn" style="padding: 0.5rem 1rem; font-size: 0.875rem;">View</a>
-                        <form method="POST" action="{{ url_for('delete_job', job_id=job.job_table_id) }}" style="display: inline; margin: 0;" 
-                              onsubmit="return confirm('Hide this job permanently? It will not appear in future searches.');">
-                            <button type="submit" class="btn" style="padding: 0.5rem 1rem; font-size: 0.875rem; background: #dc3545;">🗑️</button>
+                        <a href="{{ url_for('job_detail', job_id=job.job_table_id) }}" class="btn"
+                            style="padding: 0.5rem 1rem; font-size: 0.875rem;">View</a>
+                        <form method="POST" action="{{ url_for('delete_job', job_id=job.job_table_id) }}"
+                            style="display: inline; margin: 0;"
+                            onsubmit="return confirm('Hide this job permanently? It will not appear in future searches.');">
+                            <button type="submit" class="btn"
+                                style="padding: 0.5rem 1rem; font-size: 0.875rem; background: #dc3545;">🗑️</button>
                         </form>
                     </div>
                 </td>
@@ -261,7 +293,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <h3 style="margin: 0;">📋 Previous Jobs</h3>
         <span style="color: #666; font-size: 0.9rem;">{{ previous_jobs|length }} jobs from earlier searches</span>
     </div>
-    
+
     <table>
         <thead>
             <tr>
@@ -285,7 +317,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>{{ job.location if job.location else '-' }}</td>
                 <td>
                     {% if job.match_score is not none %}
-                    <span style="font-weight: bold; color: {% if job.match_score >= 85 %}#155724{% elif job.match_score >= 70 %}#856404{% else %}#721c24{% endif %};">
+                    <span
+                        style="font-weight: bold; color: {% if job.match_score >= 85 %}#155724{% elif job.match_score >= 70 %}#856404{% else %}#721c24{% endif %};">
                         {{ job.match_score }}
                     </span>
                     {% else %}
@@ -298,17 +331,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     </span>
                 </td>
                 <td>
-                    <span class="badge" style="background: {% if job.status == 'new' %}#6c757d{% elif job.status == 'reviewed' %}#17a2b8{% elif job.status == 'shortlisted' %}#ffc107; color: #000{% elif job.status == 'applying' %}#28a745{% else %}#6c757d{% endif %}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 500;">
+                    <span class="badge"
+                        style="background: {% if job.status == 'new' %}#6c757d{% elif job.status == 'reviewed' %}#17a2b8{% elif job.status == 'shortlisted' %}#ffc107; color: #000{% elif job.status == 'applying' %}#28a745{% else %}#6c757d{% endif %}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 500;">
                         {{ job.status|capitalize }}
                     </span>
                 </td>
                 <td>{{ job.posted_date.strftime('%Y-%m-%d') if job.posted_date else 'Unknown' }}</td>
                 <td>
                     <div style="display: flex; gap: 0.5rem;">
-                        <a href="{{ url_for('job_detail', job_id=job.job_table_id) }}" class="btn" style="padding: 0.5rem 1rem; font-size: 0.875rem;">View</a>
-                        <form method="POST" action="{{ url_for('delete_job', job_id=job.job_table_id) }}" style="display: inline; margin: 0;" 
-                              onsubmit="return confirm('Hide this job permanently? It will not appear in future searches.');">
-                            <button type="submit" class="btn" style="padding: 0.5rem 1rem; font-size: 0.875rem; background: #dc3545;">🗑️</button>
+                        <a href="{{ url_for('job_detail', job_id=job.job_table_id) }}" class="btn"
+                            style="padding: 0.5rem 1rem; font-size: 0.875rem;">View</a>
+                        <form method="POST" action="{{ url_for('delete_job', job_id=job.job_table_id) }}"
+                            style="display: inline; margin: 0;"
+                            onsubmit="return confirm('Hide this job permanently? It will not appear in future searches.');">
+                            <button type="submit" class="btn"
+                                style="padding: 0.5rem 1rem; font-size: 0.875rem; background: #dc3545;">🗑️</button>
                         </form>
                     </div>
                 </td>
@@ -323,7 +360,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 {% if not user or not stats.primary_cv_name %}
 <div class="alert alert-info">
-    <strong>💡 Tip:</strong> Upload your CV for more accurate job matching! <a href="{{ url_for('upload_cv') }}" style="color: #0c5460; text-decoration: underline;">Upload now</a>
+    <strong>💡 Tip:</strong> Upload your CV for more accurate job matching! <a href="{{ url_for('upload_cv') }}"
+        style="color: #0c5460; text-decoration: underline;">Upload now</a>
 </div>
 {% endif %}
 {% endblock %}
