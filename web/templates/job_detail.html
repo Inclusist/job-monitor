@@ -154,16 +154,8 @@
 
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem;">
         {% for competency in job.ai_competencies %}
-        {# Simple heuristic to check if competency is matched #}
-        {% set matched = false %}
-        {% if job.key_alignments %}
-        {% for alignment in job.key_alignments %}
-        {# Check if significant overlapping words exist #}
-        {% if competency|lower in alignment|lower or (alignment|length > 10 and alignment|lower in competency|lower) %}
-        {% set matched = true %}
-        {% endif %}
-        {% endfor %}
-        {% endif %}
+        {# Use backend-calculated match status #}
+        {% set matched = job.competency_match_map.get(competency, false) if job.competency_match_map else false %}
 
         <div style="padding: 1rem; background: {% if matched %}#d4edda{% else %}#f8f9fa{% endif %}; 
                         border-left: 3px solid {% if matched %}#28a745{% else %}#6c757d{% endif %}; 

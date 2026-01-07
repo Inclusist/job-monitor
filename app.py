@@ -935,6 +935,45 @@ def job_detail(job_id):
     # Note: match_score, priority, match_reasoning, key_alignments, and potential_gaps
     # are already set and parsed by get_job_with_user_data()
 
+    # Calculate competency match status for UI visualization
+    if job and job.get('ai_competencies') and job.get('key_alignments'):
+        matches = {}
+        alignments = job['key_alignments']
+        # Handle case where alignments might be raw strings or dicts
+        align_texts = []
+        for a in alignments:
+            if isinstance(a, str):
+                align_texts.append(a.lower())
+            elif isinstance(a, dict):
+                align_texts.append(str(a.get('text', '')).lower())
+        
+        for comp in job['ai_competencies']:
+            is_matched = False
+            comp_lower = comp.lower()
+            
+            # 1. Direct substring match
+            for align in align_texts:
+                if comp_lower in align:
+                    is_matched = True
+                    break
+            
+            # 2. Key word overlap (if not matched by substring)
+            if not is_matched:
+                # Filter out small words
+                comp_words = set(w for w in comp_lower.split() if len(w) > 3)
+                if comp_words:
+                    for align in align_texts:
+                        align_words = set(w for w in align.split() if len(w) > 3)
+                        # If >50% of competency words appear in alignment
+                        overlap = comp_words.intersection(align_words)
+                        if len(overlap) / len(comp_words) >= 0.5:
+                            is_matched = True
+                            break
+                            
+            matches[comp] = is_matched
+        
+        job['competency_match_map'] = matches
+
     return render_template('job_detail.html', job=job)
 
 
