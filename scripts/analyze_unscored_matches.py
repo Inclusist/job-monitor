@@ -19,7 +19,7 @@ from src.analysis.claude_analyzer import ClaudeJobAnalyzer
 load_dotenv()
 
 
-def analyze_unscored_matches_incremental(user_id: int, min_semantic_score: int = 50, batch_size: int = 15):
+def analyze_unscored_matches(user_id: int, min_semantic_score: int = 50, batch_size: int = 15, limit: int = 200):
     """
     Run Claude analysis on semantic matches that don't have Claude scores yet
     Saves results after each batch to avoid connection timeouts
@@ -28,6 +28,7 @@ def analyze_unscored_matches_incremental(user_id: int, min_semantic_score: int =
         user_id: User ID to analyze matches for
         min_semantic_score: Minimum semantic score to analyze (default: 50)
         batch_size: Number of jobs to process per batch (default: 15)
+        limit: Maximum number of jobs to analyze in this run (default: 200)
     """
     db_url = os.getenv('DATABASE_URL')
     if not db_url:
@@ -36,6 +37,7 @@ def analyze_unscored_matches_incremental(user_id: int, min_semantic_score: int =
     
     print(f"\n{'='*60}")
     print(f"Analyzing Unscored Matches - User {user_id}")
+    print(f"Limit: {limit} jobs (preventing overload)")
     print(f"{'='*60}\n")
     
     # Initialize databases
@@ -56,7 +58,7 @@ def analyze_unscored_matches_incremental(user_id: int, min_semantic_score: int =
     user = cv_manager.get_user_by_id(user_id)
     
     # Get matches that have semantic scores but no Claude scores
-    print(f"🔍 Finding matches with semantic score ≥ {min_semantic_score}% but no Claude score...")
+    print(f"🔍 Finding top {limit} matches with semantic score ≥ {min_semantic_score}%...")
     
     with job_db.connection_pool.getconn() as conn:
         with conn.cursor() as cur:
@@ -68,7 +70,8 @@ def analyze_unscored_matches_incremental(user_id: int, min_semantic_score: int =
                   AND ujm.semantic_score >= %s
                   AND ujm.claude_score IS NULL
                 ORDER BY ujm.semantic_score DESC
-            """, (user_id, min_semantic_score))
+                LIMIT %s
+            """, (user_id, min_semantic_score, limit))
             
             columns = [desc[0] for desc in cur.description]
             rows = cur.fetchall()
@@ -209,7 +212,8 @@ if __name__ == '__main__':
     parser.add_argument('--user-id', type=int, required=True, help='User ID to analyze matches for')
     parser.add_argument('--min-score', type=int, default=50, help='Minimum semantic score (default: 50)')
     parser.add_argument('--batch-size', type=int, default=15, help='Batch size (default: 15)')
+    parser.add_argument('--limit', type=int, default=200, help='Maximum jobs to process in this run (default: 200)')
     
     args = parser.parse_args()
     
-    analyze_unscored_matches_incremental(args.user_id, args.min_score, args.batch_size)
+    analyze_unscored_matches(args.user_id, args.min_score, args.batch_size, args.limit)
