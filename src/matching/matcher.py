@@ -369,7 +369,26 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
             for job in jobs_to_filter:
                 job_work = job.get('ai_work_arrangement', '').lower()
                 job_location = job.get('location', '')
-                job_cities = job.get('cities_derived', [])
+                # Use locations_derived from API (cities_derived is from enrichment, which may be empty)
+                job_locations = job.get('locations_derived', []) or []
+                
+                # Helper: check if any user location matches job location
+                def location_matches(user_locs, job_loc_str, job_loc_array):
+                    """Check if job location matches any user location"""
+                    if not user_locs:
+                        return True  # No filter
+                    for user_loc in user_locs:
+                        if not user_loc:
+                            continue
+                        user_loc_lower = user_loc.lower()
+                        # Check string field
+                        if user_loc_lower in job_loc_str.lower():
+                            return True
+                        # Check array field
+                        for loc in job_loc_array:
+                            if loc and user_loc_lower in loc.lower():
+                                return True
+                    return False
                 
                 # Allow job if:
                 # 1. Remote job and user accepts remote
@@ -378,23 +397,27 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                 
                 include = False
                 
-                if job_work == 'remote' and work_pref in ['remote', 'flexible', 'remote_preferred']:
+                if job_work == 'remote' or job_work == 'remote ok' and work_pref in ['remote', 'flexible', 'remote_preferred']:
                     include = True  # Remote jobs OK
                 elif job_work == 'hybrid' and work_pref in ['hybrid', 'flexible', 'hybrid_preferred']:
                     # Hybrid OK if location matches
-                    if any(loc.lower() in job_location.lower() for loc in (preferred_locs or [user_location]) if loc):
+                    if location_matches(preferred_locs or [user_location], job_location, job_locations):
                         include = True
                 elif job_work in ['on-site', 'onsite']:
-                    # On-site only if in user's immediate location
-                    if user_location and user_location.lower() in job_location.lower():
-                        include = True
-                else:
-                    # No work arrangement specified - apply location filter only
-                    if preferred_locs:
-                        if any(loc.lower() in job_location.lower() for loc in preferred_locs):
+                    # On-site: check preferred locations OR user location
+                    # For flexible users with broad preferences (e.g., "Germany"), include all matching locations
+                    if work_pref == 'flexible':
+                        # Flexible: check preferred_locs (e.g., all Germany)
+                        if location_matches(preferred_locs or [user_location], job_location, job_locations):
                             include = True
                     else:
-                        include = True  # No filter, include all
+                        # On-site preference: only check user's immediate location
+                        if location_matches([user_location] if user_location else [], job_location, job_locations):
+                            include = True
+                else:
+                    # No work arrangement specified - apply location filter only
+                    if location_matches(preferred_locs, job_location, job_locations):
+                        include = True
                 
                 if include:
                     filtered_jobs.append(job)
