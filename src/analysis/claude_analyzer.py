@@ -226,9 +226,16 @@ class ClaudeJobAnalyzer:
                         if self.db and job.get('id'):
                             try:
                                 self.db.update_job_competencies(job['id'], job['ai_competencies'])
-                                # Note: update_job_skills would need to be added to DB class
-                            except:
-                                pass  # Silently fail if DB update doesn't work
+                                # Also update skills if job has them
+                                if job.get('ai_key_skills'):
+                                    # Try to update skills too (may not exist in all DB versions)
+                                    try:
+                                        self.db.update_job(job['id'], {'ai_key_skills': job['ai_key_skills']})
+                                    except:
+                                        pass
+                            except Exception as db_error:
+                                logger.error(f"Failed to save competencies for job {job['id']}: {db_error}")
+                                print(f"   ⚠️  Failed to save competencies for job {job.get('title', 'Unknown')}: {db_error}")
                 except Exception as e:
                     logger.warning(f"Failed to extract competencies/skills: {e}")
                     # Continue without competencies
