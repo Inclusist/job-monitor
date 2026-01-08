@@ -422,6 +422,30 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                 if include:
                     filtered_jobs.append(job)
             
+            # Save rejected jobs to database so they won't be re-processed tomorrow
+            rejected_jobs = [job for job in jobs_to_filter if job not in filtered_jobs]
+            if rejected_jobs:
+                print(f"   Saving {len(rejected_jobs)} pre-filtered jobs to database (score=0)...")
+                rejected_matches = []
+                for job in rejected_jobs:
+                    rejected_matches.append({
+                        'user_id': user_id,
+                        'job_id': job['id'],
+                        'semantic_score': 0,
+                        'priority': 'low',
+                        'match_reasoning': 'Filtered out by location/work arrangement preferences',
+                        'key_alignments': [],
+                        'potential_gaps': ['Location or work arrangement mismatch']
+                    })
+                
+                # Batch save rejected jobs
+                try:
+                    if rejected_matches:
+                        saved = job_db_inst.add_user_job_matches_batch(rejected_matches)
+                        print(f"   ✓ Saved {saved} rejected jobs to database")
+                except Exception as e:
+                    print(f"   ⚠️  Failed to save rejected jobs: {e}")
+            
             print(f"   Pre-filter: {len(jobs_to_filter)} → {len(filtered_jobs)} jobs ({100*len(filtered_jobs)//len(jobs_to_filter) if jobs_to_filter else 0}% kept)")
             jobs_to_filter = filtered_jobs
         
