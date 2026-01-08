@@ -364,9 +364,21 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
             print(f"   User location: {user_location}")
             print(f"   Preferred locations: {preferred_locs}")
             print(f"   Work preference: {work_pref}")
+            print(f"   Processing {len(jobs_to_filter)} jobs...")
             
             filtered_jobs = []
-            for job in jobs_to_filter:
+            total_jobs = len(jobs_to_filter)
+            
+            for idx, job in enumerate(jobs_to_filter, 1):
+                # Show progress every 100 jobs
+                if idx % 100 == 0 or idx == total_jobs:
+                    pct = (idx / total_jobs) * 100
+                    print(f"   Progress: {idx}/{total_jobs} ({pct:.0f}%) - {len(filtered_jobs)} kept so far...")
+                    matching_status[user_id].update({
+                        'progress': 20 + int(pct * 0.1),
+                        'message': f'Pre-filtering: {idx}/{total_jobs} jobs...'
+                    })
+                
                 job_work = (job.get('ai_work_arrangement') or '').lower()
                 job_location = job.get('location') or ''
                 # Use locations_derived from API (cities_derived is from enrichment, which may be empty)
