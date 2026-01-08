@@ -597,8 +597,8 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                     signal.alarm(600)  # 10 minute timeout
                 
                 try:
-                    # This will process jobs in batches of 15
-                    analyzed_jobs = analyzer.analyze_batch(jobs_to_analyze, batch_size=15)
+                    # Use default batch size (15) from analyze_batch
+                    analyzed_jobs = analyzer.analyze_batch(jobs_to_analyze)
                     
                     # Cancel timeout
                     if hasattr(signal, 'SIGALRM'):
