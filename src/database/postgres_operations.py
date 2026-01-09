@@ -1217,6 +1217,23 @@ class PostgresDatabase:
             cursor.close()
             self._return_connection(conn)
     
+    def get_unfiltered_jobs_for_user(self, user_id: int) -> List[Dict]:
+        """Get jobs that haven't been matched/filtered for this user yet"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("""
+                SELECT j.* FROM jobs j
+                LEFT JOIN user_job_matches ujm ON j.id = ujm.job_id AND ujm.user_id = %s
+                WHERE ujm.id IS NULL
+                ORDER BY j.discovered_date DESC
+            """, (user_id,))
+            results = [dict(row) for row in cursor.fetchall()]
+            return results
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
     def count_new_jobs_since(self, user_id: int, since_date: str) -> int:
         """Count new jobs discovered since a specific date"""
         conn = self._get_connection()
