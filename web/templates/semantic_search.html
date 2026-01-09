@@ -1,0 +1,331 @@
+{% extends "base.html" %}
+
+{% block title %}Semantic Search Testing - Job Monitor{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>🔍 Semantic Search Testing</h2>
+    <p>Test semantic matching with different configurations. Search {{ "{:,}".format(job_count) }} jobs using AI-powered semantic similarity.</p>
+
+    <div style="margin-top: 1.5rem;">
+        <label for="query" style="display: block; font-weight: 600; margin-bottom: 0.5rem;">Search Query:</label>
+        <input type="text" id="query" placeholder="e.g. 'Senior Data Scientist with ML expertise' or 'Team Lead Python Developer'"
+               style="width: 100%; padding: 0.8rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem;">
+        <p style="color: #666; font-size: 0.9rem; margin-top: 0.3rem;">Enter a job title, skills, or description to search for semantically similar jobs</p>
+    </div>
+
+    <div style="margin-top: 1.5rem;">
+        <label style="display: block; font-weight: 600; margin-bottom: 0.5rem;">Location Filters:</label>
+        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+            <label style="display: flex; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="includeRemote" checked style="margin-right: 0.5rem; width: 18px; height: 18px;">
+                <span>Include Remote Jobs</span>
+            </label>
+        </div>
+        <div id="locationsContainer" style="margin-top: 0.5rem;">
+            <div class="location-input" style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                <input type="text" placeholder="e.g. Berlin, Munich, Hamburg"
+                       style="flex: 1; padding: 0.8rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem;">
+                <button type="button" class="remove-location" style="display: none; padding: 0.5rem 1rem; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">Remove</button>
+            </div>
+        </div>
+        <button type="button" id="addLocation" style="padding: 0.5rem 1rem; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem;">+ Add Location</button>
+        <p style="color: #666; font-size: 0.85rem; margin-top: 0.3rem;">Jobs matching ANY location OR remote (if checked) will be included</p>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-top: 1.5rem;">
+        <div>
+            <label for="threshold" style="display: block; font-weight: 600; margin-bottom: 0.5rem;">
+                Similarity Threshold: <span id="thresholdValue">0.50</span>
+            </label>
+            <input type="range" id="threshold" min="0" max="1" step="0.01" value="0.5"
+                   style="width: 100%;">
+            <p style="color: #666; font-size: 0.85rem; margin-top: 0.3rem;">Minimum similarity score (0-1)</p>
+        </div>
+
+        <div>
+            <label for="matchMode" style="display: block; font-weight: 600; margin-bottom: 0.5rem;">Matching Mode:</label>
+            <select id="matchMode" style="width: 100%; padding: 0.8rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem;">
+                <option value="title_only" selected>Title Only (Fast)</option>
+                <option value="full_text">Full Text (Slow)</option>
+            </select>
+            <p style="color: #666; font-size: 0.85rem; margin-top: 0.3rem;">Title-only is 20x faster</p>
+        </div>
+
+        <div>
+            <label for="limit" style="display: block; font-weight: 600; margin-bottom: 0.5rem;">Result Limit:</label>
+            <input type="number" id="limit" value="20" min="1" max="100"
+                   style="width: 100%; padding: 0.8rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem;">
+            <p style="color: #666; font-size: 0.85rem; margin-top: 0.3rem;">Max results to display</p>
+        </div>
+    </div>
+
+    <button id="searchButton" class="btn" style="background: #667eea; margin-top: 1.5rem; width: 100%; font-size: 1.1rem;">
+        🔍 Run Semantic Search
+    </button>
+</div>
+
+<div id="loadingMessage" style="display: none; text-align: center; margin: 2rem 0;">
+    <div style="font-size: 2rem; margin-bottom: 1rem;">⏳</div>
+    <p>Running semantic search...</p>
+    <p style="color: #666; font-size: 0.9rem;">Encoding and comparing jobs</p>
+</div>
+
+<div id="statsContainer" style="display: none; margin-top: 1.5rem;">
+    <div class="card" style="background: #f8f9fa;">
+        <h3>📊 Search Statistics</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
+            <div style="background: white; padding: 1rem; border-radius: 4px; border-left: 4px solid #667eea;">
+                <div style="font-size: 0.85rem; color: #666;">Total Jobs</div>
+                <div style="font-size: 1.5rem; font-weight: 600;" id="statTotalJobs">-</div>
+            </div>
+            <div style="background: white; padding: 1rem; border-radius: 4px; border-left: 4px solid #28a745;">
+                <div style="font-size: 0.85rem; color: #666;">Matches Found</div>
+                <div style="font-size: 1.5rem; font-weight: 600;" id="statMatchesFound">-</div>
+            </div>
+            <div style="background: white; padding: 1rem; border-radius: 4px; border-left: 4px solid #ffc107;">
+                <div style="font-size: 0.85rem; color: #666;">Match Rate</div>
+                <div style="font-size: 1.5rem; font-weight: 600;" id="statMatchRate">-</div>
+            </div>
+            <div style="background: white; padding: 1rem; border-radius: 4px; border-left: 4px solid #dc3545;">
+                <div style="font-size: 0.85rem; color: #666;">Total Time</div>
+                <div style="font-size: 1.5rem; font-weight: 600;" id="statTotalTime">-</div>
+            </div>
+        </div>
+
+        <div style="margin-top: 1rem; padding: 1rem; background: white; border-radius: 4px;">
+            <h4 style="margin: 0 0 0.5rem 0;">Performance Breakdown:</h4>
+            <div style="font-size: 0.9rem; color: #666;">
+                <div>📥 Fetch jobs: <strong id="timeFetch">-</strong>s</div>
+                <div>🔤 Encode query: <strong id="timeQuery">-</strong>s</div>
+                <div>⚙️ Encode jobs: <strong id="timeJobs">-</strong>s</div>
+                <div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #eee;">
+                    ⏱️ Total: <strong id="timeTotal">-</strong>s
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="resultsContainer" style="display: none; margin-top: 1.5rem;">
+    <div class="card">
+        <h3>🎯 Semantic Search Results</h3>
+        <p id="resultsDescription" style="color: #666; margin-bottom: 1rem;"></p>
+        <div id="resultsList"></div>
+    </div>
+</div>
+
+<script>
+// Update threshold display
+document.getElementById('threshold').addEventListener('input', function() {
+    document.getElementById('thresholdValue').textContent = parseFloat(this.value).toFixed(2);
+});
+
+// Add location input
+document.getElementById('addLocation').addEventListener('click', function() {
+    const container = document.getElementById('locationsContainer');
+    const newInput = document.createElement('div');
+    newInput.className = 'location-input';
+    newInput.style.cssText = 'display: flex; gap: 0.5rem; margin-bottom: 0.5rem;';
+    newInput.innerHTML = `
+        <input type="text" placeholder="e.g. Berlin, Munich, Hamburg"
+               style="flex: 1; padding: 0.8rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem;">
+        <button type="button" class="remove-location" style="padding: 0.5rem 1rem; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">Remove</button>
+    `;
+    container.appendChild(newInput);
+    updateRemoveButtons();
+});
+
+// Remove location input
+document.getElementById('locationsContainer').addEventListener('click', function(e) {
+    if (e.target.classList.contains('remove-location')) {
+        e.target.closest('.location-input').remove();
+        updateRemoveButtons();
+    }
+});
+
+function updateRemoveButtons() {
+    const inputs = document.querySelectorAll('.location-input');
+    inputs.forEach((input, index) => {
+        const removeBtn = input.querySelector('.remove-location');
+        if (inputs.length === 1) {
+            removeBtn.style.display = 'none';
+        } else {
+            removeBtn.style.display = 'block';
+        }
+    });
+}
+
+// Run search
+document.getElementById('searchButton').addEventListener('click', async function() {
+    const query = document.getElementById('query').value.trim();
+
+    if (!query) {
+        alert('Please enter a search query');
+        return;
+    }
+
+    // Collect locations
+    const locations = [];
+    document.querySelectorAll('.location-input input').forEach(input => {
+        const value = input.value.trim();
+        if (value) {
+            locations.push(value);
+        }
+    });
+
+    const includeRemote = document.getElementById('includeRemote').checked;
+
+    const button = this;
+    button.disabled = true;
+    button.textContent = 'Searching...';
+
+    document.getElementById('loadingMessage').style.display = 'block';
+    document.getElementById('statsContainer').style.display = 'none';
+    document.getElementById('resultsContainer').style.display = 'none';
+
+    try {
+        const response = await fetch('/run-semantic-search', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                query: query,
+                threshold: parseFloat(document.getElementById('threshold').value),
+                match_mode: document.getElementById('matchMode').value,
+                limit: parseInt(document.getElementById('limit').value),
+                locations: locations,
+                include_remote: includeRemote
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            displayResults(data);
+        } else {
+            alert('Error: ' + (data.error || 'Failed to run search'));
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    } finally {
+        button.disabled = false;
+        button.textContent = '🔍 Run Semantic Search';
+        document.getElementById('loadingMessage').style.display = 'none';
+    }
+});
+
+function displayResults(data) {
+    const stats = data.stats;
+    const results = data.results;
+
+    // Update statistics
+    document.getElementById('statTotalJobs').textContent = stats.total_jobs.toLocaleString();
+    document.getElementById('statMatchesFound').textContent = results.length.toLocaleString();
+    document.getElementById('statMatchRate').textContent = ((results.length / stats.total_jobs) * 100).toFixed(1) + '%';
+    document.getElementById('statTotalTime').textContent = stats.timings.total + 's';
+
+    document.getElementById('timeFetch').textContent = stats.timings.fetch_jobs;
+    document.getElementById('timeQuery').textContent = stats.timings.encode_query;
+    document.getElementById('timeJobs').textContent = stats.timings.encode_jobs;
+    document.getElementById('timeTotal').textContent = stats.timings.total;
+
+    // Update results description
+    const modeName = stats.match_mode === 'title_only' ? 'Title Only' : 'Full Text';
+    let descriptionText = `Found ${results.length} jobs matching "${stats.query}" with ${(stats.threshold * 100).toFixed(0)}% similarity (${modeName} mode)`;
+
+    // Add location filter info
+    const locationParts = [];
+    if (stats.locations && stats.locations.length > 0) {
+        locationParts.push(`Locations: ${stats.locations.join(', ')}`);
+    }
+    if (stats.include_remote) {
+        locationParts.push('Remote jobs included');
+    }
+    if (locationParts.length > 0) {
+        descriptionText += ` | ${locationParts.join(' + ')}`;
+    }
+
+    document.getElementById('resultsDescription').textContent = descriptionText;
+
+    // Display results
+    const resultsList = document.getElementById('resultsList');
+    resultsList.innerHTML = '';
+
+    if (results.length === 0) {
+        resultsList.innerHTML = '<p style="color: #666; text-align: center; padding: 2rem;">No matches found. Try lowering the threshold or changing your query.</p>';
+    } else {
+        results.forEach((job, index) => {
+            const jobDiv = document.createElement('div');
+            jobDiv.style.cssText = 'padding: 1rem; border: 1px solid #e0e0e0; border-radius: 4px; margin-bottom: 1rem; background: white;';
+
+            // Similarity badge color
+            let badgeColor = '#28a745';  // green for high similarity
+            if (job.similarity < 0.7) badgeColor = '#ffc107';  // yellow for medium
+            if (job.similarity < 0.5) badgeColor = '#dc3545';  // red for low
+
+            jobDiv.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+                    <div style="flex: 1;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.3rem;">
+                            <span style="background: ${badgeColor}; color: white; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">
+                                ${job.match_score}% Match
+                            </span>
+                            <span style="color: #999; font-size: 0.85rem;">${job.similarity.toFixed(4)} similarity</span>
+                        </div>
+                        <h4 style="margin: 0 0 0.5rem 0;">
+                            <a href="/jobs/${job.job_id}" target="_blank" style="color: #667eea; text-decoration: none;">
+                                ${job.title}
+                            </a>
+                        </h4>
+                        <div style="color: #666; font-size: 0.9rem;">
+                            <span>🏢 ${job.company || 'Unknown Company'}</span>
+                            ${job.location ? '<span style="margin-left: 1rem;">📍 ' + job.location + '</span>' : ''}
+                        </div>
+                    </div>
+                    ${job.url ? '<a href="' + job.url + '" target="_blank" class="btn" style="background: #28a745; padding: 0.5rem 1rem; font-size: 0.9rem; margin-left: 1rem;">Apply</a>' : ''}
+                </div>
+            `;
+
+            resultsList.appendChild(jobDiv);
+        });
+    }
+
+    // Show results
+    document.getElementById('statsContainer').style.display = 'block';
+    document.getElementById('resultsContainer').style.display = 'block';
+}
+
+// Auto-format numbers
+Number.prototype.toLocaleString = function() {
+    return this.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+};
+</script>
+
+<style>
+.btn {
+    padding: 0.6rem 1.2rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    color: white;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.2s;
+}
+
+.btn:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+</style>
+
+{% endblock %}

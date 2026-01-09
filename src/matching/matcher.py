@@ -325,18 +325,31 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                 print(f"⚠️  Error fetching initial jobs: {e}")
                 # Continue with existing jobs if fetch fails
         
-        # Get unfiltered jobs
+        # Get user preferences for location filtering
+        user = cv_manager_inst.get_user_by_id(user_id)
+        preferences = user.get('preferences', {})
+        preferred_locs = preferences.get('search_locations', preferences.get('preferred_locations', []))
+        config_keywords = preferences.get('search_keywords', [])
+
+        # Get unfiltered jobs with SQL-based location/work filtering
         matching_status[user_id].update({
             'stage': 'fetching_jobs',
             'progress': 20,
-            'message': 'Fetching jobs to analyze...'
+            'message': 'Fetching jobs with location filters...'
         })
-        
+
         t_query_start = time.time()
-        jobs_to_filter = job_db_inst.get_unfiltered_jobs_for_user(user_id)
+        jobs_to_filter = job_db_inst.get_unfiltered_jobs_for_user(
+            user_id=user_id,
+            user_cities=preferred_locs if preferred_locs else None
+        )
         t_query = time.time() - t_query_start
-        print(f"Found {len(jobs_to_filter)} jobs to filter (query: {t_query:.2f}s)")
-        
+
+        if preferred_locs:
+            print(f"Found {len(jobs_to_filter)} jobs matching location filter: {preferred_locs} (query: {t_query:.2f}s)")
+        else:
+            print(f"Found {len(jobs_to_filter)} jobs (no location filter, query: {t_query:.2f}s)")
+
         if not jobs_to_filter:
             print("✓ No new jobs to filter")
             matching_status[user_id] = {
@@ -348,126 +361,18 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                 'jobs_analyzed': 0
             }
             return
-        
-        # Get user preferences for keyword boosting and pre-filtering
-        user = cv_manager_inst.get_user_by_id(user_id)
-        preferences = user.get('preferences', {})
-        config_keywords = preferences.get('search_keywords', [])
-        
-        # 🎯 PRE-FILTER: Location & Work Arrangement (before semantic matching)
-        work_pref = profile.get('work_arrangement_preference', 'flexible')
-        preferred_locs = preferences.get('search_locations', preferences.get('preferred_locations', []))
-        user_location = profile.get('current_location', profile.get('location', ''))
-        
-        if preferred_locs or work_pref != 'flexible':
-            print(f"\n🎯 Pre-filtering by location/work arrangement...")
-            print(f"   User location: {user_location}")
-            print(f"   Preferred locations: {preferred_locs}")
-            print(f"   Work preference: {work_pref}")
-            print(f"   Processing {len(jobs_to_filter)} jobs...")
-            
-            filtered_jobs = []
-            total_jobs = len(jobs_to_filter)
-            
-            for idx, job in enumerate(jobs_to_filter, 1):
-                # Show progress every 100 jobs
-                if idx % 100 == 0 or idx == total_jobs:
-                    pct = (idx / total_jobs) * 100
-                    print(f"   Progress: {idx}/{total_jobs} ({pct:.0f}%) - {len(filtered_jobs)} kept so far...")
-                    matching_status[user_id].update({
-                        'progress': 20 + int(pct * 0.1),
-                        'message': f'Pre-filtering: {idx}/{total_jobs} jobs...'
-                    })
-                
-                job_work = (job.get('ai_work_arrangement') or '').lower()
-                job_location = job.get('location') or ''
-                # Use locations_derived from API (cities_derived is from enrichment, which may be empty)
-                job_locations = job.get('locations_derived') or []
-                
-                # Helper: check if any user location matches job location
-                def location_matches(user_locs, job_loc_str, job_loc_array):
-                    """Check if job location matches any user location"""
-                    if not user_locs:
-                        return True  # No filter
-                    for user_loc in user_locs:
-                        if not user_loc:
-                            continue
-                        user_loc_lower = user_loc.lower()
-                        # Check string field
-                        if user_loc_lower in job_loc_str.lower():
-                            return True
-                        # Check array field
-                        for loc in job_loc_array:
-                            if loc and user_loc_lower in loc.lower():
-                                return True
-                    return False
-                
-                # Allow job if:
-                # 1. Remote job and user accepts remote
-                # 2. Location matches user's preferred locations
-                # 3. Work arrangement matches user's preference
-                
-                include = False
-                
-                if job_work == 'remote' or job_work == 'remote ok' and work_pref in ['remote', 'flexible', 'remote_preferred']:
-                    include = True  # Remote jobs OK
-                elif job_work == 'hybrid' and work_pref in ['hybrid', 'flexible', 'hybrid_preferred']:
-                    # Hybrid OK if location matches
-                    if location_matches(preferred_locs or [user_location], job_location, job_locations):
-                        include = True
-                elif job_work in ['on-site', 'onsite']:
-                    # On-site: check preferred locations OR user location
-                    # For flexible users with broad preferences (e.g., "Germany"), include all matching locations
-                    if work_pref == 'flexible':
-                        # Flexible: check preferred_locs (e.g., all Germany)
-                        if location_matches(preferred_locs or [user_location], job_location, job_locations):
-                            include = True
-                    else:
-                        # On-site preference: only check user's immediate location
-                        if location_matches([user_location] if user_location else [], job_location, job_locations):
-                            include = True
-                else:
-                    # No work arrangement specified - apply location filter only
-                    if location_matches(preferred_locs, job_location, job_locations):
-                        include = True
-                
-                if include:
-                    filtered_jobs.append(job)
-            
-            # Save rejected jobs to database so they won't be re-processed tomorrow
-            rejected_jobs = [job for job in jobs_to_filter if job not in filtered_jobs]
-            if rejected_jobs:
-                print(f"   Saving {len(rejected_jobs)} pre-filtered jobs to database (score=0)...")
-                rejected_matches = []
-                for job in rejected_jobs:
-                    rejected_matches.append({
-                        'user_id': user_id,
-                        'job_id': job['id'],
-                        'semantic_score': 0,
-                        'priority': 'low',
-                        'match_reasoning': 'Filtered out by location/work arrangement preferences',
-                        'key_alignments': [],
-                        'potential_gaps': ['Location or work arrangement mismatch']
-                    })
-                
-                # Batch save rejected jobs
-                try:
-                    if rejected_matches:
-                        saved = job_db_inst.add_user_job_matches_batch(rejected_matches)
-                        print(f"   ✓ Saved {saved} rejected jobs to database")
-                except Exception as e:
-                    print(f"   ⚠️  Failed to save rejected jobs: {e}")
-            
-            print(f"   Pre-filter: {len(jobs_to_filter)} → {len(filtered_jobs)} jobs ({100*len(filtered_jobs)//len(jobs_to_filter) if jobs_to_filter else 0}% kept)")
-            jobs_to_filter = filtered_jobs
-        
-        # Filter jobs with semantic similarity
+
+        # ✅ Location/work filtering done by SQL - jobs_to_filter already filtered!
+
+        # Filter jobs with semantic similarity (title-based for speed)
         matching_status[user_id].update({
             'stage': 'semantic_filtering',
             'progress': 30,
-            'message': f'Analyzing {len(jobs_to_filter)} jobs with semantic similarity...',
+            'message': f'Analyzing {len(jobs_to_filter)} job titles with semantic matching...',
             'total_jobs': len(jobs_to_filter)
         })
+
+        print(f"\n⚡ SEMANTIC FILTERING (title-only for speed):")
         
         matches = []
         max_score = 0
@@ -515,10 +420,10 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                 })
         
         t_semantic_total = time.time() - t_semantic_start
-        print(f"\n⏱️  SEMANTIC FILTERING:")
+        print(f"\n⏱️  SEMANTIC FILTERING (title-only):")
         print(f"  Total: {t_semantic_total:.2f}s ({t_semantic_total/60:.2f} min)")
-        print(f"  Encoding: {t_encode_total:.2f}s ({t_encode_total/len(jobs_to_filter)*1000:.0f}ms/job)")
-        print(f"  Similarity: {t_similarity_total:.2f}s")
+        print(f"  Encoding titles: {t_encode_total:.2f}s ({t_encode_total/len(jobs_to_filter)*1000:.0f}ms/job)")
+        print(f"  Similarity calculation: {t_similarity_total:.2f}s")
         print(f"  Keyword boost: {t_keyword_total:.2f}s")
         print(f"✓ Found {len(matches)} matches above 30% threshold (max: {max_score:.3f})")
         

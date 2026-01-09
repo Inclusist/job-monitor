@@ -1217,17 +1217,57 @@ class PostgresDatabase:
             cursor.close()
             self._return_connection(conn)
     
-    def get_unfiltered_jobs_for_user(self, user_id: int) -> List[Dict]:
-        """Get jobs that haven't been matched/filtered for this user yet"""
+    def get_unfiltered_jobs_for_user(self, user_id: int, user_cities: List[str] = None) -> List[Dict]:
+        """
+        Get jobs that haven't been matched/filtered for this user yet
+
+        Args:
+            user_id: User ID
+            user_cities: Optional list of user's preferred cities (e.g., ['Berlin', 'Hamburg'])
+                        Will match remote jobs OR jobs in these cities (case-insensitive)
+
+        Returns:
+            List of unfiltered jobs matching location/work criteria
+        """
         conn = self._get_connection()
         try:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
-            cursor.execute("""
+
+            # Base query - jobs not yet matched for this user
+            query = """
                 SELECT j.* FROM jobs j
                 LEFT JOIN user_job_matches ujm ON j.id = ujm.job_id AND ujm.user_id = %s
                 WHERE ujm.id IS NULL
-                ORDER BY j.discovered_date DESC
-            """, (user_id,))
+            """
+            params = [user_id]
+
+            # Add location/work arrangement filter if user has preferences
+            if user_cities:
+                # Prepare ILIKE patterns for each city (e.g., '%berlin%', '%hamburg%')
+                city_patterns = [f'%{city}%' for city in user_cities]
+
+                query += """
+                    AND (
+                        -- Remote jobs (always include)
+                        ai_work_arrangement ILIKE '%remote%'
+                        OR
+                        -- Jobs in user's preferred cities (any work arrangement)
+                        EXISTS (
+                            SELECT 1 FROM unnest(cities_derived) AS city
+                            WHERE city ILIKE ANY(%s)
+                        )
+                        OR
+                        EXISTS (
+                            SELECT 1 FROM unnest(locations_derived) AS loc
+                            WHERE loc ILIKE ANY(%s)
+                        )
+                    )
+                """
+                params.extend([city_patterns, city_patterns])
+
+            query += " ORDER BY j.discovered_date DESC"
+
+            cursor.execute(query, params)
             results = [dict(row) for row in cursor.fetchall()]
             return results
         finally:
