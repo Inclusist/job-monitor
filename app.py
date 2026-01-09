@@ -97,22 +97,32 @@ handler = CVHandler(cv_manager, parser, analyzer, storage_root='data/cvs') if an
 # Progress tracking for job search
 search_progress = {}
 
-# Semantic search model (lazy loading)
-_semantic_model = None
+# Semantic search models (lazy loading)
+_semantic_models = {}
 
-def get_semantic_model():
-    """Get or load sentence transformer model (lazy loading)"""
-    global _semantic_model
-    if _semantic_model is None:
+def get_semantic_model(model_name='paraphrase-multilingual-MiniLM-L12-v2'):
+    """Get or load sentence transformer model (lazy loading with caching)
+
+    Supported models:
+    - paraphrase-multilingual-MiniLM-L12-v2: General multilingual (50+ languages)
+    - jjzha/jobbert_knowledge_extraction: Job-specialized (EN, DE, ES, CN)
+    """
+    global _semantic_models
+
+    if model_name not in _semantic_models:
         try:
             from sentence_transformers import SentenceTransformer
-            print("📥 Loading sentence transformer model...")
-            _semantic_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-            print("✅ Multilingual model loaded")
+            print(f"📥 Loading sentence transformer model: {model_name}...")
+            _semantic_models[model_name] = SentenceTransformer(model_name)
+            print(f"✅ Model loaded: {model_name}")
         except ImportError:
             print("❌ Error: sentence-transformers package not installed")
             return None
-    return _semantic_model
+        except Exception as e:
+            print(f"❌ Error loading model {model_name}: {e}")
+            return None
+
+    return _semantic_models[model_name]
 
 # Initialize OAuth
 oauth = OAuth(app)
@@ -824,14 +834,15 @@ def run_semantic_search():
         limit = int(request.json.get('limit', 20))
         locations = request.json.get('locations', [])
         include_remote = request.json.get('include_remote', True)
+        model_name = request.json.get('model', 'paraphrase-multilingual-MiniLM-L12-v2')
 
         if not query:
             return jsonify({'error': 'Query is required'}), 400
 
         # Load model
-        model = get_semantic_model()
+        model = get_semantic_model(model_name)
         if model is None:
-            return jsonify({'error': 'Semantic model not available'}), 500
+            return jsonify({'error': f'Failed to load model: {model_name}'}), 500
 
         # Get jobs with optional location filtering
         start_time = time.time()
@@ -860,9 +871,11 @@ def run_semantic_search():
             conditions = []
 
             if include_remote:
-                conditions.append("ai_work_arrangement ILIKE '%remote%'")
+                # Use parameter to avoid % escaping issues
+                conditions.append("ai_work_arrangement ILIKE %s")
+                params.append('%remote%')
 
-            if locations:
+            if locations and len(locations) > 0:
                 # Build ILIKE patterns for each location
                 location_patterns = [f'%{loc}%' for loc in locations]
                 conditions.append("""
@@ -878,8 +891,8 @@ def run_semantic_search():
                 """)
                 params.extend([location_patterns, location_patterns])
 
-            if conditions:
-                query_sql += " WHERE " + " OR ".join(conditions)
+            if len(conditions) > 0:
+                query_sql += " WHERE (" + " OR ".join(conditions) + ")"
 
         query_sql += " ORDER BY discovered_date DESC"
 
@@ -956,6 +969,7 @@ def run_semantic_search():
                 'matches_found': len(results),
                 'threshold': threshold,
                 'match_mode': match_mode,
+                'model': model_name,
                 'query': query,
                 'locations': locations,
                 'include_remote': include_remote,
