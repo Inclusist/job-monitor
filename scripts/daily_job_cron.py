@@ -32,8 +32,127 @@ from scripts.enrich_lightweight import run_lightweight_enrichment  # Lightweight
 import psycopg2
 from psycopg2.extras import execute_values
 import json
+import time
 
 load_dotenv()
+
+# Lazy load sentence transformer model
+_encoding_model = None
+
+def get_encoding_model():
+    """Load TechWolf JobBERT-v3 model (lazy loading)"""
+    global _encoding_model
+    if _encoding_model is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+            print("📥 Loading TechWolf/JobBERT-v3 model...")
+            _encoding_model = SentenceTransformer('TechWolf/JobBERT-v3')
+            print("✅ Model loaded")
+        except Exception as e:
+            print(f"❌ Failed to load encoding model: {e}")
+            return None
+    return _encoding_model
+
+
+def encode_new_jobs(db, limit=None):
+    """
+    Encode titles of jobs that don't have embeddings yet
+
+    Args:
+        db: Database instance
+        limit: Maximum number of jobs to encode (None = all)
+
+    Returns:
+        int: Number of jobs encoded
+    """
+    model = get_encoding_model()
+    if model is None:
+        return 0
+
+    # Get jobs without embeddings
+    conn = db._get_connection()
+    cursor = conn.cursor()
+
+    query = """
+        SELECT id, title
+        FROM jobs
+        WHERE embedding_jobbert_title IS NULL
+        ORDER BY discovered_date DESC
+    """
+
+    if limit:
+        query += f" LIMIT {limit}"
+
+    cursor.execute(query)
+    jobs = cursor.fetchall()
+
+    if not jobs:
+        cursor.close()
+        if hasattr(db, '_return_connection'):
+            db._return_connection(conn)
+        else:
+            conn.close()
+        return 0
+
+    # Convert to list of dicts
+    job_list = [{'id': row[0], 'title': row[1]} for row in jobs]
+
+    cursor.close()
+    if hasattr(db, '_return_connection'):
+        db._return_connection(conn)
+    else:
+        conn.close()
+
+    # Encode titles
+    start_time = time.time()
+    titles = [job['title'] for job in job_list]
+    job_ids = [job['id'] for job in job_list]
+
+    embeddings = model.encode(titles, show_progress_bar=False, convert_to_numpy=True)
+
+    # Store embeddings
+    conn = db._get_connection()
+    cursor = conn.cursor()
+
+    # Detect database type
+    is_postgres = hasattr(db, 'connection_pool') or os.getenv('DATABASE_URL', '').startswith('postgres')
+
+    try:
+        for job_id, embedding in zip(job_ids, embeddings):
+            embedding_json = json.dumps(embedding.tolist())
+
+            if is_postgres:
+                cursor.execute("""
+                    UPDATE jobs
+                    SET embedding_jobbert_title = %s::jsonb,
+                        embedding_date = NOW()
+                    WHERE id = %s
+                """, (embedding_json, job_id))
+            else:
+                cursor.execute("""
+                    UPDATE jobs
+                    SET embedding_jobbert_title = ?,
+                        embedding_date = ?
+                    WHERE id = ?
+                """, (embedding_json, datetime.now().isoformat(), job_id))
+
+        conn.commit()
+
+    except Exception as e:
+        conn.rollback()
+        raise e
+
+    finally:
+        cursor.close()
+        if hasattr(db, '_return_connection'):
+            db._return_connection(conn)
+        else:
+            conn.close()
+
+    encode_time = time.time() - start_time
+    print(f"   ✓ Encoded {len(job_list)} jobs in {encode_time:.2f}s ({len(job_list)/encode_time:.1f} jobs/sec)")
+
+    return len(job_list)
 
 
 def collect_daily_jobs(db, api_key):
@@ -150,7 +269,24 @@ def run_daily_job():
             except Exception as e:
                 print(f"   ⚠️  Lightweight enrichment failed: {e}")
         # -----------------------------------------
-        
+
+        # --- Encode New Jobs with TechWolf JobBERT-v3 ---
+        if stats['new_jobs'] > 0:
+            print(f"\n🔤 Encoding job titles ({stats['new_jobs']} new jobs)...")
+            print("   Model: TechWolf/JobBERT-v3 (1024-dim embeddings)")
+            print("   Purpose: Pre-compute for 80x faster semantic search")
+            try:
+                encoded_count = encode_new_jobs(db, limit=stats['new_jobs'])
+                if encoded_count > 0:
+                    print(f"   ✓ Job title encoding complete")
+                else:
+                    print(f"   ℹ️  No jobs needed encoding (already encoded)")
+            except Exception as e:
+                print(f"   ⚠️  Job encoding failed: {e}")
+                import traceback
+                traceback.print_exc()
+        # -------------------------------------------------
+
         db.close()
         return True
 

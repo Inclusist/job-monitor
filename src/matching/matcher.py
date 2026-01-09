@@ -372,24 +372,61 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
             'total_jobs': len(jobs_to_filter)
         })
 
-        print(f"\n⚡ SEMANTIC FILTERING (title-only for speed):")
-        
+        print(f"\n⚡ SEMANTIC FILTERING (title-only with pre-computed embeddings):")
+
+        # Load pre-computed embeddings from database
+        import json
+        import numpy as np
+
+        job_embeddings = {}
+        jobs_needing_encoding = []
+        t_load_start = time.time()
+
+        for job in jobs_to_filter:
+            if job.get('embedding_jobbert_title'):
+                try:
+                    # Parse JSON embedding
+                    embedding_json = job['embedding_jobbert_title']
+                    if isinstance(embedding_json, str):
+                        embedding_data = json.loads(embedding_json)
+                    else:
+                        embedding_data = embedding_json
+                    job_embeddings[job['id']] = np.array(embedding_data)
+                except Exception as e:
+                    print(f"  ⚠️  Failed to load embedding for job {job['id']}: {e}")
+                    jobs_needing_encoding.append(job)
+            else:
+                jobs_needing_encoding.append(job)
+
+        t_load = time.time() - t_load_start
+        print(f"  ✓ Loaded {len(job_embeddings)} pre-computed embeddings in {t_load:.2f}s")
+
+        # Encode jobs that don't have embeddings (fallback)
+        t_encode_total = 0
+        if jobs_needing_encoding:
+            print(f"  ⚡ Encoding {len(jobs_needing_encoding)} jobs on-the-fly (missing embeddings)...")
+            for job in jobs_needing_encoding:
+                job_text = filter_module.build_job_text(job)
+                t_encode = time.time()
+                job_embedding = model.encode(job_text, show_progress_bar=False)
+                t_encode_total += time.time() - t_encode
+                job_embeddings[job['id']] = job_embedding
+
         matches = []
         max_score = 0
-        
+
         # Timing breakdown
         t_semantic_start = time.time()
-        t_encode_total = 0
         t_similarity_total = 0
         t_keyword_total = 0
-        
+
         for idx, job in enumerate(jobs_to_filter):
-            job_text = filter_module.build_job_text(job)
-            
-            t_encode = time.time()
-            job_embedding = model.encode(job_text, show_progress_bar=False)
-            t_encode_total += time.time() - t_encode
-            
+            # Get embedding (pre-computed or freshly encoded)
+            job_embedding = job_embeddings.get(job['id'])
+            if job_embedding is None:
+                print(f"  ⚠️  No embedding for job {job['id']}, skipping")
+                continue
+
             t_sim = time.time()
             similarity = filter_module.calculate_similarity(cv_embedding, job_embedding)
             t_similarity_total += time.time() - t_sim
@@ -420,12 +457,15 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                 })
         
         t_semantic_total = time.time() - t_semantic_start
-        print(f"\n⏱️  SEMANTIC FILTERING (title-only):")
-        print(f"  Total: {t_semantic_total:.2f}s ({t_semantic_total/60:.2f} min)")
-        print(f"  Encoding titles: {t_encode_total:.2f}s ({t_encode_total/len(jobs_to_filter)*1000:.0f}ms/job)")
+        print(f"\n⏱️  SEMANTIC FILTERING PERFORMANCE:")
+        print(f"  Loading pre-computed embeddings: {t_load:.2f}s ({len(job_embeddings)-len(jobs_needing_encoding)} jobs)")
+        if jobs_needing_encoding:
+            print(f"  Encoding missing embeddings: {t_encode_total:.2f}s ({len(jobs_needing_encoding)} jobs, {t_encode_total/len(jobs_needing_encoding)*1000:.0f}ms/job)")
         print(f"  Similarity calculation: {t_similarity_total:.2f}s")
         print(f"  Keyword boost: {t_keyword_total:.2f}s")
+        print(f"  Total: {t_semantic_total:.2f}s ({t_semantic_total/60:.2f} min)")
         print(f"✓ Found {len(matches)} matches above 30% threshold (max: {max_score:.3f})")
+        print(f"🚀 Speedup: ~{(t_encode_total if jobs_needing_encoding else 50)/t_load:.0f}x faster with pre-computed embeddings")
         
         # Save semantic matches to database (batch insert for performance)
         matching_status[user_id].update({

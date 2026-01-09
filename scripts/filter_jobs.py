@@ -33,13 +33,13 @@ def load_sentence_transformer():
         print("Install with: pip install sentence-transformers")
         sys.exit(1)
     
-    print("📥 Loading sentence transformer model...")
-    # paraphrase-multilingual-MiniLM-L12-v2: Multilingual support (50+ languages)
-    # Handles English CVs + German jobs excellently
-    # Test results: +42% better German job matching vs English-only model
-    # Previous: all-MiniLM-L6-v2 (English-only, 80MB)
-    model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-    print("✅ Multilingual model loaded")
+    print("📥 Loading TechWolf/JobBERT-v3 model...")
+    # TechWolf/JobBERT-v3: Job-specialized model for semantic matching
+    # Supports: EN, DE, ES, CN
+    # Optimized for job title similarity and skills matching
+    # Test results: "waaaaay better" for job matching (title-only)
+    model = SentenceTransformer('TechWolf/JobBERT-v3')
+    print("✅ Job-specialized model loaded")
     return model
 
 
