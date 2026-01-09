@@ -105,7 +105,7 @@ def get_semantic_model(model_name='paraphrase-multilingual-MiniLM-L12-v2'):
 
     Supported models:
     - paraphrase-multilingual-MiniLM-L12-v2: General multilingual (50+ languages)
-    - jjzha/jobbert_knowledge_extraction: Job-specialized (EN, DE, ES, CN)
+    - TechWolf/JobBERT-v3: Job-specialized semantic matching (EN, DE, ES, CN)
     """
     global _semantic_models
 

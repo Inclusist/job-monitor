@@ -38,9 +38,9 @@
             <label for="model" style="display: block; font-weight: 600; margin-bottom: 0.5rem;">Semantic Model:</label>
             <select id="model" style="width: 100%; padding: 0.8rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem;">
                 <option value="paraphrase-multilingual-MiniLM-L12-v2" selected>Multilingual-MiniLM (Current)</option>
-                <option value="jjzha/jobbert_knowledge_extraction">JobBERT-V3 (Job-specialized)</option>
+                <option value="TechWolf/JobBERT-v3">TechWolf JobBERT-v3 (Job-specialized)</option>
             </select>
-            <p style="color: #666; font-size: 0.85rem; margin-top: 0.3rem;">JobBERT: EN, DE, ES, CN optimized for jobs</p>
+            <p style="color: #666; font-size: 0.85rem; margin-top: 0.3rem;">TechWolf JobBERT-v3: EN, DE, ES, CN optimized for job matching</p>
         </div>
 
         <div>
@@ -245,7 +245,7 @@ function displayResults(data) {
 
     // Update results description
     const modeName = stats.match_mode === 'title_only' ? 'Title Only' : 'Full Text';
-    const modelDisplayName = stats.model === 'jjzha/jobbert_knowledge_extraction' ? 'JobBERT-V3' : 'Multilingual-MiniLM';
+    const modelDisplayName = stats.model === 'TechWolf/JobBERT-v3' ? 'TechWolf JobBERT-v3' : 'Multilingual-MiniLM';
 
     let descriptionText = `Found ${results.length} jobs matching "${stats.query}" with ${(stats.threshold * 100).toFixed(0)}% similarity`;
     descriptionText += ` | Model: ${modelDisplayName} (${modeName} mode)`;
