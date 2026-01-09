@@ -585,38 +585,14 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                 print(f"   Starting batch analysis of {len(jobs_to_analyze)} jobs...")
                 print(f"   This may take 2-5 minutes for large batches")
                 
-                # Add timeout protection (max 10 minutes for batch analysis)
-                import signal
-                
-                def timeout_handler(signum, frame):
-                    raise TimeoutError("Claude batch analysis timed out after 10 minutes")
-                
-                # Set timeout only on Unix systems (not Windows)
-                if hasattr(signal, 'SIGALRM'):
-                    signal.signal(signal.SIGALRM, timeout_handler)
-                    signal.alarm(600)  # 10 minute timeout
-                
                 try:
-                    # Use default batch size (15) from analyze_batch
+                    # Use default batch size from analyze_batch
                     analyzed_jobs = analyzer.analyze_batch(jobs_to_analyze)
-                    
-                    # Cancel timeout
-                    if hasattr(signal, 'SIGALRM'):
-                        signal.alarm(0)
-                        
-                except TimeoutError as te:
-                    print(f"❌ Batch analysis timed out: {te}")
-                    print(f"   Processed 0/{len(jobs_to_analyze)} jobs before timeout")
-                    analyzed_jobs = []
                 except Exception as batch_error:
                     print(f"❌ Batch analysis failed: {batch_error}")
                     import traceback
                     traceback.print_exc()
                     analyzed_jobs = []
-                finally:
-                    # Ensure alarm is cancelled
-                    if hasattr(signal, 'SIGALRM'):
-                        signal.alarm(0)
                 
                 t_batch = time.time() - t_batch_start
                 
