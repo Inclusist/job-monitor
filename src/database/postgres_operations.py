@@ -1249,7 +1249,7 @@ class PostgresDatabase:
                 query += """
                     AND (
                         -- Remote jobs (always include)
-                        ai_work_arrangement ILIKE '%remote%'
+                        ai_work_arrangement ILIKE '%%remote%%'
                         OR
                         -- Jobs in user's preferred cities (any work arrangement)
                         EXISTS (
