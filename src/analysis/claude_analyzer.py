@@ -221,21 +221,9 @@ class ClaudeJobAnalyzer:
                         extracted = extraction_map.get(job_key, {"competencies": [], "skills": []})
                         job['ai_competencies'] = extracted.get('competencies', [])
                         job['ai_key_skills'] = extracted.get('skills', [])
-                        
-                        # Also cache in database if DB connection available
-                        if self.db and job.get('id'):
-                            try:
-                                self.db.update_job_competencies(job['id'], job['ai_competencies'])
-                                # Also update skills if job has them
-                                if job.get('ai_key_skills'):
-                                    # Try to update skills too (may not exist in all DB versions)
-                                    try:
-                                        self.db.update_job(job['id'], {'ai_key_skills': job['ai_key_skills']})
-                                    except:
-                                        pass
-                            except Exception as db_error:
-                                logger.error(f"Failed to save competencies for job {job['id']}: {db_error}")
-                                print(f"   ⚠️  Failed to save competencies for job {job.get('title', 'Unknown')}: {db_error}")
+
+                        # Note: Competencies are stored in memory for matching
+                        # Database caching not implemented yet
                 except Exception as e:
                     logger.warning(f"Failed to extract competencies/skills: {e}")
                     # Continue without competencies
