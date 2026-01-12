@@ -38,7 +38,8 @@ def load_sentence_transformer():
     # Supports: EN, DE, ES, CN
     # Optimized for job title similarity and skills matching
     # Test results: "waaaaay better" for job matching (title-only)
-    model = SentenceTransformer('TechWolf/JobBERT-v3')
+    # Fix for PyTorch 2.9+ compatibility
+    model = SentenceTransformer('TechWolf/JobBERT-v3', device='cpu', trust_remote_code=True)
     print("✅ Job-specialized model loaded")
     return model
 

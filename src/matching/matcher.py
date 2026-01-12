@@ -561,7 +561,7 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                         if potential_gaps and isinstance(potential_gaps[0], dict):
                             potential_gaps = [str(item) for item in potential_gaps]
                         
-                        # Add to batch
+                        # Add to batch (including competency and skill mappings)
                         claude_batch_updates.append({
                             'user_id': user_id,
                             'job_id': job['id'],
@@ -569,7 +569,9 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
                             'priority': job.get('priority', 'medium'),
                             'match_reasoning': job.get('reasoning', ''),
                             'key_alignments': key_alignments,
-                            'potential_gaps': potential_gaps
+                            'potential_gaps': potential_gaps,
+                            'competency_mappings': job.get('competency_mappings', []),
+                            'skill_mappings': job.get('skill_mappings', [])
                         })
                         
                         print(f"  ✓ {job.get('title', 'Unknown')[:50]} - Claude: {job['match_score']}%")

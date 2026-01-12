@@ -112,8 +112,21 @@ def get_semantic_model(model_name='paraphrase-multilingual-MiniLM-L12-v2'):
     if model_name not in _semantic_models:
         try:
             from sentence_transformers import SentenceTransformer
+            import torch
             print(f"📥 Loading sentence transformer model: {model_name}...")
-            _semantic_models[model_name] = SentenceTransformer(model_name)
+
+            # Fix for PyTorch 2.9+ compatibility with meta tensors
+            # Use device_map and trust_remote_code for TechWolf models
+            if 'TechWolf' in model_name or 'JobBERT' in model_name:
+                _semantic_models[model_name] = SentenceTransformer(
+                    model_name,
+                    device='cpu',  # Explicitly set device
+                    trust_remote_code=True
+                )
+            else:
+                # Also use explicit device for other models for consistency
+                _semantic_models[model_name] = SentenceTransformer(model_name, device='cpu')
+
             print(f"✅ Model loaded: {model_name}")
         except ImportError:
             print("❌ Error: sentence-transformers package not installed")
@@ -1432,9 +1445,8 @@ def generate_cover_letter_page(job_id):
     user, stats = get_user_context()
     
     # Get job
-    jobs_list = job_db.get_jobs_by_score(0, max_results=1000)
-    job = next((j for j in jobs_list if j['id'] == job_id), None)
-    
+    job = job_db.get_job(job_id)
+
     if not job:
         flash('Job not found', 'error')
         return redirect(url_for('jobs'))
@@ -1469,9 +1481,8 @@ def create_cover_letter(job_id):
     language = request.form.get('language', 'english')
     
     # Get job
-    jobs_list = job_db.get_jobs_by_score(0, max_results=1000)
-    job = next((j for j in jobs_list if j['id'] == job_id), None)
-    
+    job = job_db.get_job(job_id)
+
     if not job:
         flash('Job not found', 'error')
         return redirect(url_for('jobs'))
@@ -1515,11 +1526,10 @@ def update_job_status(job_id, status):
     """Update job status"""
     try:
         # Get job to verify it exists
-        jobs_list = job_db.get_jobs_by_score(0, max_results=1000)
-        job = next((j for j in jobs_list if j['id'] == job_id), None)
+        job = job_db.get_job(job_id)
 
         if job:
-            job_db.update_job_status(job['job_id'], status)
+            job_db.update_job_status(job['id'], status)
             flash(f'Job marked as {status}', 'success')
         else:
             flash('Job not found', 'error')
@@ -1947,11 +1957,13 @@ def delete_job(job_id):
 
 
 @app.route('/deleted-jobs')
+@login_required
 def deleted_jobs():
     """View all deleted/hidden jobs"""
     user, stats = get_user_context()
-    
-    deleted_jobs_list = job_db.get_deleted_jobs(limit=100)
+    user_id = get_user_id()
+
+    deleted_jobs_list = job_db.get_deleted_jobs(user_id=user_id, limit=100)
     
     # Parse JSON fields
     for job in deleted_jobs_list:
@@ -2554,6 +2566,31 @@ def api_stats():
     }
     
     return jsonify(stats)
+
+
+@app.route('/admin/clear-model-cache', methods=['POST'])
+@login_required
+def clear_model_cache():
+    """Clear cached semantic models (admin only)"""
+    global _semantic_models
+
+    user = get_user_context()[0]
+
+    # Simple admin check - you can make this more restrictive
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    try:
+        cleared_models = list(_semantic_models.keys())
+        _semantic_models.clear()
+
+        return jsonify({
+            'success': True,
+            'message': 'Model cache cleared successfully',
+            'cleared_models': cleared_models
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':

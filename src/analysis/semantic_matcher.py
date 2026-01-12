@@ -37,8 +37,10 @@ class SemanticMatcher:
         """Load the sentence transformer model"""
         try:
             from sentence_transformers import SentenceTransformer
+            import torch
             logger.info("Loading semantic similarity model...")
-            self._model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+            # Fix for PyTorch 2.9+ compatibility - explicitly set device
+            self._model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2', device='cpu')
             logger.info("✓ Semantic model loaded successfully")
         except Exception as e:
             logger.error(f"Failed to load semantic model: {e}")

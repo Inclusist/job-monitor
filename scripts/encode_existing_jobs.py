@@ -34,7 +34,8 @@ def load_model():
     try:
         from sentence_transformers import SentenceTransformer
         print("📥 Loading TechWolf/JobBERT-v3 model...")
-        model = SentenceTransformer('TechWolf/JobBERT-v3')
+        # Fix for PyTorch 2.9+ compatibility
+        model = SentenceTransformer('TechWolf/JobBERT-v3', device='cpu', trust_remote_code=True)
         print("✅ Model loaded successfully")
         return model
     except ImportError:

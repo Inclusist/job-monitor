@@ -46,7 +46,8 @@ def get_encoding_model():
         try:
             from sentence_transformers import SentenceTransformer
             print("📥 Loading TechWolf/JobBERT-v3 model...")
-            _encoding_model = SentenceTransformer('TechWolf/JobBERT-v3')
+            # Fix for PyTorch 2.9+ compatibility
+            _encoding_model = SentenceTransformer('TechWolf/JobBERT-v3', device='cpu', trust_remote_code=True)
             print("✅ Model loaded")
         except Exception as e:
             print(f"❌ Failed to load encoding model: {e}")

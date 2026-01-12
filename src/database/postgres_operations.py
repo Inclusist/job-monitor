@@ -380,18 +380,37 @@ class PostgresDatabase:
             cursor.close()
             self._return_connection(conn)
     
-    def get_jobs_by_score(self, min_score: int, max_results: int = 20) -> List[Dict]:
-        """Get jobs with match score above threshold"""
+    def get_jobs_by_score(self, min_score: int, max_results: int = 20, user_id: int = None) -> List[Dict]:
+        """
+        Get jobs with match score above threshold
+
+        Note: This method is deprecated. Use get_user_job_matches() instead.
+        If user_id is provided, joins with user_job_matches to get scores.
+        Otherwise returns all jobs (ignoring min_score parameter).
+        """
         conn = self._get_connection()
         try:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
-            cursor.execute("""
-                SELECT * FROM jobs 
-                WHERE match_score >= %s 
-                ORDER BY match_score DESC 
-                LIMIT %s
-            """, (min_score, max_results))
-            
+
+            if user_id:
+                # Join with user_job_matches to get scores
+                cursor.execute("""
+                    SELECT j.*,
+                           COALESCE(ujm.claude_score, ujm.semantic_score) as match_score
+                    FROM jobs j
+                    LEFT JOIN user_job_matches ujm ON j.id = ujm.job_id AND ujm.user_id = %s
+                    WHERE COALESCE(ujm.claude_score, ujm.semantic_score) >= %s
+                    ORDER BY match_score DESC
+                    LIMIT %s
+                """, (user_id, min_score, max_results))
+            else:
+                # No user_id provided, just return all jobs (legacy behavior)
+                cursor.execute("""
+                    SELECT * FROM jobs
+                    ORDER BY discovered_date DESC
+                    LIMIT %s
+                """, (max_results,))
+
             jobs = cursor.fetchall()
             return [dict(job) for job in jobs]
         finally:
@@ -881,7 +900,16 @@ class PostgresDatabase:
                 potential_gaps = match.get('potential_gaps', [])
                 key_alignments_str = ', '.join(key_alignments) if key_alignments else ''
                 potential_gaps_str = ', '.join(potential_gaps) if potential_gaps else ''
-                
+
+                # Get competency and skill mappings (keep as list/dict for JSONB)
+                competency_mappings = match.get('competency_mappings', [])
+                skill_mappings = match.get('skill_mappings', [])
+
+                # Convert to JSON string for psycopg2 (it will handle JSONB conversion)
+                import json
+                competency_mappings_json = json.dumps(competency_mappings) if competency_mappings else None
+                skill_mappings_json = json.dumps(skill_mappings) if skill_mappings else None
+
                 values.append((
                     match['user_id'],
                     match['job_id'],
@@ -893,6 +921,8 @@ class PostgresDatabase:
                     match.get('match_reasoning'),
                     key_alignments_str,
                     potential_gaps_str,
+                    competency_mappings_json,
+                    skill_mappings_json,
                     now,
                     now
                 ))
@@ -906,22 +936,25 @@ class PostgresDatabase:
                 INSERT INTO user_job_matches (
                     user_id, job_id, semantic_score, semantic_date,
                     claude_score, claude_date, priority, match_reasoning,
-                    key_alignments, potential_gaps, created_date, last_updated
+                    key_alignments, potential_gaps, competency_mappings, skill_mappings,
+                    created_date, last_updated
                 ) VALUES %s
-                ON CONFLICT (user_id, job_id) 
+                ON CONFLICT (user_id, job_id)
                 DO UPDATE SET
                     semantic_score = COALESCE(EXCLUDED.semantic_score, user_job_matches.semantic_score),
-                    semantic_date = CASE WHEN EXCLUDED.semantic_score IS NOT NULL 
-                                       THEN EXCLUDED.semantic_date 
+                    semantic_date = CASE WHEN EXCLUDED.semantic_score IS NOT NULL
+                                       THEN EXCLUDED.semantic_date
                                        ELSE user_job_matches.semantic_date END,
                     claude_score = COALESCE(EXCLUDED.claude_score, user_job_matches.claude_score),
-                    claude_date = CASE WHEN EXCLUDED.claude_score IS NOT NULL 
-                                     THEN EXCLUDED.claude_date 
+                    claude_date = CASE WHEN EXCLUDED.claude_score IS NOT NULL
+                                     THEN EXCLUDED.claude_date
                                      ELSE user_job_matches.claude_date END,
                     priority = EXCLUDED.priority,
                     match_reasoning = COALESCE(EXCLUDED.match_reasoning, user_job_matches.match_reasoning),
                     key_alignments = COALESCE(EXCLUDED.key_alignments, user_job_matches.key_alignments),
                     potential_gaps = COALESCE(EXCLUDED.potential_gaps, user_job_matches.potential_gaps),
+                    competency_mappings = COALESCE(EXCLUDED.competency_mappings, user_job_matches.competency_mappings),
+                    skill_mappings = COALESCE(EXCLUDED.skill_mappings, user_job_matches.skill_mappings),
                     last_updated = EXCLUDED.last_updated
                 """,
                 values
@@ -940,12 +973,22 @@ class PostgresDatabase:
     
     def get_user_job_matches(self, user_id: int, min_semantic_score: int = None,
                             min_claude_score: int = None, limit: int = 200,
-                            status: str = None) -> List[Dict]:
-        """Get job matches for a user"""
+                            status: str = None, exclude_deleted: bool = True) -> List[Dict]:
+        """
+        Get job matches for a user
+
+        Args:
+            user_id: User ID to get matches for
+            min_semantic_score: Minimum semantic score filter
+            min_claude_score: Minimum Claude score filter
+            limit: Maximum number of results
+            status: Filter by specific status (e.g., 'new', 'viewed', 'shortlisted', 'deleted')
+            exclude_deleted: If True (default), excludes jobs with status='deleted'
+        """
         conn = self._get_connection()
         try:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
-            
+
             query = """
                 SELECT
                     ujm.*,
@@ -966,15 +1009,19 @@ class PostgresDatabase:
                 WHERE ujm.user_id = %s
             """
             params = [user_id]
-            
+
+            # Exclude deleted jobs by default
+            if exclude_deleted and not status:
+                query += " AND ujm.status != 'deleted'"
+
             if min_semantic_score is not None:
                 query += " AND ujm.semantic_score >= %s"
                 params.append(min_semantic_score)
-            
+
             if min_claude_score is not None:
                 query += " AND ujm.claude_score >= %s"
                 params.append(min_claude_score)
-            
+
             if status:
                 query += " AND ujm.status = %s"
                 params.append(status)
@@ -1024,12 +1071,27 @@ class PostgresDatabase:
             cursor.close()
             self._return_connection(conn)
     
-    def get_deleted_jobs(self, limit: int = 50) -> List[Dict]:
-        """Get all deleted/hidden jobs"""
-        # Note: In new architecture, 'deleted' is user-specific (in user_job_matches)
-        # Jobs table doesn't have global 'deleted' status
-        # Return empty list - use get_user_job_matches with status='deleted' for user-specific
-        return []
+    def get_deleted_jobs(self, user_id: int = None, limit: int = 50) -> List[Dict]:
+        """
+        Get all deleted/hidden jobs for a specific user
+
+        Args:
+            user_id: User ID to get deleted jobs for (required for user-specific deletion)
+            limit: Maximum number of results
+
+        Returns:
+            List of deleted job matches for the user
+        """
+        if user_id is None:
+            # No user specified, return empty (deleted is user-specific in new architecture)
+            return []
+
+        # Use get_user_job_matches with status='deleted'
+        return self.get_user_job_matches(
+            user_id=user_id,
+            status='deleted',
+            limit=limit
+        )
     
     def permanently_delete_job(self, job_id: int) -> bool:
         """Permanently remove a job from the database"""
