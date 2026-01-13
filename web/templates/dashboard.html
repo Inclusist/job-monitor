@@ -43,7 +43,7 @@
         </div>
         <div style="text-align: right; min-width: 100px;">
             <div
-                style="font-size: 2rem; font-weight: bold; color: {% if job.match_score >= 85 %}#155724{% elif job.match_score >= 70 %}#856404{% else %}#721c24{% endif %};">
+                style="font-size: 2rem; font-weight: bold; color: {% if (job.match_score or 0) >= 85 %}#155724{% elif (job.match_score or 0) >= 70 %}#856404{% else %}#721c24{% endif %};">
                 {{ job.match_score }}
             </div>
             <span class="badge badge-{{ job.priority }}" style="font-size: 0.75rem;">{{ job.priority }}</span>

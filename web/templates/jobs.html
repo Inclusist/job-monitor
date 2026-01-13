@@ -15,14 +15,17 @@
             </div>
             <h3 style="margin: 0; color: white; font-size: 1.25rem;" id="progressTitle">🚀 Job Matching in Progress</h3>
         </div>
-        <p id="progressMessage" style="margin-bottom: 1rem; color: rgba(255,255,255,0.9); font-size: 0.95rem;">Initializing...</p>
-        <div style="background: rgba(255,255,255,0.2); border-radius: 8px; height: 28px; overflow: hidden; position: relative; backdrop-filter: blur(10px);">
+        <p id="progressMessage" style="margin-bottom: 1rem; color: rgba(255,255,255,0.9); font-size: 0.95rem;">
+            Initializing...</p>
+        <div
+            style="background: rgba(255,255,255,0.2); border-radius: 8px; height: 28px; overflow: hidden; position: relative; backdrop-filter: blur(10px);">
             <div id="progressBar"
                 style="background: linear-gradient(90deg, rgba(255,255,255,0.9) 0%, white 100%); height: 100%; width: 0%; transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
                 <span id="progressPercent" style="color: #667eea; font-weight: 700; font-size: 0.9rem;">0%</span>
             </div>
         </div>
-        <div id="progressStats" style="margin-top: 0.75rem; font-size: 0.875rem; color: rgba(255,255,255,0.9); display: none;">
+        <div id="progressStats"
+            style="margin-top: 0.75rem; font-size: 0.875rem; color: rgba(255,255,255,0.9); display: none;">
             <span id="matchesFound">0 matches found</span> ·
             <span id="jobsAnalyzed">0 jobs analyzed</span>
         </div>
@@ -45,6 +48,7 @@
             opacity: 0;
             transform: translateX(-50%) translateY(-20px);
         }
+
         to {
             opacity: 1;
             transform: translateX(-50%) translateY(0);
@@ -52,9 +56,12 @@
     }
 
     @keyframes pulse {
-        0%, 100% {
+
+        0%,
+        100% {
             box-shadow: 0 8px 32px rgba(102, 126, 234, 0.4);
         }
+
         50% {
             box-shadow: 0 8px 48px rgba(102, 126, 234, 0.6);
         }
@@ -192,7 +199,6 @@
             </form>
             <a href="{{ url_for('deleted_jobs') }}" class="btn btn-secondary" style="font-size: 0.9rem;">🗑️ Hidden
                 Jobs</a>
-            <a href="{{ url_for('run_search') }}" class="btn">🔍 Run New Search</a>
         </div>
     </div>
 </div>
