@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Cost Dashboard - Inclusist{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1 style="margin-bottom: 2rem; display: flex; align-items: center; gap: 0.75rem;">
+        <span>💰</span>
+        <span>Cost Dashboard</span>
+    </h1>
+
+    <!-- Summary Cards -->
+    <div
+        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+        <div class="stat-card">
+            <h3>${{ total_month | default(0) | round(2) }}</h3>
+            <p>This Month</p>
+        </div>
+        <div class="stat-card">
+            <h3>${{ total_30days | default(0) | round(2) }}</h3>
+            <p>Last 30 Days</p>
+        </div>
+        <div class="stat-card">
+            <h3>{{ session_count | default(0) }}</h3>
+            <p>Total Sessions</p>
+        </div>
+        <div class="stat-card">
+            <h3>${{ avg_session | default(0) | round(2) }}</h3>
+            <p>Avg per Session</p>
+        </div>
+    </div>
+
+    <!-- Recent Sessions -->
+    <div style="margin-top: 2rem;">
+        <h2 style="margin-bottom: 1rem;">Recent Sessions</h2>
+
+        {% if sessions and sessions | length > 0 %}
+        <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6;">
+                        <th style="padding: 1rem; text-align: left;">Date</th>
+                        <th style="padding: 1rem; text-align: left;">Type</th>
+                        <th style="padding: 1rem; text-align: right;">Jobs</th>
+                        <th style="padding: 1rem; text-align: right;">Matches</th>
+                        <th style="padding: 1rem; text-align: right;">API Cost</th>
+                        <th style="padding: 1rem; text-align: right;">AI Cost</th>
+                        <th style="padding: 1rem; text-align: right;">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for session in sessions %}
+                    <tr style="border-bottom: 1px solid #eee;">
+                        <td style="padding: 1rem;">{{ session.started_at.strftime('%Y-%m-%d %H:%M') if
+                            session.started_at else 'N/A' }}</td>
+                        <td style="padding: 1rem;">
+                            {% if session.session_type == 'job_matching' %}
+                            <span class="badge badge-primary">🔄 Matching</span>
+                            {% else %}
+                            <span class="badge">{{ session.session_type }}</span>
+                            {% endif %}
+                        </td>
+                        <td style="padding: 1rem; text-align: right;">{{ session.jobs_analyzed | default(0) }}</td>
+                        <td style="padding: 1rem; text-align: right;">{{ session.matches_created | default(0) }}</td>
+                        <td style="padding: 1rem; text-align: right; color: #6c757d;">
+                            ${{ ((session.activejobs_cost_usd | default(0)) + (session.jsearch_cost_usd | default(0))) |
+                            round(3) }}
+                        </td>
+                        <td style="padding: 1rem; text-align: right; color: #667eea;">
+                            ${{ (session.claude_cost_usd | default(0)) | round(3) }}
+                        </td>
+                        <td style="padding: 1rem; text-align: right; font-weight: 600;">
+                            ${{ (session.total_cost_usd | default(0)) | round(2) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div style="text-align: center; padding: 3rem; background: #f8f9fa; border-radius: 8px; color: #6c757d;">
+            <span style="font-size: 3rem; display: block; margin-bottom: 1rem;">📊</span>
+            <p>No cost data yet. Start matching jobs to see your usage!</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Cost Breakdown Info -->
+    <div style="margin-top: 2rem; padding: 1.5rem; background: #f8f9fa; border-radius: 8px;">
+        <h3 style="margin-bottom: 1rem;">💡 Cost Breakdown</h3>
+        <ul style="list-style: none; padding: 0;">
+            <li style="margin-bottom: 0.5rem;">📞 <strong>API Costs:</strong> ActiveJobs & JSearch job fetching</li>
+            <li style="margin-bottom: 0.5rem;">🤖 <strong>AI Costs:</strong> Claude analysis & matching (token-based)
+            </li>
+            <li style="margin-bottom: 0.5rem;">☁️ <strong>Infrastructure:</strong> Server, database, bandwidth</li>
+            <li>👨‍💼 <strong>Personnel:</strong> Processing & maintenance</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}

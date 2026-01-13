@@ -1875,6 +1875,25 @@ def dashboard():
                          learning_summary=learning_summary)
 
 
+@app.route('/cost-dashboard')
+@login_required
+def cost_dashboard():
+    """Cost tracking dashboard - shows usage and billing information"""
+    user, stats = get_user_context()
+    
+    # TODO: Once cost_sessions table is created, fetch real data
+    # For now, show placeholder data
+    
+    return render_template('cost_dashboard.html',
+                         user=user,
+                         stats=stats,
+                         total_month=0.00,
+                         total_30days=0.00,
+                         session_count=0,
+                         avg_session=0.00,
+                         sessions=[])
+
+
 @app.route('/learning-insights')
 def learning_insights():
     """Show what the AI has learned from user feedback"""

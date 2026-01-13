@@ -23,8 +23,9 @@
 
 {% if not jobs %}
 <div class="alert alert-info">
-    <strong>No jobs shortlisted yet.</strong> 
-    <p style="margin-top: 0.5rem;">Browse the <a href="{{ url_for('jobs') }}" style="text-decoration: underline;">jobs page</a> and click "⭐ Add to Dashboard" on jobs you want to apply for.</p>
+    <strong>No jobs shortlisted yet.</strong>
+    <p style="margin-top: 0.5rem;">Browse the <a href="{{ url_for('jobs') }}" style="text-decoration: underline;">jobs
+            page</a> and click "⭐ Add to Dashboard" on jobs you want to apply for.</p>
 </div>
 {% else %}
 
@@ -33,28 +34,32 @@
 </div>
 
 {% for job in jobs %}
-<div class="card" style="border-left: 4px solid {% if job.match_score >= 85 %}#28a745{% elif job.match_score >= 70 %}#ffc107{% else %}#6c757d{% endif %};">
+<div class="card"
+    style="border-left: 4px solid {% if (job.match_score or 0) >= 85 %}#28a745{% elif (job.match_score or 0) >= 70 %}#ffc107{% else %}#6c757d{% endif %};">
     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
         <div style="flex: 1;">
             <h3 style="margin: 0; margin-bottom: 0.5rem;">{{ job.title }}</h3>
             <p style="color: #666; margin: 0; font-size: 1.1rem;">{{ job.company }}</p>
         </div>
         <div style="text-align: right; min-width: 100px;">
-            <div style="font-size: 2rem; font-weight: bold; color: {% if job.match_score >= 85 %}#155724{% elif job.match_score >= 70 %}#856404{% else %}#721c24{% endif %};">
+            <div
+                style="font-size: 2rem; font-weight: bold; color: {% if job.match_score >= 85 %}#155724{% elif job.match_score >= 70 %}#856404{% else %}#721c24{% endif %};">
                 {{ job.match_score }}
             </div>
             <span class="badge badge-{{ job.priority }}" style="font-size: 0.75rem;">{{ job.priority }}</span>
         </div>
     </div>
 
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+    <div
+        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
         <div>
             <p style="color: #666; font-size: 0.875rem; margin: 0;">📍 Location</p>
             <p style="font-weight: 500; margin: 0.25rem 0 0 0;">{{ job.location }}</p>
         </div>
         <div>
             <p style="color: #666; font-size: 0.875rem; margin: 0;">📅 Posted</p>
-            <p style="font-weight: 500; margin: 0.25rem 0 0 0;">{{ job.posted_date.strftime('%Y-%m-%d') if job.posted_date else 'Unknown' }}</p>
+            <p style="font-weight: 500; margin: 0.25rem 0 0 0;">{{ job.posted_date.strftime('%Y-%m-%d') if
+                job.posted_date else 'Unknown' }}</p>
         </div>
         {% if job.salary %}
         <div>
@@ -67,7 +72,8 @@
     {% if job.match_reasoning %}
     <div style="margin-bottom: 1.5rem; padding: 1rem; background: #f8f9fa; border-radius: 8px;">
         <p style="color: #666; font-size: 0.875rem; margin: 0 0 0.5rem 0;">💡 Why it matches:</p>
-        <p style="margin: 0; color: #333;">{{ job.match_reasoning[:200] }}{% if job.match_reasoning|length > 200 %}...{% endif %}</p>
+        <p style="margin: 0; color: #333;">{{ job.match_reasoning[:200] }}{% if job.match_reasoning|length > 200 %}...{%
+            endif %}</p>
     </div>
     {% endif %}
 
@@ -76,12 +82,14 @@
         <p style="color: #666; font-size: 0.875rem; margin: 0 0 0.5rem 0;">✅ Key Alignments:</p>
         <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
             {% for alignment in job.key_alignments[:3] %}
-            <span style="background: #d4edda; color: #155724; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.875rem;">
+            <span
+                style="background: #d4edda; color: #155724; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.875rem;">
                 {{ alignment }}
             </span>
             {% endfor %}
             {% if job.key_alignments|length > 3 %}
-            <span style="background: #e2e3e5; color: #383d41; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.875rem;">
+            <span
+                style="background: #e2e3e5; color: #383d41; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.875rem;">
                 +{{ job.key_alignments|length - 3 }} more
             </span>
             {% endif %}
@@ -93,29 +101,35 @@
         <a href="{{ url_for('job_detail', job_id=job.id) }}" class="btn" style="flex: 1; min-width: 150px;">
             📄 View Details
         </a>
-        <a href="{{ url_for('generate_cover_letter_page', job_id=job.id) }}" class="btn" style="background: #28a745; flex: 1; min-width: 150px;">
+        <a href="{{ url_for('generate_cover_letter_page', job_id=job.id) }}" class="btn"
+            style="background: #28a745; flex: 1; min-width: 150px;">
             ✍️ Generate Cover Letter
         </a>
         <a href="{{ job.url }}" target="_blank" class="btn" style="background: #007bff; flex: 1; min-width: 150px;">
             🚀 Apply Now
         </a>
         <form method="POST" action="{{ url_for('remove_shortlist', job_id=job.id) }}" style="flex: 0;">
-            <button type="submit" class="btn btn-secondary" onclick="return confirm('Remove from dashboard?')" title="Remove from dashboard">
+            <button type="submit" class="btn btn-secondary" onclick="return confirm('Remove from dashboard?')"
+                title="Remove from dashboard">
                 🗑️
             </button>
         </form>
     </div>
 
     <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e0e0e0;">
-        <form method="POST" action="{{ url_for('job_detail', job_id=job.id) }}#status-update" style="display: flex; gap: 0.5rem; align-items: center;">
+        <form method="POST" action="{{ url_for('job_detail', job_id=job.id) }}#status-update"
+            style="display: flex; gap: 0.5rem; align-items: center;">
             <label style="font-size: 0.875rem; color: #666;">Status:</label>
-            <select name="status" onchange="this.form.submit()" style="padding: 0.5rem; border: 1px solid #e0e0e0; border-radius: 4px; font-size: 0.875rem;">
-                <option value="shortlisted" {% if job.status == 'shortlisted' %}selected{% endif %}>📋 Planning to Apply</option>
-                <option value="applying" {% if job.status == 'applying' %}selected{% endif %}>✍️ Applying</option>
-                <option value="applied" {% if job.status == 'applied' %}selected{% endif %}>✅ Applied</option>
-                <option value="interviewing" {% if job.status == 'interviewing' %}selected{% endif %}>🎯 Interviewing</option>
-                <option value="offered" {% if job.status == 'offered' %}selected{% endif %}>🎉 Offer Received</option>
-                <option value="rejected" {% if job.status == 'rejected' %}selected{% endif %}>❌ Rejected</option>
+            <select name="status" onchange="this.form.submit()"
+                style="padding: 0.5rem; border: 1px solid #e0e0e0; border-radius: 4px; font-size: 0.875rem;">
+                <option value="shortlisted" {% if job.status=='shortlisted' %}selected{% endif %}>📋 Planning to Apply
+                </option>
+                <option value="applying" {% if job.status=='applying' %}selected{% endif %}>✍️ Applying</option>
+                <option value="applied" {% if job.status=='applied' %}selected{% endif %}>✅ Applied</option>
+                <option value="interviewing" {% if job.status=='interviewing' %}selected{% endif %}>🎯 Interviewing
+                </option>
+                <option value="offered" {% if job.status=='offered' %}selected{% endif %}>🎉 Offer Received</option>
+                <option value="rejected" {% if job.status=='rejected' %}selected{% endif %}>❌ Rejected</option>
             </select>
         </form>
     </div>
