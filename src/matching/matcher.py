@@ -588,7 +588,23 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
             except Exception as e:
                 print(f"  ⚠️  Batch analysis failed: {e}")
                 claude_batch_updates = []  # Empty list if batch failed
-            
+
+            # Save extracted competencies/skills back to jobs table (for caching/reuse)
+            if analyzed_jobs:
+                jobs_to_update_competencies = []
+                for job in analyzed_jobs:
+                    if job.get('ai_competencies') or job.get('ai_key_skills'):
+                        jobs_to_update_competencies.append({
+                            'job_id': job['id'],
+                            'ai_competencies': job.get('ai_competencies', []),
+                            'ai_key_skills': job.get('ai_key_skills', [])
+                        })
+
+                if jobs_to_update_competencies:
+                    print(f"💾 Saving extracted competencies/skills for {len(jobs_to_update_competencies)} jobs...")
+                    job_db_inst.update_jobs_competencies_batch(jobs_to_update_competencies)
+                    print(f"✓ Competencies cached for future use")
+
             # Batch update all Claude analyses at once (much faster than individual updates)
             if claude_batch_updates:
                 matching_status[user_id].update({

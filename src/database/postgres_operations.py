@@ -330,7 +330,57 @@ class PostgresDatabase:
         finally:
             cursor.close()
             self._return_connection(conn)
-    
+
+    def update_jobs_competencies_batch(self, jobs_data: list) -> int:
+        """
+        Batch update ai_competencies and ai_key_skills for jobs.
+        This caches the extracted competencies so they don't need to be re-extracted.
+
+        Args:
+            jobs_data: List of dicts with {job_id, ai_competencies, ai_key_skills}
+
+        Returns:
+            Number of jobs updated
+        """
+        if not jobs_data:
+            return 0
+
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            updated_count = 0
+
+            for job_data in jobs_data:
+                try:
+                    cursor.execute("""
+                        UPDATE jobs
+                        SET
+                            ai_competencies = %s,
+                            ai_key_skills = %s,
+                            last_updated = %s
+                        WHERE id = %s
+                    """, (
+                        job_data.get('ai_competencies', []),
+                        job_data.get('ai_key_skills', []),
+                        datetime.now(),
+                        job_data['job_id']
+                    ))
+                    updated_count += cursor.rowcount
+                except Exception as e:
+                    logger.error(f"Failed to update job {job_data.get('job_id')}: {e}")
+                    continue
+
+            conn.commit()
+            return updated_count
+
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Batch competency update failed: {e}")
+            return 0
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+
     def job_exists(self, job_id: str) -> bool:
         """Check if a job already exists in database by external_id"""
         conn = self._get_connection()
