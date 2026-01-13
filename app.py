@@ -1231,8 +1231,8 @@ def job_detail(job_id):
         # Debug: Check what we got from database
         print(f"DEBUG job_detail: competency_mappings type={type(job.get('competency_mappings'))}, value={job.get('competency_mappings')}")
         print(f"DEBUG job_detail: skill_mappings type={type(job.get('skill_mappings'))}, value={job.get('skill_mappings')}")
-        print(f"DEBUG job_detail: ai_competencies exists? {job.get('ai_competencies') is not None}, count={len(job.get('ai_competencies', []))}")
-        print(f"DEBUG job_detail: ai_key_skills exists? {job.get('ai_key_skills') is not None}, count={len(job.get('ai_key_skills', []))}")
+        print(f"DEBUG job_detail: ai_competencies exists? {job.get('ai_competencies') is not None}, count={len(job.get('ai_competencies') or [])}")
+        print(f"DEBUG job_detail: ai_key_skills exists? {job.get('ai_key_skills') is not None}, count={len(job.get('ai_key_skills') or [])}")
 
         # 1. Competencies Matching (HYBRID: Claude → Keyword → Semantic)
         if job.get('ai_competencies'):
@@ -1545,27 +1545,8 @@ def update_job_status(job_id, status):
     return redirect(url_for('jobs'))
 
 
-@app.route('/run-search')
-def run_search():
-    """Redirect to search progress page and start search in background"""
-    user, stats = get_user_context()
-    
-    # Create a unique search ID for this user
-    search_id = f"{user['id']}_{int(time.time())}"
-    session['current_search_id'] = search_id
-    
-    # Initialize progress queue
-    search_progress[search_id] = queue.Queue()
-    
-    # Start search in background thread
-    thread = threading.Thread(target=run_search_background, args=(search_id, user))
-    thread.daemon = True
-    thread.start()
-    
-    return render_template('search_progress.html', user=user, stats=stats)
 
-
-def run_search_background(search_id, user):
+# Deprecated: run_search_background removed - use run_job_matching instead
     """Run job search in background with progress updates"""
     
     def send_progress(percent, message, msg_type='info'):
@@ -1814,8 +1795,10 @@ def run_search_background(search_id, user):
         traceback.print_exc()
 
 
-@app.route('/search-stream')
-def search_stream():
+# Deprecated: search_stream removed - use matching-status instead
+
+@app.errorhandler(404)
+def not_found(e):
     """Stream search progress via Server-Sent Events"""
     search_id = session.get('current_search_id')
     
