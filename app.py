@@ -1228,10 +1228,14 @@ def job_detail(job_id):
 
     # Calculate match status for UI visualization
     if job:
+        # Debug: Check what we got from database
+        print(f"DEBUG job_detail: competency_mappings type={type(job.get('competency_mappings'))}, value={job.get('competency_mappings')}")
+        print(f"DEBUG job_detail: skill_mappings type={type(job.get('skill_mappings'))}, value={job.get('skill_mappings')}")
+
         # 1. Competencies Matching (HYBRID: Claude → Keyword → Semantic)
         if job.get('ai_competencies'):
             matches = {}
-            
+
             # Option 1: Try using Claude's structured mappings first (NEW JOBS)
             claude_comp_mappings = job.get('competency_mappings')
             if claude_comp_mappings and isinstance(claude_comp_mappings, list):

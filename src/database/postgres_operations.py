@@ -644,6 +644,8 @@ class PostgresDatabase:
                     ujm.match_reasoning as user_match_reasoning,
                     ujm.key_alignments as user_key_alignments,
                     ujm.potential_gaps as user_potential_gaps,
+                    ujm.competency_mappings,
+                    ujm.skill_mappings,
                     ujm.status as user_status
                 FROM jobs j
                 LEFT JOIN user_job_matches ujm
@@ -695,6 +697,14 @@ class PostgresDatabase:
                 job['potential_gaps'] = parse_json(job['potential_gaps'])
             else:
                 job['potential_gaps'] = []
+
+            # Competency mappings (JSONB - already parsed by psycopg2)
+            if job.get('competency_mappings') is None:
+                job['competency_mappings'] = []
+
+            # Skill mappings (JSONB - already parsed by psycopg2)
+            if job.get('skill_mappings') is None:
+                job['skill_mappings'] = []
 
             if job.get('user_status'):
                 job['status'] = job['user_status']
