@@ -198,10 +198,11 @@
             </select>
         </div>
         <div class="form-group" style="flex: 1; margin-bottom: 0;">
-            <label for="min_score">Min Claude Score</label>
-            <input type="number" id="min_score" name="min_score" value="{{ min_score or 70 }}" min="0" max="100"
-                placeholder="70-100"
+            <label for="min_score">Min Match Score</label>
+            <input type="number" id="min_score" name="min_score" value="{{ min_score or 0 }}" min="0" max="100"
+                placeholder="0-100"
                 style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;">
+            <small style="color: #666; font-size: 0.8rem;">Filters by semantic or Claude score</small>
         </div>
         <button type="submit" class="btn">Apply Filters</button>
         {% if priority or min_score or status %}
@@ -230,6 +231,7 @@
                 <th>Job Title</th>
                 <th>Company</th>
                 <th>Location</th>
+                <th>Semantic Score</th>
                 <th>Claude Score</th>
                 <th>Priority</th>
                 <th>Status</th>
@@ -247,13 +249,23 @@
                 <td>{{ job.company }}</td>
                 <td>{{ job.location if job.location else '-' }}</td>
                 <td>
-                    {% if job.match_score is not none %}
+                    {% if job.semantic_score is not none %}
                     <span
-                        style="font-weight: bold; color: {% if job.match_score >= 85 %}#155724{% elif job.match_score >= 70 %}#856404{% else %}#721c24{% endif %};">
-                        {{ job.match_score }}
+                        style="font-weight: bold; color: {% if job.semantic_score >= 70 %}#155724{% elif job.semantic_score >= 50 %}#856404{% else %}#721c24{% endif %};">
+                        {{ job.semantic_score }}
                     </span>
                     {% else %}
-                    <span style="color: #6c757d; font-style: italic;">Not analyzed</span>
+                    <span style="color: #6c757d;">-</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if job.claude_score is not none %}
+                    <span
+                        style="font-weight: bold; color: {% if job.claude_score >= 85 %}#155724{% elif job.claude_score >= 70 %}#856404{% else %}#721c24{% endif %};">
+                        {{ job.claude_score }}
+                    </span>
+                    {% else %}
+                    <span style="color: #6c757d;">-</span>
                     {% endif %}
                 </td>
                 <td>
@@ -300,6 +312,7 @@
                 <th>Job Title</th>
                 <th>Company</th>
                 <th>Location</th>
+                <th>Semantic Score</th>
                 <th>Claude Score</th>
                 <th>Priority</th>
                 <th>Status</th>
@@ -316,13 +329,23 @@
                 <td>{{ job.company }}</td>
                 <td>{{ job.location if job.location else '-' }}</td>
                 <td>
-                    {% if job.match_score is not none %}
+                    {% if job.semantic_score is not none %}
                     <span
-                        style="font-weight: bold; color: {% if job.match_score >= 85 %}#155724{% elif job.match_score >= 70 %}#856404{% else %}#721c24{% endif %};">
-                        {{ job.match_score }}
+                        style="font-weight: bold; color: {% if job.semantic_score >= 70 %}#155724{% elif job.semantic_score >= 50 %}#856404{% else %}#721c24{% endif %};">
+                        {{ job.semantic_score }}
                     </span>
                     {% else %}
-                    <span style="color: #6c757d; font-style: italic;">Not analyzed</span>
+                    <span style="color: #6c757d;">-</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if job.claude_score is not none %}
+                    <span
+                        style="font-weight: bold; color: {% if job.claude_score >= 85 %}#155724{% elif job.claude_score >= 70 %}#856404{% else %}#721c24{% endif %};">
+                        {{ job.claude_score }}
+                    </span>
+                    {% else %}
+                    <span style="color: #6c757d;">-</span>
                     {% endif %}
                 </td>
                 <td>
