@@ -2165,17 +2165,22 @@ def update_search_preferences():
             traceback.print_exc()
             flash('Search preferences updated, but job loading failed. Will retry on next daily update.', 'warning')
 
-        # Auto-trigger filtering if user has CV
+        # Auto-trigger filtering if user has CV (with duplicate check)
         try:
             user_cvs = cv_manager.get_user_cvs(user['id'])
             if user_cvs:
-                flash('Starting automatic job matching in the background...', 'info')
-                # Trigger filtering in background thread
-                threading.Thread(
-                    target=run_background_filtering,
-                    args=(user['id'],),
-                    daemon=True
-                ).start()
+                # Check if already running
+                if user['id'] in matching_status and matching_status[user['id']].get('status') == 'running':
+                    flash('Search preferences updated! Job matching is already in progress.', 'success')
+                else:
+                    # Trigger filtering in background thread
+                    threading.Thread(
+                        target=run_background_filtering,
+                        args=(user['id'],),
+                        daemon=True
+                    ).start()
+                    flash('Search preferences updated! Job matching started automatically. Check progress on Jobs page.', 'success')
+                    return redirect(url_for('jobs'))  # Redirect to jobs page to see progress
         except Exception as filter_error:
             print(f"Error starting background filter: {filter_error}", flush=True)
 
@@ -2212,7 +2217,7 @@ def run_job_matching():
         
         # Check if already running
         if user_id in matching_status and matching_status[user_id].get('status') == 'running':
-            flash('Job matching is already in progress. Please wait...', 'info')
+            flash('⏳ Job matching is already in progress! Scroll down to see the progress indicator.', 'warning')
             return redirect(url_for('jobs'))
         
         # Check if filtering is needed
