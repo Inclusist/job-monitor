@@ -1231,6 +1231,8 @@ def job_detail(job_id):
         # Debug: Check what we got from database
         print(f"DEBUG job_detail: competency_mappings type={type(job.get('competency_mappings'))}, value={job.get('competency_mappings')}")
         print(f"DEBUG job_detail: skill_mappings type={type(job.get('skill_mappings'))}, value={job.get('skill_mappings')}")
+        print(f"DEBUG job_detail: ai_competencies exists? {job.get('ai_competencies') is not None}, count={len(job.get('ai_competencies', []))}")
+        print(f"DEBUG job_detail: ai_key_skills exists? {job.get('ai_key_skills') is not None}, count={len(job.get('ai_key_skills', []))}")
 
         # 1. Competencies Matching (HYBRID: Claude → Keyword → Semantic)
         if job.get('ai_competencies'):
