@@ -1498,6 +1498,26 @@ def job_detail(job_id):
             
             job['skill_match_map'] = skill_matches
 
+    # Normalize work_history to work_experience for frontend compatibility
+    if user_cv_profile and 'work_history' in user_cv_profile:
+        work_experiences = []
+        for wh in user_cv_profile.get('work_history', []):
+            # Parse duration string (e.g., "Jul 2021 - Present")
+            duration = wh.get('duration', '')
+            parts = duration.split(' - ')
+            start_date = parts[0] if parts else ''
+            end_date = parts[1] if len(parts) > 1 else 'Present'
+
+            work_experiences.append({
+                'title': wh.get('title', ''),
+                'company': wh.get('company', ''),
+                'start_date': start_date,
+                'end_date': end_date,
+                'description': wh.get('description', ''),
+                'key_achievements': wh.get('key_achievements', [])
+            })
+        user_cv_profile['work_experience'] = work_experiences
+
     return render_template('job_detail.html', job=job, user_profile=user_cv_profile)
 
 
@@ -2764,6 +2784,26 @@ def generate_resume(job_id):
                 'success': False,
                 'error': 'No CV profile found. Please upload your CV first.'
             }), 400
+
+        # Normalize work_history to work_experience for resume generator
+        if profile and 'work_history' in profile:
+            work_experiences = []
+            for wh in profile.get('work_history', []):
+                # Parse duration string (e.g., "Jul 2021 - Present")
+                duration = wh.get('duration', '')
+                parts = duration.split(' - ')
+                start_date = parts[0] if parts else ''
+                end_date = parts[1] if len(parts) > 1 else 'Present'
+
+                work_experiences.append({
+                    'title': wh.get('title', ''),
+                    'company': wh.get('company', ''),
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'description': wh.get('description', ''),
+                    'key_achievements': wh.get('key_achievements', [])
+                })
+            profile['work_experience'] = work_experiences
 
         # Get job details
         job = job_db.get_job_by_id(job_id)
