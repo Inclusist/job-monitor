@@ -149,6 +149,74 @@
 </div>
 {% endif %}
 
+{% if claimed_data and (claimed_data.competencies or claimed_data.skills) %}
+<div class="card" style="border-left: 5px solid #667eea; background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+        <div>
+            <h3 style="color: #667eea;">📝 User-Claimed Items for Resume Generation</h3>
+            <p style="color: #666; font-size: 0.95rem; margin-top: 0.5rem;">
+                Competencies and skills you've claimed with evidence. These are automatically included in your generated resumes.
+            </p>
+        </div>
+        <span class="badge" style="background: #667eea; color: white;">{{ (claimed_data.competencies|length if claimed_data.competencies else 0) + (claimed_data.skills|length if claimed_data.skills else 0) }} Items</span>
+    </div>
+
+    {% if claimed_data.competencies %}
+    <div style="margin-top: 1.5rem;">
+        <h4 style="color: #667eea; margin-bottom: 1rem;">🎯 Claimed Competencies ({{ claimed_data.competencies|length }})</h4>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;">
+            {% for name, details in claimed_data.competencies.items() %}
+            <div style="background: white; padding: 1rem; border-radius: 6px; border-left: 4px solid #667eea; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <div style="font-weight: 600; color: #333; margin-bottom: 0.5rem; font-size: 1rem;">
+                    {{ name }}
+                </div>
+                {% if details.evidence %}
+                <div style="font-size: 0.875rem; color: #666; line-height: 1.5; margin-bottom: 0.5rem;">
+                    "{{ details.evidence }}"
+                </div>
+                {% endif %}
+                {% if details.work_experience_ids %}
+                <div style="font-size: 0.8rem; color: #999;">
+                    📁 Used in {{ details.work_experience_ids|length }} work experience(s)
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if claimed_data.skills %}
+    <div style="margin-top: 1.5rem;">
+        <h4 style="color: #007bff; margin-bottom: 1rem;">💻 Claimed Skills ({{ claimed_data.skills|length }})</h4>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;">
+            {% for name, details in claimed_data.skills.items() %}
+            <div style="background: white; padding: 1rem; border-radius: 6px; border-left: 4px solid #007bff; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <div style="font-weight: 600; color: #333; margin-bottom: 0.5rem; font-size: 1rem;">
+                    {{ name }}
+                </div>
+                {% if details.evidence %}
+                <div style="font-size: 0.875rem; color: #666; line-height: 1.5; margin-bottom: 0.5rem;">
+                    "{{ details.evidence }}"
+                </div>
+                {% endif %}
+                {% if details.work_experience_ids %}
+                <div style="font-size: 0.8rem; color: #999;">
+                    📁 Used in {{ details.work_experience_ids|length }} work experience(s)
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <p style="margin-top: 1.5rem; padding: 1rem; background: #e7f3ff; border-radius: 6px; font-size: 0.9rem; color: #555;">
+        💡 <strong>Tip:</strong> These claimed items are stored in your profile and automatically used when generating tailored resumes. They're marked with <strong>[NEW]</strong> in your resumes to highlight additional qualifications.
+    </p>
+</div>
+{% endif %}
+
 <div class="card">
     <h3>Expertise Summary</h3>
     <p style="font-size: 1.1rem; line-height: 1.8; color: #555;">

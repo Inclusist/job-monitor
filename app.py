@@ -683,7 +683,15 @@ def view_profile():
         # DEBUG after parsing
         print(f"DEBUG: Post-Parsing Competencies: {profile.get('competencies')}")
 
-    return render_template('profile.html', user=user, profile=profile, cv=cv, all_cvs=all_cvs)
+    # Get user-claimed competencies/skills for resume generation
+    claimed_data = None
+    if resume_ops:
+        try:
+            claimed_data = resume_ops.get_user_claimed_data(user['id'])
+        except Exception as e:
+            print(f"Warning: Could not fetch claimed data: {e}")
+
+    return render_template('profile.html', user=user, profile=profile, cv=cv, all_cvs=all_cvs, claimed_data=claimed_data)
 
 
 @app.route('/delete-cv/<int:cv_id>', methods=['POST'])
