@@ -305,9 +305,20 @@ Return ONLY valid HTML with the following structure:
 </html>
 ```
 
-### 6. Critical Notes
-- Return ONLY the HTML document - no markdown, no code fences, no explanations
-- Do NOT ask clarifying questions - generate the resume immediately
+### 6. Critical Instructions - READ CAREFULLY
+
+**YOU MUST FOLLOW THESE RULES EXACTLY:**
+
+1. **Your ENTIRE response must be ONLY the HTML document**
+2. **Start IMMEDIATELY with `<!DOCTYPE html>`** - no introduction, no explanation
+3. **Do NOT include markdown code fences** (no ```html or ```)
+4. **Do NOT explain what you're doing** - just output the HTML
+5. **Do NOT ask "Would you like me to..." or any questions** - JUST GENERATE IT
+6. **The first characters of your response MUST be:** `<!DOCTYPE html>`
+7. **The last characters of your response MUST be:** `</html>`
+8. **Nothing before `<!DOCTYPE html>`, nothing after `</html>`**
+
+Additional requirements:
 - Ensure the resume is concise (1-2 pages max when printed)
 - All content must be factual and based on the provided profile
 - If information is missing, use reasonable defaults or omit the section
@@ -315,7 +326,7 @@ Return ONLY valid HTML with the following structure:
 - Make it visually clean and professional
 - Optimize for both human readers and ATS systems
 
-Generate the complete HTML resume document now. Start with `<!DOCTYPE html>` and provide the full HTML structure."""
+**BEGIN YOUR RESPONSE NOW WITH `<!DOCTYPE html>` AND NOTHING ELSE:**"""
 
         return prompt
 
