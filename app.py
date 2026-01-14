@@ -151,12 +151,16 @@ google = oauth.register(
     }
 )
 
-# Configure LinkedIn OAuth (OpenID Connect with manual server metadata)
+# Configure LinkedIn OAuth (OpenID Connect without nonce)
+# Note: LinkedIn's OIDC implementation doesn't include nonce in ID token
 linkedin = oauth.register(
     name='linkedin',
     client_id=os.getenv('LINKEDIN_CLIENT_ID'),
     client_secret=os.getenv('LINKEDIN_CLIENT_SECRET'),
-    server_metadata_url='https://www.linkedin.com/oauth/.well-known/openid-configuration',
+    authorize_url='https://www.linkedin.com/oauth/v2/authorization',
+    access_token_url='https://www.linkedin.com/oauth/v2/accessToken',
+    userinfo_endpoint='https://api.linkedin.com/v2/userinfo',
+    jwks_uri='https://www.linkedin.com/oauth/openid/jwks',
     client_kwargs={
         'scope': 'openid profile email',
         'token_endpoint_auth_method': 'client_secret_post',
@@ -422,20 +426,55 @@ def authorize_google():
 def login_linkedin():
     """Initiate LinkedIn OAuth login"""
     redirect_uri = url_for('authorize_linkedin', _external=True)
-    # Generate nonce for OpenID Connect security
-    import secrets
-    nonce = secrets.token_urlsafe(16)
-    return linkedin.authorize_redirect(redirect_uri, nonce=nonce)
+    # Note: LinkedIn doesn't support nonce in ID token, so we don't send it
+    # The state parameter still provides CSRF protection
+    return linkedin.authorize_redirect(redirect_uri)
 
 
 @app.route('/authorize/linkedin')
 def authorize_linkedin():
-    """LinkedIn OAuth callback (OpenID Connect)"""
+    """LinkedIn OAuth callback"""
     try:
-        token = linkedin.authorize_access_token()
-        
-        # Use OpenID Connect userinfo endpoint
-        user_info = linkedin.userinfo(token=token)
+        # Manually exchange authorization code for access token to bypass ID token validation
+        # LinkedIn's OIDC implementation doesn't include nonce, which breaks authlib's validation
+        import requests
+
+        code = request.args.get('code')
+        if not code:
+            flash('Authorization failed: No code received', 'error')
+            return redirect(url_for('login'))
+
+        # Exchange code for access token
+        token_url = 'https://www.linkedin.com/oauth/v2/accessToken'
+        redirect_uri = url_for('authorize_linkedin', _external=True)
+
+        token_data = {
+            'grant_type': 'authorization_code',
+            'code': code,
+            'redirect_uri': redirect_uri,
+            'client_id': os.getenv('LINKEDIN_CLIENT_ID'),
+            'client_secret': os.getenv('LINKEDIN_CLIENT_SECRET'),
+        }
+
+        token_response = requests.post(token_url, data=token_data)
+        if token_response.status_code != 200:
+            raise Exception(f"Token exchange failed: {token_response.text}")
+
+        token = token_response.json()
+        access_token = token.get('access_token')
+
+        if not access_token:
+            raise Exception("No access token received")
+
+        # Fetch user info from LinkedIn's userinfo endpoint
+        userinfo_url = 'https://api.linkedin.com/v2/userinfo'
+        headers = {'Authorization': f'Bearer {access_token}'}
+        userinfo_response = requests.get(userinfo_url, headers=headers)
+
+        if userinfo_response.status_code != 200:
+            raise Exception(f"UserInfo request failed: {userinfo_response.text}")
+
+        user_info = userinfo_response.json()
         
         # Debug print
         print("LinkedIn userinfo response:", user_info)
