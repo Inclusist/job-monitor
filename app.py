@@ -1498,7 +1498,7 @@ def job_detail(job_id):
             
             job['skill_match_map'] = skill_matches
 
-    return render_template('job_detail.html', job=job)
+    return render_template('job_detail.html', job=job, user_profile=user_cv_profile)
 
 
 @app.route('/jobs/<int:job_id>/generate-cover-letter')
@@ -2748,6 +2748,15 @@ def generate_resume(job_id):
     user_id = get_user_id()
 
     try:
+        # Get selections from request body
+        request_data = request.get_json() or {}
+        selections = request_data.get('selections', [])
+
+        # Save selections to database first (if provided)
+        if selections:
+            print(f"Saving {len(selections)} selections to database...")
+            resume_ops.save_multiple_claims(user_id, selections)
+
         # Get user's CV profile
         profile = cv_manager.get_primary_profile(user_id)
         if not profile:
@@ -2764,7 +2773,7 @@ def generate_resume(job_id):
                 'error': 'Job not found'
             }), 404
 
-        # Get user's claimed competencies/skills
+        # Get user's claimed competencies/skills (including newly saved)
         claimed_data = resume_ops.get_user_claimed_data(user_id)
 
         # Generate resume HTML

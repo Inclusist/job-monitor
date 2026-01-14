@@ -374,6 +374,128 @@
     </div>
 </div>
 
+<!-- Evidence Collection Modal -->
+<div id="evidenceModal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+            <h3 id="modalTitle">Provide Evidence</h3>
+            <span class="close" onclick="closeEvidenceModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <!-- Progress indicator -->
+            <div style="margin-bottom: 2rem;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                    <span style="font-size: 0.9rem; color: #666;">
+                        Step <strong id="currentStep">1</strong> of <strong id="totalSteps">1</strong>
+                    </span>
+                    <span style="font-size: 0.9rem; color: #666;">
+                        <strong id="progressPercent">0</strong>% Complete
+                    </span>
+                </div>
+                <div style="width: 100%; height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden;">
+                    <div id="progressBar" style="height: 100%; background: #667eea; width: 0%; transition: width 0.3s;"></div>
+                </div>
+            </div>
+
+            <!-- Current item form -->
+            <div id="evidenceForm">
+                <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                    <div style="font-size: 0.875rem; color: #666; margin-bottom: 0.25rem;">
+                        <span id="currentItemType">Competency</span>
+                    </div>
+                    <div style="font-size: 1.25rem; font-weight: 600; color: #333;">
+                        <span id="currentItemName">Item Name</span>
+                    </div>
+                </div>
+
+                <!-- Work Experience Selection -->
+                <div class="form-group">
+                    <label style="font-weight: 600; margin-bottom: 0.75rem; display: block;">
+                        Which work experiences demonstrate this?
+                        <span style="color: #dc3545;">*</span>
+                    </label>
+                    <p style="font-size: 0.875rem; color: #666; margin-bottom: 1rem;">
+                        Select one or more experiences where you demonstrated this competency/skill.
+                    </p>
+                    <div id="workExperienceList" style="max-height: 200px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem;">
+                        <!-- Work experience checkboxes will be inserted here -->
+                    </div>
+                </div>
+
+                <!-- Evidence Description -->
+                <div class="form-group">
+                    <label for="evidenceText" style="font-weight: 600; margin-bottom: 0.75rem; display: block;">
+                        Describe your experience
+                        <span style="color: #dc3545;">*</span>
+                    </label>
+                    <p style="font-size: 0.875rem; color: #666; margin-bottom: 1rem;">
+                        Provide specific details: what you did, tools/technologies used, outcomes achieved.
+                        <br>
+                        <em>Example: "Led daily standups and sprint planning for 5-person team. Managed product backlog in Jira, improved velocity by 30%."</em>
+                    </p>
+                    <textarea id="evidenceText"
+                              rows="5"
+                              placeholder="Enter your evidence here..."
+                              style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 0.95rem; resize: vertical; font-family: inherit;"></textarea>
+                    <div id="evidenceError" style="color: #dc3545; font-size: 0.875rem; margin-top: 0.5rem; display: none;">
+                        Please provide evidence (at least 20 characters) and select at least one work experience.
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: space-between;">
+            <button id="prevButton" onclick="previousItem()" class="btn btn-secondary" style="display: none;">
+                ← Previous
+            </button>
+            <div style="flex: 1;"></div>
+            <button id="nextButton" onclick="nextItem()" class="btn">
+                Next →
+            </button>
+            <button id="generateButton" onclick="generateResume()" class="btn" style="background: #28a745; display: none;">
+                ✨ Generate Resume
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Resume Preview Modal -->
+<div id="resumePreviewModal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 900px; max-height: 90vh;">
+        <div class="modal-header">
+            <h3>📄 Your Tailored Resume</h3>
+            <span class="close" onclick="closeResumePreview()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div id="resumePreviewContent" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 2rem; background: white; max-height: 60vh; overflow-y: auto;">
+                <!-- Resume HTML will be inserted here -->
+            </div>
+        </div>
+        <div class="modal-footer" style="display: flex; gap: 1rem;">
+            <button onclick="downloadResume('pdf')" class="btn" style="background: #dc3545;">
+                📥 Download PDF
+            </button>
+            <button onclick="downloadResume('html')" class="btn" style="background: #007bff;">
+                📥 Download HTML
+            </button>
+            <button onclick="closeResumePreview()" class="btn btn-secondary">
+                Close
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Overlay -->
+<div id="loadingOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 10000; justify-content: center; align-items: center;">
+    <div style="background: white; padding: 2rem; border-radius: 12px; text-align: center; max-width: 400px;">
+        <div style="font-size: 3rem; margin-bottom: 1rem;">✨</div>
+        <h3 style="margin-bottom: 1rem;">Generating Your Resume</h3>
+        <p style="color: #666; margin-bottom: 1.5rem;">
+            Claude AI is crafting a tailored resume optimized for this job...
+        </p>
+        <div class="spinner"></div>
+    </div>
+</div>
+
 <style>
 /* Hover effect for selectable items */
 .selectable-box:hover {
@@ -399,6 +521,127 @@
     font-weight: 600 !important;
     color: #004085 !important;
 }
+
+/* Modal styles */
+.modal {
+    position: fixed;
+    z-index: 9999;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: auto;
+    padding: 0;
+    border: 1px solid #888;
+    width: 90%;
+    max-width: 700px;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        transform: translateY(-50px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.modal-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: #333;
+}
+
+.modal-body {
+    padding: 1.5rem;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.modal-footer {
+    padding: 1.5rem;
+    border-top: 1px solid #e0e0e0;
+}
+
+.close {
+    color: #aaa;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.close:hover,
+.close:focus {
+    color: #000;
+}
+
+/* Loading spinner */
+.spinner {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #667eea;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Work experience checkbox styling */
+.work-exp-checkbox {
+    display: flex;
+    align-items: start;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.work-exp-checkbox:hover {
+    background: #f8f9fa;
+    border-color: #667eea;
+}
+
+.work-exp-checkbox input[type="checkbox"] {
+    margin-right: 0.75rem;
+    margin-top: 0.25rem;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.work-exp-checkbox.checked {
+    background: #e7f1ff;
+    border-color: #667eea;
+}
 </style>
 
 <script>
@@ -407,6 +650,15 @@ let userSelections = {
     competencies: [],
     skills: []
 };
+
+// Evidence collection state
+let evidenceData = [];
+let currentItemIndex = 0;
+let generatedResumeId = null;
+
+// User profile data (will be populated from backend)
+const userProfile = {{ user_profile | tojson | safe if user_profile else '{}' }};
+const jobId = {{ job.id }};
 
 /**
  * Toggle selection state of a competency or skill box
@@ -510,13 +762,252 @@ function clearSelections() {
 }
 
 /**
- * Open evidence collection modal (to be implemented in next phase)
+ * Open evidence collection modal
  */
 function openEvidenceModal() {
-    alert('Evidence collection modal coming soon!\\n\\n' +
-          'Selected Competencies: ' + userSelections.competencies.join(', ') + '\\n' +
-          'Selected Skills: ' + userSelections.skills.join(', ') + '\\n\\n' +
-          'You will provide evidence for these items and generate your tailored resume.');
+    // Build evidence data array
+    evidenceData = [];
+
+    // Add competencies
+    userSelections.competencies.forEach(name => {
+        evidenceData.push({
+            name: name,
+            type: 'competency',
+            work_experience_ids: [],
+            evidence: ''
+        });
+    });
+
+    // Add skills
+    userSelections.skills.forEach(name => {
+        evidenceData.push({
+            name: name,
+            type: 'skill',
+            work_experience_ids: [],
+            evidence: ''
+        });
+    });
+
+    // Reset to first item
+    currentItemIndex = 0;
+
+    // Show modal
+    document.getElementById('evidenceModal').style.display = 'flex';
+
+    // Render first item
+    renderCurrentItem();
+}
+
+/**
+ * Close evidence modal
+ */
+function closeEvidenceModal() {
+    if (confirm('Are you sure? Your progress will be lost.')) {
+        document.getElementById('evidenceModal').style.display = 'none';
+        currentItemIndex = 0;
+    }
+}
+
+/**
+ * Render current item in the form
+ */
+function renderCurrentItem() {
+    const item = evidenceData[currentItemIndex];
+    const total = evidenceData.length;
+    const progress = Math.round(((currentItemIndex + 1) / total) * 100);
+
+    // Update header
+    document.getElementById('currentStep').textContent = currentItemIndex + 1;
+    document.getElementById('totalSteps').textContent = total;
+    document.getElementById('progressPercent').textContent = progress;
+    document.getElementById('progressBar').style.width = progress + '%';
+
+    // Update item info
+    document.getElementById('currentItemType').textContent =
+        item.type === 'competency' ? 'Competency' : 'Technical Skill';
+    document.getElementById('currentItemName').textContent = item.name;
+
+    // Populate work experience list
+    const workExpList = document.getElementById('workExperienceList');
+    workExpList.innerHTML = '';
+
+    if (userProfile.work_experience && userProfile.work_experience.length > 0) {
+        userProfile.work_experience.forEach((exp, index) => {
+            const checked = item.work_experience_ids.includes(index) ? 'checked' : '';
+            const checkedClass = checked ? 'checked' : '';
+
+            const expDiv = document.createElement('label');
+            expDiv.className = 'work-exp-checkbox ' + checkedClass;
+            expDiv.innerHTML = `
+                <input type="checkbox"
+                       value="${index}"
+                       ${checked}
+                       onchange="toggleWorkExperience(this, ${index})">
+                <div>
+                    <div style="font-weight: 600;">${exp.title || 'Position'}</div>
+                    <div style="font-size: 0.875rem; color: #666;">
+                        ${exp.company || 'Company'} |
+                        ${exp.start_date || 'Start'} - ${exp.end_date || 'Present'}
+                    </div>
+                </div>
+            `;
+            workExpList.appendChild(expDiv);
+        });
+    } else {
+        workExpList.innerHTML = '<p style="color: #666; font-style: italic;">No work experience found in your profile.</p>';
+    }
+
+    // Set evidence text
+    document.getElementById('evidenceText').value = item.evidence || '';
+
+    // Hide error
+    document.getElementById('evidenceError').style.display = 'none';
+
+    // Update button visibility
+    document.getElementById('prevButton').style.display = currentItemIndex > 0 ? 'block' : 'none';
+    document.getElementById('nextButton').style.display = currentItemIndex < total - 1 ? 'block' : 'none';
+    document.getElementById('generateButton').style.display = currentItemIndex === total - 1 ? 'block' : 'none';
+}
+
+/**
+ * Toggle work experience selection
+ */
+function toggleWorkExperience(checkbox, expIndex) {
+    const item = evidenceData[currentItemIndex];
+
+    if (checkbox.checked) {
+        if (!item.work_experience_ids.includes(expIndex)) {
+            item.work_experience_ids.push(expIndex);
+        }
+        checkbox.parentElement.classList.add('checked');
+    } else {
+        item.work_experience_ids = item.work_experience_ids.filter(id => id !== expIndex);
+        checkbox.parentElement.classList.remove('checked');
+    }
+}
+
+/**
+ * Save current item and move to next
+ */
+function nextItem() {
+    if (!validateCurrentItem()) {
+        return;
+    }
+
+    // Save current evidence
+    saveCurrentEvidence();
+
+    // Move to next
+    currentItemIndex++;
+    renderCurrentItem();
+}
+
+/**
+ * Move to previous item
+ */
+function previousItem() {
+    // Save current evidence
+    saveCurrentEvidence();
+
+    // Move to previous
+    currentItemIndex--;
+    renderCurrentItem();
+}
+
+/**
+ * Save current evidence data
+ */
+function saveCurrentEvidence() {
+    const item = evidenceData[currentItemIndex];
+    item.evidence = document.getElementById('evidenceText').value.trim();
+}
+
+/**
+ * Validate current item before proceeding
+ */
+function validateCurrentItem() {
+    const item = evidenceData[currentItemIndex];
+    const evidence = document.getElementById('evidenceText').value.trim();
+    const hasWorkExp = item.work_experience_ids.length > 0;
+
+    if (!evidence || evidence.length < 20 || !hasWorkExp) {
+        document.getElementById('evidenceError').style.display = 'block';
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Generate resume after collecting all evidence
+ */
+async function generateResume() {
+    if (!validateCurrentItem()) {
+        return;
+    }
+
+    // Save last item
+    saveCurrentEvidence();
+
+    // Close modal
+    document.getElementById('evidenceModal').style.display = 'none';
+
+    // Show loading
+    document.getElementById('loadingOverlay').style.display = 'flex';
+
+    try {
+        // Call API to generate resume
+        const response = await fetch(`/api/generate-resume/${jobId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                selections: evidenceData
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            // Store resume ID
+            generatedResumeId = result.resume_id;
+
+            // Show resume preview
+            document.getElementById('resumePreviewContent').innerHTML = result.resume_html;
+            document.getElementById('loadingOverlay').style.display = 'none';
+            document.getElementById('resumePreviewModal').style.display = 'flex';
+        } else {
+            throw new Error(result.error || 'Failed to generate resume');
+        }
+    } catch (error) {
+        document.getElementById('loadingOverlay').style.display = 'none';
+        alert('Error generating resume: ' + error.message + '\\n\\nPlease try again or contact support.');
+        console.error('Resume generation error:', error);
+    }
+}
+
+/**
+ * Close resume preview modal
+ */
+function closeResumePreview() {
+    document.getElementById('resumePreviewModal').style.display = 'none';
+
+    // Clear selections after successful generation
+    clearSelections();
+}
+
+/**
+ * Download resume in specified format
+ */
+function downloadResume(format) {
+    if (!generatedResumeId) {
+        alert('No resume ID found. Please generate a resume first.');
+        return;
+    }
+
+    // Redirect to download endpoint
+    window.location.href = `/download/resume/${generatedResumeId}?format=${format}`;
 }
 </script>
 {% endblock %}
