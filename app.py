@@ -2788,9 +2788,18 @@ def generate_resume(job_id):
         resumes_dir = os.path.join('static', 'resumes')
         os.makedirs(resumes_dir, exist_ok=True)
 
-        # Save HTML (for now, PDF generation will come next)
-        # Note: PDF generation requires WeasyPrint which we'll install in next step
-        pdf_path = None  # Will be implemented with WeasyPrint
+        # Generate PDF from HTML
+        pdf_filename = f"resume_user{user_id}_job{job_id}_{int(time.time())}.pdf"
+        pdf_path = os.path.join(resumes_dir, pdf_filename)
+
+        try:
+            print(f"Generating PDF at {pdf_path}...")
+            resume_generator.html_to_pdf(resume_html, pdf_path)
+            print(f"✅ PDF generated successfully")
+        except Exception as pdf_error:
+            print(f"⚠️  PDF generation failed: {pdf_error}")
+            print("Continuing without PDF...")
+            pdf_path = None
 
         # Save to database
         resume_id = resume_ops.save_generated_resume(
