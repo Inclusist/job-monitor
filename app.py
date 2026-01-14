@@ -94,6 +94,23 @@ else:
 
 handler = CVHandler(cv_manager, parser, analyzer, storage_root='data/cvs') if analyzer else None
 
+# Initialize Resume Generator and Operations
+resume_ops = None
+resume_generator = None
+if database_url and database_url.startswith('postgres') and hasattr(job_db, 'connection_pool'):
+    from src.database.postgres_resume_operations import PostgresResumeOperations
+    from src.resume.resume_generator import ResumeGenerator
+
+    resume_ops = PostgresResumeOperations(job_db.connection_pool)
+
+    if anthropic_key:
+        resume_generator = ResumeGenerator(anthropic_key)
+        print("✓ Resume generation enabled")
+    else:
+        print("Warning: Resume generation disabled (ANTHROPIC_API_KEY not set)")
+else:
+    print("Warning: Resume generation disabled (PostgreSQL required)")
+
 # Progress tracking for job search
 search_progress = {}
 
@@ -2643,6 +2660,232 @@ def clear_model_cache():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ============ Resume Generation API Routes ============
+
+@app.route('/api/save-competency-evidence', methods=['POST'])
+@login_required
+def save_competency_evidence():
+    """
+    Save user's claimed competencies/skills with evidence
+
+    Request Body:
+    {
+        "selections": [
+            {
+                "name": "Agile Methodology",
+                "type": "competency",
+                "work_experience_ids": [1, 3],
+                "evidence": "Led daily standups..."
+            }
+        ]
+    }
+
+    Returns:
+        JSON with success status and message
+    """
+    if not resume_ops:
+        return jsonify({
+            'success': False,
+            'error': 'Resume generation not available'
+        }), 503
+
+    user_id = get_user_id()
+    data = request.json
+
+    if not data or 'selections' not in data:
+        return jsonify({
+            'success': False,
+            'error': 'Missing selections data'
+        }), 400
+
+    try:
+        selections = data.get('selections', [])
+
+        if not selections:
+            return jsonify({
+                'success': False,
+                'error': 'No selections provided'
+            }), 400
+
+        # Save all selections in a single transaction
+        resume_ops.save_multiple_claims(user_id, selections)
+
+        return jsonify({
+            'success': True,
+            'message': f'Evidence saved for {len(selections)} items'
+        })
+
+    except Exception as e:
+        import traceback
+        print(f"Error saving competency evidence: {e}")
+        print(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/generate-resume/<int:job_id>', methods=['POST'])
+@login_required
+def generate_resume(job_id):
+    """
+    Generate tailored resume for a specific job
+
+    Args:
+        job_id: Job ID to generate resume for
+
+    Returns:
+        JSON with resume HTML, PDF URL, and metadata
+    """
+    if not resume_generator or not resume_ops:
+        return jsonify({
+            'success': False,
+            'error': 'Resume generation not available'
+        }), 503
+
+    user_id = get_user_id()
+
+    try:
+        # Get user's CV profile
+        profile = cv_manager.get_primary_profile(user_id)
+        if not profile:
+            return jsonify({
+                'success': False,
+                'error': 'No CV profile found. Please upload your CV first.'
+            }), 400
+
+        # Get job details
+        job = job_db.get_job_by_id(job_id)
+        if not job:
+            return jsonify({
+                'success': False,
+                'error': 'Job not found'
+            }), 404
+
+        # Get user's claimed competencies/skills
+        claimed_data = resume_ops.get_user_claimed_data(user_id)
+
+        # Generate resume HTML
+        print(f"Generating resume for user {user_id}, job {job_id}...")
+        resume_html = resume_generator.generate_resume_html(
+            profile,
+            job,
+            claimed_data
+        )
+
+        # Create resumes directory if it doesn't exist
+        resumes_dir = os.path.join('static', 'resumes')
+        os.makedirs(resumes_dir, exist_ok=True)
+
+        # Save HTML (for now, PDF generation will come next)
+        # Note: PDF generation requires WeasyPrint which we'll install in next step
+        pdf_path = None  # Will be implemented with WeasyPrint
+
+        # Save to database
+        resume_id = resume_ops.save_generated_resume(
+            user_id,
+            job_id,
+            resume_html,
+            pdf_path,
+            claimed_data
+        )
+
+        print(f"Resume generated successfully: ID {resume_id}")
+
+        return jsonify({
+            'success': True,
+            'resume_id': resume_id,
+            'resume_html': resume_html,
+            'pdf_url': f'/download/resume/{resume_id}' if pdf_path else None,
+            'job_title': job.get('title'),
+            'company': job.get('company')
+        })
+
+    except Exception as e:
+        import traceback
+        print(f"Error generating resume: {e}")
+        print(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/download/resume/<int:resume_id>')
+@login_required
+def download_resume(resume_id):
+    """
+    Download generated resume (HTML or PDF)
+
+    Args:
+        resume_id: Resume ID to download
+
+    Query Parameters:
+        format: 'html' or 'pdf' (default: 'pdf')
+
+    Returns:
+        File download or error
+    """
+    if not resume_ops:
+        flash('Resume download not available', 'error')
+        return redirect(url_for('jobs'))
+
+    user_id = get_user_id()
+    download_format = request.args.get('format', 'pdf')
+
+    try:
+        # Get resume with user verification
+        resume = resume_ops.get_resume_by_id(resume_id, user_id)
+
+        if not resume:
+            flash('Resume not found', 'error')
+            return redirect(url_for('jobs'))
+
+        job_id = resume['job_id']
+
+        if download_format == 'html':
+            # Download as HTML
+            from flask import make_response
+
+            response = make_response(resume['resume_html'])
+            response.headers['Content-Type'] = 'text/html; charset=utf-8'
+            response.headers['Content-Disposition'] = f'attachment; filename="resume_job_{job_id}.html"'
+            return response
+
+        elif download_format == 'pdf':
+            # Download as PDF (if generated)
+            pdf_path = resume.get('resume_pdf_path')
+
+            if not pdf_path or not os.path.exists(pdf_path):
+                # PDF not generated yet - offer HTML as fallback
+                flash('PDF not available. Downloading HTML version instead.', 'info')
+                from flask import make_response
+
+                response = make_response(resume['resume_html'])
+                response.headers['Content-Type'] = 'text/html; charset=utf-8'
+                response.headers['Content-Disposition'] = f'attachment; filename="resume_job_{job_id}.html"'
+                return response
+
+            # Send PDF file
+            return send_file(
+                pdf_path,
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=f"resume_job_{job_id}.pdf"
+            )
+
+        else:
+            flash('Invalid format. Use "html" or "pdf"', 'error')
+            return redirect(url_for('jobs'))
+
+    except Exception as e:
+        import traceback
+        print(f"Error downloading resume: {e}")
+        print(traceback.format_exc())
+        flash(f'Error downloading resume: {str(e)}', 'error')
+        return redirect(url_for('jobs'))
 
 
 if __name__ == '__main__':
