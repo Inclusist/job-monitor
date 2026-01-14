@@ -46,3 +46,4 @@ token.pickle
 # Temporary files
 *.tmp
 *.bak
+*.pdf

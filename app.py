@@ -1995,6 +1995,74 @@ def learning_insights():
                          feedback_history=feedback_history)
 
 
+@app.route('/my-resumes')
+@login_required
+def my_resumes():
+    """View all generated resumes for current user"""
+    user, stats = get_user_context()
+    user_id = get_user_id()
+
+    if not resume_ops:
+        flash('Resume feature not available', 'error')
+        return redirect(url_for('dashboard'))
+
+    try:
+        # Get all resumes for this user
+        resumes = resume_ops.get_user_resumes(user_id)
+
+        # Enrich with job details
+        for resume in resumes:
+            job = job_db.get_job_by_id(resume['job_id'])
+            if job:
+                resume['job_title'] = job.get('title', 'Unknown Job')
+                resume['job_company'] = job.get('company', 'Unknown Company')
+            else:
+                resume['job_title'] = 'Job Not Found'
+                resume['job_company'] = ''
+
+            # Check if PDF exists
+            pdf_path = resume.get('resume_pdf_path')
+            resume['pdf_exists'] = pdf_path and os.path.exists(pdf_path)
+
+        return render_template('my_resumes.html',
+                             user=user,
+                             stats=stats,
+                             resumes=resumes)
+
+    except Exception as e:
+        print(f"Error loading resumes: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f'Error loading resumes: {str(e)}', 'error')
+        return redirect(url_for('dashboard'))
+
+
+@app.route('/my-resumes/<int:resume_id>/delete', methods=['POST'])
+@login_required
+def delete_resume_route(resume_id):
+    """Delete a generated resume"""
+    user_id = get_user_id()
+
+    if not resume_ops:
+        flash('Resume feature not available', 'error')
+        return redirect(url_for('dashboard'))
+
+    try:
+        # Delete from database (with user verification)
+        deleted = resume_ops.delete_resume(resume_id, user_id)
+
+        if deleted:
+            flash('Resume deleted successfully', 'success')
+        else:
+            flash('Resume not found or access denied', 'error')
+
+    except Exception as e:
+        print(f"Error deleting resume: {e}")
+        flash(f'Error deleting resume: {str(e)}', 'error')
+
+    return redirect(url_for('my_resumes'))
+
+
 @app.route('/jobs/<int:job_id>/shortlist', methods=['POST'])
 @login_required
 def shortlist_job(job_id):

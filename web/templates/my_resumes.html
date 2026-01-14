@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}My Resumes - Job Monitor{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2 style="margin-bottom: 1rem;">📄 My Generated Resumes</h2>
+    <p style="color: #666; margin-bottom: 2rem;">
+        View and download all your AI-generated, job-tailored resumes.
+    </p>
+
+    {% if resumes %}
+    <div style="display: grid; gap: 1.5rem;">
+        {% for resume in resumes %}
+        <div class="card" style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%); border-left: 4px solid #667eea;">
+            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
+                <div style="flex: 1;">
+                    <h3 style="margin-bottom: 0.5rem; color: #333;">
+                        {{ resume.job_title }}
+                    </h3>
+                    <p style="color: #666; font-size: 0.95rem; margin-bottom: 0.5rem;">
+                        🏢 {{ resume.job_company }}
+                    </p>
+                    <p style="color: #999; font-size: 0.875rem;">
+                        🕐 Generated on {{ resume.created_at.strftime('%b %d, %Y at %I:%M %p') if resume.created_at else 'Unknown date' }}
+                    </p>
+                </div>
+
+                <div style="text-align: right;">
+                    <span class="badge" style="background: #28a745; font-size: 0.875rem;">
+                        Resume #{{ resume.id }}
+                    </span>
+                </div>
+            </div>
+
+            <!-- Selections Summary -->
+            {% if resume.selections_used %}
+            <div style="background: white; padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
+                <p style="font-size: 0.875rem; color: #666; margin-bottom: 0.5rem;">
+                    <strong>User-Claimed Items:</strong>
+                </p>
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                    {% set competencies = resume.selections_used.get('competencies', {}) %}
+                    {% set skills = resume.selections_used.get('skills', {}) %}
+
+                    {% if competencies %}
+                    <span style="font-size: 0.875rem;">
+                        🎯 <strong>{{ competencies|length }}</strong> Competencies
+                    </span>
+                    {% endif %}
+
+                    {% if skills %}
+                    <span style="font-size: 0.875rem;">
+                        💻 <strong>{{ skills|length }}</strong> Skills
+                    </span>
+                    {% endif %}
+
+                    {% if not competencies and not skills %}
+                    <span style="font-size: 0.875rem; color: #999; font-style: italic;">
+                        No custom claims (auto-detected only)
+                    </span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Action Buttons -->
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                <!-- Download PDF -->
+                {% if resume.pdf_exists %}
+                <a href="{{ url_for('download_resume', resume_id=resume.id) }}?format=pdf"
+                   class="btn"
+                   style="background: #dc3545; display: inline-flex; align-items: center; gap: 0.5rem;">
+                    <span>📥</span>
+                    <span>Download PDF</span>
+                </a>
+                {% else %}
+                <button class="btn btn-secondary" disabled title="PDF not available">
+                    <span>📥</span>
+                    <span>PDF Not Available</span>
+                </button>
+                {% endif %}
+
+                <!-- Download HTML -->
+                <a href="{{ url_for('download_resume', resume_id=resume.id) }}?format=html"
+                   class="btn"
+                   style="background: #007bff; display: inline-flex; align-items: center; gap: 0.5rem;">
+                    <span>📄</span>
+                    <span>Download HTML</span>
+                </a>
+
+                <!-- View Job -->
+                <a href="{{ url_for('job_detail', job_id=resume.job_id) }}"
+                   class="btn"
+                   style="background: #28a745; display: inline-flex; align-items: center; gap: 0.5rem;">
+                    <span>👁️</span>
+                    <span>View Job</span>
+                </a>
+
+                <!-- Delete Resume -->
+                <form method="POST"
+                      action="{{ url_for('delete_resume_route', resume_id=resume.id) }}"
+                      style="display: inline;"
+                      onsubmit="return confirm('Are you sure you want to delete this resume? This cannot be undone.');">
+                    <button type="submit"
+                            class="btn"
+                            style="background: #6c757d; display: inline-flex; align-items: center; gap: 0.5rem;">
+                        <span>🗑️</span>
+                        <span>Delete</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Summary Stats -->
+    <div style="margin-top: 2rem; padding: 1.5rem; background: #f8f9fa; border-radius: 8px; text-align: center;">
+        <p style="font-size: 1.1rem; color: #666;">
+            📊 Total Resumes Generated: <strong style="color: #667eea;">{{ resumes|length }}</strong>
+        </p>
+    </div>
+
+    {% else %}
+    <!-- Empty State -->
+    <div style="text-align: center; padding: 3rem 1rem;">
+        <div style="font-size: 4rem; margin-bottom: 1rem;">📄</div>
+        <h3 style="color: #666; margin-bottom: 1rem;">No Resumes Generated Yet</h3>
+        <p style="color: #999; margin-bottom: 2rem; max-width: 500px; margin-left: auto; margin-right: auto;">
+            Generate your first tailored resume by visiting a job detail page, selecting missing competencies or skills,
+            and clicking "Provide Evidence & Generate Resume".
+        </p>
+        <a href="{{ url_for('jobs') }}" class="btn" style="background: #667eea;">
+            🔍 Browse Jobs
+        </a>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+/* Resume card hover effect */
+.card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+}
+
+/* Smooth transitions */
+.card {
+    transition: all 0.3s ease;
+}
+
+.btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+</style>
+{% endblock %}
