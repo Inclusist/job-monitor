@@ -172,7 +172,7 @@ Use this standard, ATS-friendly structure:
 1. **Header** - Name and contact information
 2. **Professional Summary** - 3-4 sentences highlighting key qualifications aligned with the job
 3. **Core Competencies** - 8-12 key competencies/skills as a bullet list
-4. **Professional Experience** - Most recent roles first, 3-5 bullet points each
+4. **Professional Experience** - Include ALL work experiences provided (unless there are 5+ roles, then prioritize most relevant/recent). List most recent first. Each role should have 3-5 achievement-focused bullet points.
 5. **Education** - Degree, institution, year
 6. **Additional Sections** (if applicable) - Certifications, Languages, Technical Skills
 
@@ -319,7 +319,8 @@ Return ONLY valid HTML with the following structure:
 8. **Nothing before `<!DOCTYPE html>`, nothing after `</html>`**
 
 Additional requirements:
-- Ensure the resume is concise (1-2 pages max when printed)
+- Include ALL work experiences from the user's profile (don't skip any unless there are 5+)
+- Ensure the resume is professional length (1-2 pages when printed is ideal, but 2 pages is perfectly acceptable to include all relevant experiences)
 - All content must be factual and based on the provided profile
 - If information is missing, use reasonable defaults or omit the section
 - Mark user-claimed evidence bullets with **[NEW]** suffix
