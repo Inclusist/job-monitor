@@ -157,9 +157,14 @@
         {# Use backend-calculated match status #}
         {% set matched = job.competency_match_map.get(competency, false) if job.competency_match_map else false %}
 
-        <div style="padding: 1rem; background: {% if matched %}#d4edda{% else %}#f8f9fa{% endif %}; 
-                        border-left: 3px solid {% if matched %}#28a745{% else %}#6c757d{% endif %}; 
-                        border-radius: 6px; position: relative;">
+        <div class="competency-box {% if not matched %}selectable-box{% endif %}"
+             data-name="{{ competency }}"
+             data-type="competency"
+             {% if not matched %}onclick="toggleSelection(this)"{% endif %}
+             style="padding: 1rem; background: {% if matched %}#d4edda{% else %}#f8f9fa{% endif %};
+                        border-left: 3px solid {% if matched %}#28a745{% else %}#6c757d{% endif %};
+                        border-radius: 6px; position: relative;
+                        {% if not matched %}cursor: pointer; transition: all 0.2s;{% endif %}">
             <div
                 style="font-weight: 600; color: {% if matched %}#155724{% else %}#333{% endif %}; margin-bottom: 0.5rem;">
                 {{ competency }}
@@ -167,14 +172,14 @@
             {% if matched %}
             <span class="badge" style="background: #28a745; font-size: 0.75rem;">✓ Matched</span>
             {% else %}
-            <span class="badge" style="background: #6c757d; font-size: 0.75rem;">Required</span>
+            <span class="badge item-status" style="background: #6c757d; font-size: 0.75rem;">Required</span>
             {% endif %}
         </div>
         {% endfor %}
     </div>
 
     <p style="margin-top: 1rem; font-size: 0.9rem; color: #666; font-style: italic;">
-        💡 Green highlights indicate competencies that explicitly align with your profile based on the AI analysis.
+        💡 Green highlights indicate competencies that explicitly align with your profile. Click gray boxes to claim missing competencies for your resume.
     </p>
 </div>
 {% endif %}
@@ -189,19 +194,24 @@
     <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
         {% for skill in job.ai_key_skills %}
         {% set s_matched = job.skill_match_map.get(skill, false) if job.skill_match_map else false %}
-        <span style="padding: 0.5rem 1rem; 
-                   background: {% if s_matched %}#d4edda{% else %}#f8f9fa{% endif %}; 
-                   border: 1px solid {% if s_matched %}#28a745{% else %}#dee2e6{% endif %}; 
-                   border-radius: 20px; font-size: 0.875rem; 
+        <span class="skill-box {% if not s_matched %}selectable-box{% endif %}"
+              data-name="{{ skill }}"
+              data-type="skill"
+              {% if not s_matched %}onclick="toggleSelection(this)"{% endif %}
+              style="padding: 0.5rem 1rem;
+                   background: {% if s_matched %}#d4edda{% else %}#f8f9fa{% endif %};
+                   border: 1px solid {% if s_matched %}#28a745{% else %}#dee2e6{% endif %};
+                   border-radius: 20px; font-size: 0.875rem;
                    color: {% if s_matched %}#155724{% else %}#555{% endif %};
-                   {% if s_matched %}font-weight: 500;{% endif %}">
+                   {% if s_matched %}font-weight: 500;{% endif %}
+                   {% if not s_matched %}cursor: pointer; transition: all 0.2s;{% endif %}">
             {% if s_matched %}✓ {% endif %}{{ skill }}
         </span>
         {% endfor %}
     </div>
 
     <p style="margin-top: 1rem; font-size: 0.9rem; color: #666; font-style: italic;">
-        🔧 Skills are concrete tools and technologies extracted from the job requirements
+        🔧 Skills are concrete tools and technologies extracted from the job requirements. Click unmatched items to claim them for your resume.
     </p>
 </div>
 {% endif %}
@@ -344,4 +354,169 @@
         same job is posted again.
     </p>
 </div>
+
+<!-- Resume Generation Controls -->
+<div id="resumeGenerationSection" style="display: none;">
+    <div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+        <h3 style="color: white; margin-bottom: 1rem;">📄 Generate Tailored Resume</h3>
+        <p style="margin-bottom: 1.5rem; opacity: 0.95;">
+            You've selected <strong id="selectionCount">0</strong> items to claim for your resume.
+            Click the button below to provide evidence and generate your tailored resume.
+        </p>
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+            <button onclick="openEvidenceModal()" class="btn" style="background: white; color: #667eea; font-weight: 600;">
+                📝 Provide Evidence & Generate Resume
+            </button>
+            <button onclick="clearSelections()" class="btn btn-secondary">
+                Clear Selections
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Hover effect for selectable items */
+.selectable-box:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+/* Selected state */
+.selectable-box.selected {
+    background: #cfe8ff !important;
+    border-color: #007bff !important;
+    border-left: 3px solid #007bff !important;
+}
+
+.selectable-box.selected .item-status {
+    background: #007bff !important;
+}
+
+/* Skill box selected state */
+.skill-box.selected {
+    background: #cfe8ff !important;
+    border-color: #007bff !important;
+    font-weight: 600 !important;
+    color: #004085 !important;
+}
+</style>
+
+<script>
+// Track user selections for resume generation
+let userSelections = {
+    competencies: [],
+    skills: []
+};
+
+/**
+ * Toggle selection state of a competency or skill box
+ */
+function toggleSelection(element) {
+    const name = element.getAttribute('data-name');
+    const type = element.getAttribute('data-type');
+
+    // Toggle selected class
+    element.classList.toggle('selected');
+
+    // Update selections array
+    if (element.classList.contains('selected')) {
+        // Add to selections
+        if (type === 'competency') {
+            if (!userSelections.competencies.includes(name)) {
+                userSelections.competencies.push(name);
+            }
+        } else if (type === 'skill') {
+            if (!userSelections.skills.includes(name)) {
+                userSelections.skills.push(name);
+            }
+        }
+
+        // Update badge text
+        const badge = element.querySelector('.item-status, span');
+        if (badge) {
+            if (type === 'competency') {
+                badge.textContent = '✓ Selected';
+            } else {
+                badge.textContent = '✓ ' + name;
+            }
+        }
+    } else {
+        // Remove from selections
+        if (type === 'competency') {
+            userSelections.competencies = userSelections.competencies.filter(c => c !== name);
+        } else if (type === 'skill') {
+            userSelections.skills = userSelections.skills.filter(s => s !== name);
+        }
+
+        // Reset badge text
+        const badge = element.querySelector('.item-status, span');
+        if (badge) {
+            if (type === 'competency') {
+                badge.textContent = 'Required';
+            } else {
+                badge.textContent = name;
+            }
+        }
+    }
+
+    // Update UI
+    updateResumeGenerationUI();
+}
+
+/**
+ * Update the resume generation section visibility and count
+ */
+function updateResumeGenerationUI() {
+    const totalSelections = userSelections.competencies.length + userSelections.skills.length;
+    const resumeSection = document.getElementById('resumeGenerationSection');
+    const countElement = document.getElementById('selectionCount');
+
+    if (totalSelections > 0) {
+        resumeSection.style.display = 'block';
+        countElement.textContent = totalSelections;
+    } else {
+        resumeSection.style.display = 'none';
+    }
+}
+
+/**
+ * Clear all selections
+ */
+function clearSelections() {
+    // Remove selected class from all elements
+    document.querySelectorAll('.selectable-box.selected').forEach(element => {
+        element.classList.remove('selected');
+
+        // Reset badge
+        const badge = element.querySelector('.item-status, span');
+        const type = element.getAttribute('data-type');
+        const name = element.getAttribute('data-name');
+
+        if (badge) {
+            if (type === 'competency') {
+                badge.textContent = 'Required';
+            } else {
+                badge.textContent = name;
+            }
+        }
+    });
+
+    // Clear selections
+    userSelections.competencies = [];
+    userSelections.skills = [];
+
+    // Update UI
+    updateResumeGenerationUI();
+}
+
+/**
+ * Open evidence collection modal (to be implemented in next phase)
+ */
+function openEvidenceModal() {
+    alert('Evidence collection modal coming soon!\\n\\n' +
+          'Selected Competencies: ' + userSelections.competencies.join(', ') + '\\n' +
+          'Selected Skills: ' + userSelections.skills.join(', ') + '\\n\\n' +
+          'You will provide evidence for these items and generate your tailored resume.');
+}
+</script>
 {% endblock %}
