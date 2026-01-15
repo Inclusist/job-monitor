@@ -67,6 +67,21 @@
     </div>
 </div>
 
+<!-- Quick Resume Generation -->
+<div class="card" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; border: none; padding: 1.5rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <div style="flex: 1; min-width: 300px;">
+            <h3 style="color: white; margin-bottom: 0.5rem;">⚡ Quick Resume Generation</h3>
+            <p style="margin: 0; opacity: 0.95; font-size: 0.95rem;">
+                Generate a tailored resume using your existing profile without claiming new competencies or skills.
+            </p>
+        </div>
+        <button onclick="generateResumeWithoutChanges()" class="btn" style="background: white; color: #28a745; font-weight: 600; white-space: nowrap;">
+            🚀 Generate Resume Now
+        </button>
+    </div>
+</div>
+
 <!-- Match Breakdown Dashboard -->
 <div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
     <h3 style="color: white; margin-bottom: 1.5rem;">📊 Match Breakdown</h3>
@@ -462,19 +477,32 @@
 <div id="resumePreviewModal" class="modal" style="display: none;">
     <div class="modal-content" style="max-width: 900px; max-height: 90vh;">
         <div class="modal-header">
-            <h3>📄 Your Tailored Resume</h3>
+            <div style="flex: 1;">
+                <h3>📄 Your Tailored Resume</h3>
+                <p id="editModeIndicator" style="font-size: 0.875rem; color: #666; margin-top: 0.25rem; display: none;">
+                    ✏️ <strong>Edit Mode:</strong> Click anywhere in the resume to edit. Remember to save your changes!
+                </p>
+            </div>
             <span class="close" onclick="closeResumePreview()">&times;</span>
         </div>
         <div class="modal-body">
-            <div id="resumePreviewContent" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 2rem; background: white; max-height: 60vh; overflow-y: auto;">
+            <div id="resumePreviewContent"
+                 style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 2rem; background: white; max-height: 60vh; overflow-y: auto;">
                 <!-- Resume HTML will be inserted here -->
             </div>
         </div>
-        <div class="modal-footer" style="display: flex; gap: 1rem;">
-            <button onclick="downloadResume('pdf')" class="btn" style="background: #dc3545;">
-                📥 Download PDF
+        <div class="modal-footer" style="display: flex; gap: 1rem; flex-wrap: wrap;">
+            <button id="editResumeBtn" onclick="toggleEditMode()" class="btn" style="background: #ffc107; color: #000;">
+                ✏️ Edit Resume
             </button>
-            <button onclick="downloadResume('html')" class="btn" style="background: #007bff;">
+            <button id="saveResumeBtn" onclick="saveResume()" class="btn" style="background: #28a745; display: none;">
+                💾 Save Resume
+            </button>
+            <button id="cancelEditBtn" onclick="cancelEdit()" class="btn btn-secondary" style="display: none;">
+                Cancel Edits
+            </button>
+            <div style="flex: 1;"></div>
+            <button onclick="downloadResumeHTML()" class="btn" style="background: #007bff;">
                 📥 Download HTML
             </button>
             <button onclick="closeResumePreview()" class="btn btn-secondary">
@@ -938,6 +966,69 @@ function validateCurrentItem() {
     return true;
 }
 
+// Track edit state
+let isEditMode = false;
+let originalResumeHTML = '';
+let currentResumeHTML = '';
+
+/**
+ * Generate resume without making any changes (Quick Generate)
+ */
+async function generateResumeWithoutChanges() {
+    // Ask for confirmation
+    const confirmed = confirm(
+        '📄 Quick Resume Generation\n\n' +
+        'This will generate a tailored resume using your existing profile without claiming any new competencies or skills.\n\n' +
+        'Your current profile data will be used as-is.\n\n' +
+        'Do you want to proceed?'
+    );
+
+    if (!confirmed) {
+        return;
+    }
+
+    // Show loading
+    document.getElementById('loadingOverlay').style.display = 'flex';
+
+    try {
+        // Call API to generate resume with empty selections
+        const response = await fetch(`/api/generate-resume/${jobId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                selections: []  // Empty selections - use existing profile only
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            // Store resume HTML (not saved to database yet)
+            originalResumeHTML = result.resume_html;
+            currentResumeHTML = result.resume_html;
+            generatedResumeId = null; // No ID yet - not saved
+
+            // Show resume preview
+            document.getElementById('resumePreviewContent').innerHTML = result.resume_html;
+            document.getElementById('loadingOverlay').style.display = 'none';
+            document.getElementById('resumePreviewModal').style.display = 'flex';
+
+            // Reset edit mode
+            isEditMode = false;
+            document.getElementById('editModeIndicator').style.display = 'none';
+            document.getElementById('resumePreviewContent').contentEditable = 'false';
+        } else {
+            throw new Error(result.error || 'Failed to generate resume');
+        }
+    } catch (error) {
+        document.getElementById('loadingOverlay').style.display = 'none';
+        alert('Error generating resume: ' + error.message + '\n\nPlease try again or contact support.');
+        console.error('Quick resume generation error:', error);
+    }
+}
+
 /**
  * Generate resume after collecting all evidence
  */
@@ -970,13 +1061,20 @@ async function generateResume() {
         const result = await response.json();
 
         if (result.success) {
-            // Store resume ID
-            generatedResumeId = result.resume_id;
+            // Store resume HTML (not saved to database yet)
+            originalResumeHTML = result.resume_html;
+            currentResumeHTML = result.resume_html;
+            generatedResumeId = null; // No ID yet - not saved
 
             // Show resume preview
             document.getElementById('resumePreviewContent').innerHTML = result.resume_html;
             document.getElementById('loadingOverlay').style.display = 'none';
             document.getElementById('resumePreviewModal').style.display = 'flex';
+
+            // Reset edit mode
+            isEditMode = false;
+            document.getElementById('editModeIndicator').style.display = 'none';
+            document.getElementById('resumePreviewContent').contentEditable = 'false';
         } else {
             throw new Error(result.error || 'Failed to generate resume');
         }
@@ -984,6 +1082,96 @@ async function generateResume() {
         document.getElementById('loadingOverlay').style.display = 'none';
         alert('Error generating resume: ' + error.message + '\\n\\nPlease try again or contact support.');
         console.error('Resume generation error:', error);
+    }
+}
+
+/**
+ * Toggle edit mode for resume
+ */
+function toggleEditMode() {
+    isEditMode = !isEditMode;
+    const contentDiv = document.getElementById('resumePreviewContent');
+    const editBtn = document.getElementById('editResumeBtn');
+    const saveBtn = document.getElementById('saveResumeBtn');
+    const cancelBtn = document.getElementById('cancelEditBtn');
+    const indicator = document.getElementById('editModeIndicator');
+
+    if (isEditMode) {
+        // Enable editing
+        contentDiv.contentEditable = 'true';
+        contentDiv.style.border = '2px solid #ffc107';
+        editBtn.style.display = 'none';
+        saveBtn.style.display = 'inline-block';
+        cancelBtn.style.display = 'inline-block';
+        indicator.style.display = 'block';
+        contentDiv.focus();
+    } else {
+        // Disable editing
+        contentDiv.contentEditable = 'false';
+        contentDiv.style.border = '1px solid #e0e0e0';
+        editBtn.style.display = 'inline-block';
+        saveBtn.style.display = 'none';
+        cancelBtn.style.display = 'none';
+        indicator.style.display = 'none';
+    }
+}
+
+/**
+ * Cancel edits and restore original
+ */
+function cancelEdit() {
+    if (confirm('Discard all changes and restore original?')) {
+        document.getElementById('resumePreviewContent').innerHTML = originalResumeHTML;
+        currentResumeHTML = originalResumeHTML;
+        toggleEditMode(); // Turn off edit mode
+    }
+}
+
+/**
+ * Save edited resume to database
+ */
+async function saveResume() {
+    const contentDiv = document.getElementById('resumePreviewContent');
+    const editedHTML = contentDiv.innerHTML;
+
+    // Show loading
+    document.getElementById('loadingOverlay').style.display = 'flex';
+
+    try {
+        // Call API to save resume
+        const response = await fetch(`/api/save-resume/${jobId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                resume_html: editedHTML,
+                selections: evidenceData
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            generatedResumeId = result.resume_id;
+            document.getElementById('loadingOverlay').style.display = 'none';
+
+            alert('✅ Resume saved successfully!\\n\\nYou can find it in "My Resumes" section.');
+
+            // Turn off edit mode
+            isEditMode = false;
+            toggleEditMode();
+
+            // Update the original HTML to the saved version
+            originalResumeHTML = editedHTML;
+            currentResumeHTML = editedHTML;
+        } else {
+            throw new Error(result.error || 'Failed to save resume');
+        }
+    } catch (error) {
+        document.getElementById('loadingOverlay').style.display = 'none';
+        alert('Error saving resume: ' + error.message);
+        console.error('Resume save error:', error);
     }
 }
 
@@ -998,7 +1186,7 @@ function closeResumePreview() {
 }
 
 /**
- * Download resume in specified format
+ * Download resume in specified format (requires saved resume)
  */
 function downloadResume(format) {
     if (!generatedResumeId) {
@@ -1008,6 +1196,54 @@ function downloadResume(format) {
 
     // Redirect to download endpoint
     window.location.href = `/download/resume/${generatedResumeId}?format=${format}`;
+}
+
+/**
+ * Download currently displayed resume as HTML (works even if not saved)
+ */
+function downloadResumeHTML() {
+    const contentDiv = document.getElementById('resumePreviewContent');
+
+    if (!contentDiv || !contentDiv.innerHTML) {
+        alert('No resume content to download.');
+        return;
+    }
+
+    // Get the current HTML (whether original or edited)
+    const resumeHTML = contentDiv.innerHTML;
+
+    // Create a complete HTML document
+    const fullHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resume</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+${resumeHTML}
+</body>
+</html>`;
+
+    // Create blob and download
+    const blob = new Blob([fullHTML], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `resume_${new Date().getTime()}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 </script>
 {% endblock %}

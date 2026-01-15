@@ -2892,24 +2892,113 @@ def generate_resume(job_id):
         # Get user's claimed competencies/skills (including newly saved)
         claimed_data = resume_ops.get_user_claimed_data(user_id)
 
+        # Get user's contact information for resume header
+        # Use resume-specific fields if set, otherwise fall back to login credentials
+        user_info = None
+        conn = cv_manager.connection_pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT name, email, phone, resume_name, resume_email, resume_phone
+                FROM users WHERE id = %s
+            """, (user_id,))
+            user_row = cur.fetchone()
+            if user_row:
+                user_info = {
+                    'name': user_row[3] or user_row[0],  # resume_name or fallback to name
+                    'email': user_row[4] or user_row[1],  # resume_email or fallback to email
+                    'phone': user_row[5] or user_row[2]   # resume_phone or fallback to phone
+                }
+        finally:
+            cv_manager.connection_pool.putconn(conn)
+
         # Generate resume HTML
         print(f"Generating resume for user {user_id}, job {job_id}...")
         resume_html = resume_generator.generate_resume_html(
             profile,
             job,
-            claimed_data
+            claimed_data,
+            user_info
         )
+
+        print(f"Resume HTML generated successfully (not saved yet - waiting for user to edit and save)")
+
+        # Return HTML without saving to database (user will edit first, then save)
+        return jsonify({
+            'success': True,
+            'resume_html': resume_html,
+            'job_title': job.get('title'),
+            'company': job.get('company')
+        })
+
+    except Exception as e:
+        import traceback
+        print(f"Error generating resume: {e}")
+        print(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/save-resume/<int:job_id>', methods=['POST'])
+@login_required
+def save_resume_route(job_id):
+    """
+    Save edited resume to database
+
+    Args:
+        job_id: Job ID the resume was generated for
+
+    Request Body:
+        {
+            "resume_html": "<edited HTML>",
+            "selections": [...]  # Optional - already saved during generation
+        }
+
+    Returns:
+        JSON with resume_id and success status
+    """
+    if not resume_generator or not resume_ops:
+        return jsonify({
+            'success': False,
+            'error': 'Resume save not available'
+        }), 503
+
+    user_id = get_user_id()
+
+    try:
+        # Get edited resume HTML from request
+        request_data = request.get_json() or {}
+        resume_html = request_data.get('resume_html')
+
+        if not resume_html:
+            return jsonify({
+                'success': False,
+                'error': 'No resume HTML provided'
+            }), 400
+
+        # Get job details to include in response
+        job = job_db.get_job_by_id(job_id)
+        if not job:
+            return jsonify({
+                'success': False,
+                'error': 'Job not found'
+            }), 404
+
+        # Get user's claimed competencies/skills
+        claimed_data = resume_ops.get_user_claimed_data(user_id)
 
         # Create resumes directory if it doesn't exist
         resumes_dir = os.path.join('static', 'resumes')
         os.makedirs(resumes_dir, exist_ok=True)
 
-        # Generate PDF from HTML
+        # Generate PDF from edited HTML
         pdf_filename = f"resume_user{user_id}_job{job_id}_{int(time.time())}.pdf"
         pdf_path = os.path.join(resumes_dir, pdf_filename)
 
         try:
-            print(f"Generating PDF at {pdf_path}...")
+            print(f"Generating PDF from edited resume at {pdf_path}...")
             resume_generator.html_to_pdf(resume_html, pdf_path)
             print(f"✅ PDF generated successfully")
         except Exception as pdf_error:
@@ -2926,12 +3015,11 @@ def generate_resume(job_id):
             claimed_data
         )
 
-        print(f"Resume generated successfully: ID {resume_id}")
+        print(f"Edited resume saved successfully: ID {resume_id}")
 
         return jsonify({
             'success': True,
             'resume_id': resume_id,
-            'resume_html': resume_html,
             'pdf_url': f'/download/resume/{resume_id}' if pdf_path else None,
             'job_title': job.get('title'),
             'company': job.get('company')
@@ -2939,7 +3027,86 @@ def generate_resume(job_id):
 
     except Exception as e:
         import traceback
-        print(f"Error generating resume: {e}")
+        print(f"Error saving resume: {e}")
+        print(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/update-contact-info', methods=['POST'])
+@login_required
+def update_contact_info():
+    """
+    Update user's resume contact information (separate from login credentials)
+
+    Request Body:
+        {
+            "resume_name": "Full Name",  # Optional - will use login name if empty
+            "resume_email": "email@example.com",  # Optional - will use login email if empty
+            "resume_phone": "+1 (555) 123-4567"  # Optional
+        }
+
+    Returns:
+        JSON with success status and fallback values
+    """
+    user_id = get_user_id()
+
+    try:
+        request_data = request.get_json() or {}
+        resume_name = request_data.get('resume_name', '').strip() or None
+        resume_email = request_data.get('resume_email', '').strip() or None
+        resume_phone = request_data.get('resume_phone', '').strip() or None
+
+        # Validate email format if provided
+        if resume_email:
+            import re
+            email_regex = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+            if not email_regex.match(resume_email):
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid email format'
+                }), 400
+
+        # Update user record with resume-specific fields
+        conn = cv_manager.connection_pool.getconn()
+        try:
+            cur = conn.cursor()
+
+            # Update resume contact fields
+            cur.execute("""
+                UPDATE users
+                SET resume_name = %s, resume_email = %s, resume_phone = %s, last_updated = NOW()
+                WHERE id = %s
+            """, (resume_name, resume_email, resume_phone, user_id))
+
+            # Get login credentials for fallback display
+            cur.execute("SELECT name, email FROM users WHERE id = %s", (user_id,))
+            user_row = cur.fetchone()
+
+            conn.commit()
+        finally:
+            cv_manager.connection_pool.putconn(conn)
+
+        fallback_name = user_row[0] if user_row else 'Not set'
+        fallback_email = user_row[1] if user_row else 'Not set'
+
+        print(f"Updated resume contact info for user {user_id}:")
+        print(f"  Resume Name: {resume_name or f'(using login: {fallback_name})'}")
+        print(f"  Resume Email: {resume_email or f'(using login: {fallback_email})'}")
+        print(f"  Resume Phone: {resume_phone or '(not set)'}")
+
+        return jsonify({
+            'success': True,
+            'message': 'Resume contact information updated successfully',
+            'fallback_name': fallback_name,
+            'fallback_email': fallback_email
+        })
+
+    except Exception as e:
+        import traceback
+        print(f"Error updating contact info: {e}")
         print(traceback.format_exc())
         return jsonify({
             'success': False,

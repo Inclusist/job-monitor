@@ -25,7 +25,8 @@ class ResumeGenerator:
         self.model = "claude-3-5-haiku-20241022"  # Use Haiku (faster and cheaper, still high quality)
 
     def generate_resume_html(self, user_profile: Dict, job: Dict,
-                            claimed_data: Optional[Dict] = None) -> str:
+                            claimed_data: Optional[Dict] = None,
+                            user_info: Optional[Dict] = None) -> str:
         """
         Generate tailored resume HTML using Claude
 
@@ -33,11 +34,12 @@ class ResumeGenerator:
             user_profile: User's CV profile dict
             job: Job details dict
             claimed_data: Dict with 'competencies' and 'skills' keys (optional)
+            user_info: Dict with 'name', 'email', 'phone' keys for resume header (optional)
 
         Returns:
             str: Professional HTML resume
         """
-        prompt = self._build_prompt(user_profile, job, claimed_data)
+        prompt = self._build_prompt(user_profile, job, claimed_data, user_info)
 
         try:
             response = self.client.messages.create(
@@ -64,7 +66,8 @@ class ResumeGenerator:
             raise
 
     def _build_prompt(self, user_profile: Dict, job: Dict,
-                     claimed_data: Optional[Dict] = None) -> str:
+                     claimed_data: Optional[Dict] = None,
+                     user_info: Optional[Dict] = None) -> str:
         """
         Build comprehensive Claude prompt
 
@@ -72,6 +75,7 @@ class ResumeGenerator:
             user_profile: User's CV profile
             job: Job details
             claimed_data: User-claimed competencies/skills
+            user_info: User contact information (name, email, phone)
 
         Returns:
             str: Complete prompt for Claude
@@ -95,16 +99,22 @@ class ResumeGenerator:
             user_profile.get('education', [])
         )
 
+        # Use user_info if provided, otherwise fall back to profile
+        contact_name = user_info.get('name') if user_info else user_profile.get('name', 'Professional')
+        contact_email = user_info.get('email') if user_info else user_profile.get('email', 'email@example.com')
+        contact_phone = user_info.get('phone') if user_info else user_profile.get('phone', '')
+
         # Build the prompt
         prompt = f"""You are an expert resume writer specializing in creating ATS-optimized, professional resumes tailored to specific job opportunities.
 
 ## USER'S PROFILE
 
-**Name:** {user_profile.get('name', 'Professional')}
-**Contact:**
-- Email: {user_profile.get('email', 'email@example.com')}
-- Phone: {user_profile.get('phone', '')}
-- Location: {user_profile.get('location', '')}
+**Name:** {contact_name}
+**Contact Information for Resume Header:**
+- Email: {contact_email}
+- Phone: {contact_phone if contact_phone else 'Not provided'}
+
+**Location:** {user_profile.get('location', '')}
 
 **Career Information:**
 - Target Role: {user_profile.get('extracted_role', 'Professional')}
@@ -169,10 +179,18 @@ Generate a professional, ATS-optimized resume tailored specifically for this job
 ### 2. Structure
 Use this standard, ATS-friendly structure:
 
-1. **Header** - Name and contact information
+1. **Header** - MUST be formatted as:
+   - Candidate's name in large, bold text (e.g., 24-28pt font)
+   - Below the name, on separate lines: Email | Phone (if provided)
+   - Example format:
+     ```
+     JOHN DOE
+     john.doe@example.com | +1 (555) 123-4567
+     ```
+   - Use ONLY the contact information provided - do NOT make up or invent contact details
 2. **Professional Summary** - 3-4 sentences highlighting key qualifications aligned with the job
 3. **Core Competencies** - 8-12 key competencies/skills as a bullet list
-4. **Professional Experience** - Include ALL work experiences provided (unless there are 5+ roles, then prioritize most relevant/recent). List most recent first. Each role should have 3-5 achievement-focused bullet points.
+4. **Professional Experience** - Include ALL work experiences provided, no exceptions. List most recent first. Each role should have 3-5 achievement-focused bullet points.
 5. **Education** - Degree, institution, year
 6. **Additional Sections** (if applicable) - Certifications, Languages, Technical Skills
 
@@ -182,8 +200,8 @@ For each work experience:
 - Include measurable outcomes when available
 - Highlight achievements over responsibilities
 - **User-Claimed Evidence:** When incorporating user-claimed competencies/skills, rewrite their evidence as professional, achievement-focused resume bullets
-- Mark newly added bullets (from user claims) with **[NEW]** at the end
 - Ensure bullets align with job requirements
+- **IMPORTANT:** All text must be in black color - do not use blue, red, or any other colors
 
 ### 4. ATS Optimization
 - Use standard section headers (no fancy titles)
@@ -319,12 +337,11 @@ Return ONLY valid HTML with the following structure:
 8. **Nothing before `<!DOCTYPE html>`, nothing after `</html>`**
 
 Additional requirements:
-- Include ALL work experiences from the user's profile (don't skip any unless there are 5+)
-- Ensure the resume is professional length (1-2 pages when printed is ideal, but 2 pages is perfectly acceptable to include all relevant experiences)
+- Include ALL work experiences from the user's profile - DO NOT SKIP ANY, regardless of how many there are
+- Ensure the resume is professional length (2-3 pages is perfectly acceptable when including all work experiences)
 - All content must be factual and based on the provided profile
 - If information is missing, use reasonable defaults or omit the section
-- Mark user-claimed evidence bullets with **[NEW]** suffix
-- Make it visually clean and professional
+- Make it visually clean and professional with ALL TEXT IN BLACK COLOR (no blue, red, or colored text)
 - Optimize for both human readers and ATS systems
 
 **BEGIN YOUR RESPONSE NOW WITH `<!DOCTYPE html>` AND NOTHING ELSE:**"""
@@ -388,7 +405,7 @@ Additional requirements:
             result += "The user has claimed the following competencies/skills that were not auto-detected. "
             result += "You MUST incorporate their evidence as professional resume bullets in the relevant experience sections. "
             result += "Rewrite their evidence to be concise, achievement-focused, and keyword-rich. "
-            result += "Mark these bullets with **[NEW]** at the end.\n\n"
+            result += "Blend them naturally with existing bullets - do NOT mark them or use different colors.\n\n"
             result += "\n\n".join(sections)
             return result
 
