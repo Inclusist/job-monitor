@@ -117,12 +117,12 @@ search_progress = {}
 # Semantic search models (lazy loading)
 _semantic_models = {}
 
-def get_semantic_model(model_name='paraphrase-multilingual-MiniLM-L12-v2'):
+def get_semantic_model(model_name='TechWolf/JobBERT-v3'):
     """Get or load sentence transformer model (lazy loading with caching)
 
     Supported models:
+    - TechWolf/JobBERT-v3: Job-specialized semantic matching (EN, DE, ES, CN) [DEFAULT]
     - paraphrase-multilingual-MiniLM-L12-v2: General multilingual (50+ languages)
-    - TechWolf/JobBERT-v3: Job-specialized semantic matching (EN, DE, ES, CN)
     """
     global _semantic_models
 
@@ -911,7 +911,7 @@ def run_semantic_search():
         limit = int(request.json.get('limit', 20))
         locations = request.json.get('locations', [])
         include_remote = request.json.get('include_remote', True)
-        model_name = request.json.get('model', 'paraphrase-multilingual-MiniLM-L12-v2')
+        model_name = request.json.get('model', 'TechWolf/JobBERT-v3')
 
         if not query:
             return jsonify({'error': 'Query is required'}), 400

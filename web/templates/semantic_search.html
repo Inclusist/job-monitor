@@ -33,24 +33,13 @@
         <p style="color: #666; font-size: 0.85rem; margin-top: 0.3rem;">Jobs matching ANY location OR remote (if checked) will be included</p>
     </div>
 
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.5rem;">
-        <div>
-            <label for="model" style="display: block; font-weight: 600; margin-bottom: 0.5rem;">Semantic Model:</label>
-            <select id="model" style="width: 100%; padding: 0.8rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem;">
-                <option value="paraphrase-multilingual-MiniLM-L12-v2" selected>Multilingual-MiniLM (Current)</option>
-                <option value="TechWolf/JobBERT-v3">TechWolf JobBERT-v3 (Job-specialized)</option>
-            </select>
-            <p style="color: #666; font-size: 0.85rem; margin-top: 0.3rem;">TechWolf JobBERT-v3: EN, DE, ES, CN optimized for job matching</p>
-        </div>
-
-        <div>
-            <label for="matchMode" style="display: block; font-weight: 600; margin-bottom: 0.5rem;">Matching Mode:</label>
-            <select id="matchMode" style="width: 100%; padding: 0.8rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem;">
-                <option value="title_only" selected>Title Only (Fast)</option>
-                <option value="full_text">Full Text (Slow)</option>
-            </select>
-            <p style="color: #666; font-size: 0.85rem; margin-top: 0.3rem;">Title-only is 20x faster</p>
-        </div>
+    <div style="margin-top: 1.5rem;">
+        <label for="matchMode" style="display: block; font-weight: 600; margin-bottom: 0.5rem;">Matching Mode:</label>
+        <select id="matchMode" style="width: 100%; padding: 0.8rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem;">
+            <option value="title_only" selected>Title Only (Fast)</option>
+            <option value="full_text">Full Text (Slow)</option>
+        </select>
+        <p style="color: #666; font-size: 0.85rem; margin-top: 0.3rem;">Title-only is 20x faster. Using TechWolf JobBERT-v3 (optimized for job matching)</p>
     </div>
 
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
@@ -205,7 +194,7 @@ document.getElementById('searchButton').addEventListener('click', async function
                 query: query,
                 threshold: parseFloat(document.getElementById('threshold').value),
                 match_mode: document.getElementById('matchMode').value,
-                model: document.getElementById('model').value,
+                model: 'TechWolf/JobBERT-v3',  // Always use JobBERT
                 limit: parseInt(document.getElementById('limit').value),
                 locations: locations,
                 include_remote: includeRemote
@@ -245,10 +234,9 @@ function displayResults(data) {
 
     // Update results description
     const modeName = stats.match_mode === 'title_only' ? 'Title Only' : 'Full Text';
-    const modelDisplayName = stats.model === 'TechWolf/JobBERT-v3' ? 'TechWolf JobBERT-v3' : 'Multilingual-MiniLM';
 
     let descriptionText = `Found ${results.length} jobs matching "${stats.query}" with ${(stats.threshold * 100).toFixed(0)}% similarity`;
-    descriptionText += ` | Model: ${modelDisplayName} (${modeName} mode)`;
+    descriptionText += ` | ${modeName} mode`;
 
     // Add location filter info
     const locationParts = [];
