@@ -4,23 +4,30 @@ FROM python:3.13-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for sentence-transformers, PDF parsing, and PostgreSQL
+# Install system dependencies for sentence-transformers, PDF parsing, PostgreSQL, and WeasyPrint
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     libpoppler-cpp-dev \
     poppler-utils \
     libpq-dev \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libgdk-pixbuf2.0-0 \
+    libffi-dev \
+    shared-mime-info \
+    libcairo2 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first (better caching)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-download the multilingual sentence-transformers model during build
+# Pre-download the JobBERT sentence-transformers model during build
 # This prevents timeout on first run and ensures model is cached
-# Using multilingual model for better English CV + German job matching
-RUN python -c "from sentence_transformers import SentenceTransformer; print('Downloading multilingual model...'); model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2'); print('Multilingual model ready!')"
+# Using TechWolf JobBERT-v3 for job-specialized semantic matching (EN, DE, ES, CN)
+RUN python -c "from sentence_transformers import SentenceTransformer; print('Downloading JobBERT model...'); model = SentenceTransformer('TechWolf/JobBERT-v3'); print('JobBERT model ready!')"
 
 # Copy application code
 COPY . .
