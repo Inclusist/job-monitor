@@ -6,7 +6,7 @@ Simple web UI for CV management and job viewing
 
 import os
 import sys
-from flask import Flask, render_template, request, redirect, url_for, flash, session, Response, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, session, Response, jsonify, send_file
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from authlib.integrations.flask_client import OAuth
 from werkzeug.utils import secure_filename
@@ -1785,6 +1785,81 @@ def delete_resume_route(resume_id):
         flash(f'Error deleting resume: {str(e)}', 'error')
 
     return redirect(url_for('my_resumes'))
+
+
+@app.route('/download/resume/<int:resume_id>')
+@login_required
+def download_resume(resume_id):
+    """
+    Download generated resume (HTML or PDF)
+
+    Args:
+        resume_id: Resume ID to download
+
+    Query Parameters:
+        format: 'html' or 'pdf' (default: 'pdf')
+
+    Returns:
+        File download or error
+    """
+    if not resume_ops:
+        flash('Resume download not available', 'error')
+        return redirect(url_for('jobs'))
+
+    user_id = get_user_id()
+    download_format = request.args.get('format', 'pdf')
+
+    try:
+        # Get resume with user verification
+        resume = resume_ops.get_resume_by_id(resume_id, user_id)
+
+        if not resume:
+            flash('Resume not found', 'error')
+            return redirect(url_for('jobs'))
+
+        job_id = resume['job_id']
+
+        if download_format == 'html':
+            # Download as HTML
+            from flask import make_response
+
+            response = make_response(resume['resume_html'])
+            response.headers['Content-Type'] = 'text/html; charset=utf-8'
+            response.headers['Content-Disposition'] = f'attachment; filename="resume_job_{job_id}.html"'
+            return response
+
+        elif download_format == 'pdf':
+            # Download as PDF (if generated)
+            pdf_path = resume.get('resume_pdf_path')
+
+            if not pdf_path or not os.path.exists(pdf_path):
+                # PDF not generated yet - offer HTML as fallback
+                flash('PDF not available. Downloading HTML version instead.', 'info')
+                from flask import make_response
+
+                response = make_response(resume['resume_html'])
+                response.headers['Content-Type'] = 'text/html; charset=utf-8'
+                response.headers['Content-Disposition'] = f'attachment; filename="resume_job_{job_id}.html"'
+                return response
+
+            # Send PDF file
+            return send_file(
+                pdf_path,
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=f"resume_job_{job_id}.pdf"
+            )
+
+        else:
+            flash('Invalid format. Use "html" or "pdf"', 'error')
+            return redirect(url_for('jobs'))
+
+    except Exception as e:
+        import traceback
+        print(f"Error downloading resume: {e}")
+        print(traceback.format_exc())
+        flash(f'Error downloading resume: {str(e)}', 'error')
+        return redirect(url_for('jobs'))
 
 
 @app.route('/jobs/<int:job_id>/permanent-delete', methods=['POST'])
