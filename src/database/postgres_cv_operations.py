@@ -380,22 +380,26 @@ class PostgresCVManager:
                 self._return_connection(conn)
                 return (True, "Preferences changed since last filter")
 
-            # Check if there are new jobs added since last filter
+            # Check if there are unmatched jobs (jobs not in user_job_matches for this user)
             cursor.execute("""
-                SELECT COUNT(*) as new_jobs
-                FROM jobs
-                WHERE created_at > %s
-                  AND deleted = FALSE
-            """, (last_filter,))
+                SELECT COUNT(*) as unmatched_jobs
+                FROM jobs j
+                WHERE j.deleted = FALSE
+                  AND NOT EXISTS (
+                      SELECT 1 FROM user_job_matches ujm
+                      WHERE ujm.job_id = j.id
+                        AND ujm.user_id = %s
+                  )
+            """, (user_id,))
             result = cursor.fetchone()
 
             cursor.close()
             self._return_connection(conn)
 
-            new_jobs_count = result['new_jobs'] if result else 0
+            unmatched_count = result['unmatched_jobs'] if result else 0
 
-            if new_jobs_count > 0:
-                return (True, f"{new_jobs_count} new jobs added since last filter")
+            if unmatched_count > 0:
+                return (True, f"{unmatched_count} unmatched jobs found")
 
             return (False, "Up to date")
 
