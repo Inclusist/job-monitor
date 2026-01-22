@@ -1840,6 +1840,60 @@ def view_cover_letter(cover_letter_id):
         return redirect(url_for('my_resumes'))
 
 
+@app.route('/cover-letter/<int:cover_letter_id>/delete', methods=['POST'])
+@login_required
+def delete_cover_letter(cover_letter_id):
+    """Delete a generated cover letter"""
+    user_id = get_user_id()
+
+    try:
+        # Delete from database with user verification
+        conn = cv_manager.connection_pool.getconn()
+        try:
+            cur = conn.cursor()
+
+            # Get the cover letter first to check ownership and get PDF path
+            cur.execute("""
+                SELECT cover_letter_pdf_path
+                FROM cover_letters
+                WHERE id = %s AND user_id = %s
+            """, (cover_letter_id, user_id))
+
+            row = cur.fetchone()
+
+            if not row:
+                flash('Cover letter not found or access denied', 'error')
+            else:
+                # Delete the PDF file if it exists
+                pdf_path = row[0]
+                if pdf_path and os.path.exists(pdf_path):
+                    try:
+                        os.remove(pdf_path)
+                    except Exception as e:
+                        print(f"Warning: Could not delete PDF file: {e}")
+
+                # Delete from database
+                cur.execute("""
+                    DELETE FROM cover_letters
+                    WHERE id = %s AND user_id = %s
+                """, (cover_letter_id, user_id))
+
+                conn.commit()
+                flash('Cover letter deleted successfully', 'success')
+
+            cur.close()
+        finally:
+            cv_manager.connection_pool.putconn(conn)
+
+    except Exception as e:
+        print(f"Error deleting cover letter: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f'Error deleting cover letter: {str(e)}', 'error')
+
+    return redirect(url_for('my_resumes'))
+
+
 @app.route('/download/cover-letter/<int:cover_letter_id>')
 @login_required
 def download_cover_letter(cover_letter_id):
