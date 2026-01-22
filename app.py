@@ -6,7 +6,7 @@ Simple web UI for CV management and job viewing
 
 import os
 import sys
-from flask import Flask, render_template, request, redirect, url_for, flash, session, Response, jsonify, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, session, Response, jsonify
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from authlib.integrations.flask_client import OAuth
 from werkzeug.utils import secure_filename
@@ -15,7 +15,6 @@ import json
 import time
 import queue
 import threading
-import numpy as np
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -94,65 +93,8 @@ else:
 
 handler = CVHandler(cv_manager, parser, analyzer, storage_root='data/cvs') if analyzer else None
 
-# Initialize Resume Generator and Operations
-resume_ops = None
-resume_generator = None
-if database_url and database_url.startswith('postgres') and hasattr(job_db, 'connection_pool'):
-    from src.database.postgres_resume_operations import PostgresResumeOperations
-    from src.resume.resume_generator import ResumeGenerator
-
-    resume_ops = PostgresResumeOperations(job_db.connection_pool)
-
-    if anthropic_key:
-        resume_generator = ResumeGenerator(anthropic_key)
-        print("✓ Resume generation enabled")
-    else:
-        print("Warning: Resume generation disabled (ANTHROPIC_API_KEY not set)")
-else:
-    print("Warning: Resume generation disabled (PostgreSQL required)")
-
 # Progress tracking for job search
 search_progress = {}
-
-# Semantic search models (lazy loading)
-_semantic_models = {}
-
-def get_semantic_model(model_name='TechWolf/JobBERT-v3'):
-    """Get or load sentence transformer model (lazy loading with caching)
-
-    Supported models:
-    - TechWolf/JobBERT-v3: Job-specialized semantic matching (EN, DE, ES, CN) [DEFAULT]
-    - paraphrase-multilingual-MiniLM-L12-v2: General multilingual (50+ languages)
-    """
-    global _semantic_models
-
-    if model_name not in _semantic_models:
-        try:
-            from sentence_transformers import SentenceTransformer
-            import torch
-            print(f"📥 Loading sentence transformer model: {model_name}...")
-
-            # Fix for PyTorch 2.9+ compatibility with meta tensors
-            # Use device_map and trust_remote_code for TechWolf models
-            if 'TechWolf' in model_name or 'JobBERT' in model_name:
-                _semantic_models[model_name] = SentenceTransformer(
-                    model_name,
-                    device='cpu',  # Explicitly set device
-                    trust_remote_code=True
-                )
-            else:
-                # Also use explicit device for other models for consistency
-                _semantic_models[model_name] = SentenceTransformer(model_name, device='cpu')
-
-            print(f"✅ Model loaded: {model_name}")
-        except ImportError:
-            print("❌ Error: sentence-transformers package not installed")
-            return None
-        except Exception as e:
-            print(f"❌ Error loading model {model_name}: {e}")
-            return None
-
-    return _semantic_models[model_name]
 
 # Initialize OAuth
 oauth = OAuth(app)
@@ -168,18 +110,15 @@ google = oauth.register(
     }
 )
 
-# Configure LinkedIn OAuth (OpenID Connect without nonce)
-# Note: LinkedIn's OIDC implementation doesn't include nonce in ID token
+# Configure LinkedIn OAuth (using OpenID Connect - manual configuration)
 linkedin = oauth.register(
     name='linkedin',
     client_id=os.getenv('LINKEDIN_CLIENT_ID'),
     client_secret=os.getenv('LINKEDIN_CLIENT_SECRET'),
     authorize_url='https://www.linkedin.com/oauth/v2/authorization',
     access_token_url='https://www.linkedin.com/oauth/v2/accessToken',
-    userinfo_endpoint='https://api.linkedin.com/v2/userinfo',
-    jwks_uri='https://www.linkedin.com/oauth/openid/jwks',
     client_kwargs={
-        'scope': 'openid profile email',
+        'scope': 'profile email',
         'token_endpoint_auth_method': 'client_secret_post',
     }
 )
@@ -443,8 +382,6 @@ def authorize_google():
 def login_linkedin():
     """Initiate LinkedIn OAuth login"""
     redirect_uri = url_for('authorize_linkedin', _external=True)
-    # Note: LinkedIn doesn't support nonce in ID token, so we don't send it
-    # The state parameter still provides CSRF protection
     return linkedin.authorize_redirect(redirect_uri)
 
 
@@ -452,49 +389,18 @@ def login_linkedin():
 def authorize_linkedin():
     """LinkedIn OAuth callback"""
     try:
-        # Manually exchange authorization code for access token to bypass ID token validation
-        # LinkedIn's OIDC implementation doesn't include nonce, which breaks authlib's validation
-        import requests
-
-        code = request.args.get('code')
-        if not code:
-            flash('Authorization failed: No code received', 'error')
-            return redirect(url_for('login'))
-
-        # Exchange code for access token
-        token_url = 'https://www.linkedin.com/oauth/v2/accessToken'
-        redirect_uri = url_for('authorize_linkedin', _external=True)
-
-        token_data = {
-            'grant_type': 'authorization_code',
-            'code': code,
-            'redirect_uri': redirect_uri,
-            'client_id': os.getenv('LINKEDIN_CLIENT_ID'),
-            'client_secret': os.getenv('LINKEDIN_CLIENT_SECRET'),
-        }
-
-        token_response = requests.post(token_url, data=token_data)
-        if token_response.status_code != 200:
-            raise Exception(f"Token exchange failed: {token_response.text}")
-
-        token = token_response.json()
-        access_token = token.get('access_token')
-
-        if not access_token:
-            raise Exception("No access token received")
-
-        # Fetch user info from LinkedIn's userinfo endpoint
-        userinfo_url = 'https://api.linkedin.com/v2/userinfo'
-        headers = {'Authorization': f'Bearer {access_token}'}
-        userinfo_response = requests.get(userinfo_url, headers=headers)
-
-        if userinfo_response.status_code != 200:
-            raise Exception(f"UserInfo request failed: {userinfo_response.text}")
-
-        user_info = userinfo_response.json()
+        token = linkedin.authorize_access_token()
         
-        # Debug print
+        # Manually fetch user info from LinkedIn OpenID Connect endpoint
+        resp = linkedin.get('https://api.linkedin.com/v2/userinfo', token=token)
+        user_info = resp.json()
+        
+        # Debug: Print what LinkedIn returns
         print("LinkedIn userinfo response:", user_info)
+        
+        if not user_info:
+            flash('Failed to get user information from LinkedIn', 'error')
+            return redirect(url_for('login'))
         
         email = user_info.get('email')
         name = user_info.get('name')
@@ -657,21 +563,11 @@ def view_profile():
     if not profile:
         flash(f"CV uploaded but profile not parsed. Please try uploading again.", 'warning')
 
-    print(f"DEBUG: Viewing Profile for User {user['id']}")
-    if cv:
-        print(f"DEBUG: CV ID: {cv['id']} (File: {cv['file_name']})")
-    
-    if profile:
-        print(f"DEBUG: Profile ID: {profile.get('id')}")
-        comps = profile.get('competencies')
-        print(f"DEBUG: Competencies Type: {type(comps)}")
-        print(f"DEBUG: Competencies Value: {comps}")
-
     # Parse JSON fields
     if profile:
-        json_fields = ['technical_skills', 'soft_skills', 'competencies', 'languages', 'certifications',
+        json_fields = ['technical_skills', 'soft_skills', 'languages', 'certifications',
                       'work_experience', 'leadership_experience', 'education',
-                      'career_highlights', 'industries', 'raw_analysis']
+                      'career_highlights', 'industries']
 
         for field in json_fields:
             if field in profile and isinstance(profile[field], str):
@@ -679,19 +575,8 @@ def view_profile():
                     profile[field] = json.loads(profile[field])
                 except:
                     profile[field] = []
-        
-        # DEBUG after parsing
-        print(f"DEBUG: Post-Parsing Competencies: {profile.get('competencies')}")
 
-    # Get user-claimed competencies/skills for resume generation
-    claimed_data = None
-    if resume_ops:
-        try:
-            claimed_data = resume_ops.get_user_claimed_data(user['id'])
-        except Exception as e:
-            print(f"Warning: Could not fetch claimed data: {e}")
-
-    return render_template('profile.html', user=user, profile=profile, cv=cv, all_cvs=all_cvs, claimed_data=claimed_data)
+    return render_template('profile.html', user=user, profile=profile, cv=cv, all_cvs=all_cvs)
 
 
 @app.route('/delete-cv/<int:cv_id>', methods=['POST'])
@@ -865,245 +750,9 @@ def jobs():
         previous_jobs = []
         flash('No jobs found. Run filter_jobs.py to analyze jobs.', 'info')
 
-    return render_template('jobs.html', user=user, stats=stats,
+    return render_template('jobs.html', user=user, stats=stats, 
                           new_jobs=new_jobs, previous_jobs=previous_jobs,
                           priority=priority, min_score=min_score, status=status)
-
-
-@app.route('/semantic-search')
-@login_required
-def semantic_search():
-    """Semantic search testing page"""
-    user, stats = get_user_context()
-
-    # Check if user has a CV profile
-    cv_profile = cv_manager.get_profile_by_user(user['id'])
-
-    if not cv_profile:
-        flash('Please upload your CV first to use semantic search', 'warning')
-        return redirect(url_for('upload_cv'))
-
-    # Get job count
-    conn = job_db._get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM jobs")
-    job_count = cursor.fetchone()[0]
-    cursor.close()
-    if hasattr(job_db, '_return_connection'):
-        job_db._return_connection(conn)
-    else:
-        conn.close()
-
-    return render_template('semantic_search.html', user=user, stats=stats, job_count=job_count)
-
-
-@app.route('/run-semantic-search', methods=['POST'])
-@login_required
-def run_semantic_search():
-    """Run semantic search and return results"""
-    user, stats = get_user_context()
-
-    try:
-        # Get parameters
-        query = request.json.get('query', '').strip()
-        threshold = float(request.json.get('threshold', 0.5))
-        match_mode = request.json.get('match_mode', 'title_only')  # title_only or full_text
-        limit = int(request.json.get('limit', 20))
-        locations = request.json.get('locations', [])
-        include_remote = request.json.get('include_remote', True)
-        model_name = request.json.get('model', 'TechWolf/JobBERT-v3')
-
-        if not query:
-            return jsonify({'error': 'Query is required'}), 400
-
-        # Load model
-        model = get_semantic_model(model_name)
-        if model is None:
-            return jsonify({'error': f'Failed to load model: {model_name}'}), 500
-
-        # Get jobs with optional location filtering
-        start_time = time.time()
-        conn = job_db._get_connection()
-
-        # Use RealDictCursor for PostgreSQL
-        try:
-            from psycopg2.extras import RealDictCursor
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-        except ImportError:
-            # SQLite fallback
-            cursor = conn.cursor()
-            cursor.row_factory = lambda c, r: dict(zip([col[0] for col in c.description], r))
-
-        # Build query with optional location filter (include pre-computed embeddings)
-        query_sql = """
-            SELECT id, title, company, location, description,
-                   discovered_date, url, ai_work_arrangement,
-                   cities_derived, locations_derived, embedding_jobbert_title
-            FROM jobs
-        """
-        params = []
-
-        # Apply location filter if specified
-        if locations or include_remote:
-            conditions = []
-
-            if include_remote:
-                # Use parameter to avoid % escaping issues
-                conditions.append("ai_work_arrangement ILIKE %s")
-                params.append('%remote%')
-
-            if locations and len(locations) > 0:
-                # Build ILIKE patterns for each location
-                location_patterns = [f'%{loc}%' for loc in locations]
-                conditions.append("""
-                    (EXISTS (
-                        SELECT 1 FROM unnest(cities_derived) AS city
-                        WHERE city ILIKE ANY(%s)
-                    )
-                    OR
-                    EXISTS (
-                        SELECT 1 FROM unnest(locations_derived) AS loc
-                        WHERE loc ILIKE ANY(%s)
-                    ))
-                """)
-                params.extend([location_patterns, location_patterns])
-
-            if len(conditions) > 0:
-                query_sql += " WHERE (" + " OR ".join(conditions) + ")"
-
-        query_sql += " ORDER BY discovered_date DESC"
-
-        cursor.execute(query_sql, params)
-        jobs = [dict(row) for row in cursor.fetchall()]
-        cursor.close()
-        if hasattr(job_db, '_return_connection'):
-            job_db._return_connection(conn)
-        else:
-            conn.close()
-
-        fetch_time = time.time() - start_time
-
-        # Encode query
-        encode_start = time.time()
-        query_embedding = model.encode(query, show_progress_bar=False)
-        query_encode_time = time.time() - encode_start
-
-        # Load pre-computed embeddings (80-100x faster!)
-        load_start = time.time()
-        job_embeddings = {}
-        jobs_needing_encoding = []
-
-        for job in jobs:
-            # For title_only mode, use pre-computed embeddings
-            if match_mode == 'title_only' and job.get('embedding_jobbert_title'):
-                try:
-                    import json
-                    embedding_json = job['embedding_jobbert_title']
-                    if isinstance(embedding_json, str):
-                        embedding_data = json.loads(embedding_json)
-                    else:
-                        embedding_data = embedding_json
-                    job_embeddings[job['id']] = np.array(embedding_data)
-                except Exception as e:
-                    print(f"⚠️  Failed to load embedding for job {job['id']}: {e}")
-                    jobs_needing_encoding.append(job)
-            else:
-                # Need to encode (full_text mode or missing embedding)
-                jobs_needing_encoding.append(job)
-
-        load_time = time.time() - load_start
-
-        # Encode jobs that don't have pre-computed embeddings (fallback)
-        encode_start = time.time()
-        for job in jobs_needing_encoding:
-            # Build job text based on mode
-            if match_mode == 'title_only':
-                job_text = job.get('title', '')
-            else:  # full_text
-                parts = []
-                if job.get('title'):
-                    parts.append(job['title'])
-                    parts.append(job['title'])  # Add title twice for emphasis
-                if job.get('company'):
-                    parts.append(f"Company: {job['company']}")
-                if job.get('location'):
-                    parts.append(f"Location: {job['location']}")
-                if job.get('description'):
-                    desc = job['description'][:3000]
-                    parts.append(desc)
-                job_text = " ".join(parts)
-
-            # Encode job on-the-fly
-            job_embedding = model.encode(job_text, show_progress_bar=False)
-            job_embeddings[job['id']] = job_embedding
-
-        encode_time = time.time() - encode_start
-
-        # Calculate similarity for all jobs
-        results = []
-        for job in jobs:
-            job_embedding = job_embeddings.get(job['id'])
-            if job_embedding is None:
-                continue
-
-            # Calculate cosine similarity
-            similarity = float(np.dot(query_embedding, job_embedding) /
-                             (np.linalg.norm(query_embedding) * np.linalg.norm(job_embedding)))
-
-            if similarity >= threshold:
-                results.append({
-                    'job_id': job['id'],
-                    'title': job['title'],
-                    'company': job['company'],
-                    'location': job['location'],
-                    'url': job['url'],
-                    'discovered_date': job['discovered_date'].isoformat() if hasattr(job['discovered_date'], 'isoformat') else str(job['discovered_date']),
-                    'similarity': round(similarity, 4),
-                    'match_score': int(similarity * 100)
-                })
-
-        # Sort by similarity
-        results.sort(key=lambda x: x['similarity'], reverse=True)
-
-        # Limit results
-        results = results[:limit]
-
-        total_time = time.time() - start_time
-
-        # Calculate speedup stats
-        precomputed_count = len(job_embeddings) - len(jobs_needing_encoding)
-        onthefly_count = len(jobs_needing_encoding)
-
-        return jsonify({
-            'results': results,
-            'stats': {
-                'total_jobs': len(jobs),
-                'matches_found': len(results),
-                'threshold': threshold,
-                'match_mode': match_mode,
-                'model': model_name,
-                'query': query,
-                'locations': locations,
-                'include_remote': include_remote,
-                'embeddings': {
-                    'precomputed': precomputed_count,
-                    'encoded_onthefly': onthefly_count,
-                    'coverage': round(precomputed_count / len(jobs) * 100, 1) if len(jobs) > 0 else 0
-                },
-                'timings': {
-                    'fetch_jobs': round(fetch_time, 3),
-                    'encode_query': round(query_encode_time, 3),
-                    'load_embeddings': round(load_time, 3),
-                    'encode_jobs': round(encode_time, 3),
-                    'total': round(total_time, 3)
-                }
-            }
-        }), 200
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/suggest-search')
@@ -1261,272 +910,36 @@ def run_custom_search():
 @app.route('/jobs/<int:job_id>')
 @login_required
 def job_detail(job_id):
-    """Job detail page with user-specific match data"""
-    # Get current user
-    user, stats = get_user_context()
-    user_id = user['id']
-
-    # Get job with user-specific data merged (priority, match_reasoning, etc.)
-    job = job_db.get_job_with_user_data(job_id, user_id)
+    """Job detail page"""
+    # Get job from database using efficient lookup
+    job = job_db.get_job_by_id(job_id)
 
     if not job:
         flash('Job not found', 'error')
         return redirect(url_for('jobs'))
 
-    # Note: match_score, priority, match_reasoning, key_alignments, and potential_gaps
-    # are already set and parsed by get_job_with_user_data()
+    # Set match_score from claude_score or semantic_score
+    if job.get('claude_score'):
+        job['match_score'] = job['claude_score']
+    elif job.get('semantic_score'):
+        job['match_score'] = job['semantic_score']
+    else:
+        job['match_score'] = None
 
-    # Fetch User Profile for accurate matching
-    user_cv_profile = cv_manager.get_primary_profile(user_id)
-    
-    user_skills = set()
-    user_competencies = set()
-    
-    if user_cv_profile:
-        # Normalize for matching
-        raw_skills = user_cv_profile.get('technical_skills', []) or []
-        user_skills = set(str(s).lower().strip() for s in raw_skills)
-        
-        raw_comps = user_cv_profile.get('competencies', []) or []
-        user_competencies = set(str(c).lower().strip() for c in raw_comps)
+    # Parse JSON fields if they're stored as strings
+    if job.get('key_alignments') and isinstance(job['key_alignments'], str):
+        try:
+            job['key_alignments'] = json.loads(job['key_alignments'])
+        except:
+            job['key_alignments'] = []
 
-    # Calculate match status for UI visualization
-    if job:
-        # Debug: Check what we got from database
-        print(f"DEBUG job_detail: competency_mappings type={type(job.get('competency_mappings'))}, value={job.get('competency_mappings')}")
-        print(f"DEBUG job_detail: skill_mappings type={type(job.get('skill_mappings'))}, value={job.get('skill_mappings')}")
-        print(f"DEBUG job_detail: ai_competencies exists? {job.get('ai_competencies') is not None}, count={len(job.get('ai_competencies') or [])}")
-        print(f"DEBUG job_detail: ai_key_skills exists? {job.get('ai_key_skills') is not None}, count={len(job.get('ai_key_skills') or [])}")
+    if job.get('potential_gaps') and isinstance(job['potential_gaps'], str):
+        try:
+            job['potential_gaps'] = json.loads(job['potential_gaps'])
+        except:
+            job['potential_gaps'] = []
 
-        # 1. Competencies Matching (HYBRID: Claude → Keyword → Semantic)
-        if job.get('ai_competencies'):
-            matches = {}
-
-            # Option 1: Try using Claude's structured mappings first (NEW JOBS)
-            claude_comp_mappings = job.get('competency_mappings')
-            if claude_comp_mappings and isinstance(claude_comp_mappings, list):
-                # Use Claude's expert mappings
-                print(f"✨ Using Claude competency mappings ({len(claude_comp_mappings)} mappings)")
-                mapped_comps = set()
-                for mapping in claude_comp_mappings:
-                    if isinstance(mapping, dict):
-                        job_req = mapping.get('job_requirement', '')
-                        if job_req:
-                            matches[job_req] = True
-                            mapped_comps.add(job_req.lower())
-                
-                # Mark unmapped competencies as unmatched
-                for comp in job['ai_competencies']:
-                    if comp.lower() not in mapped_comps:
-                        matches[comp] = False
-            else:
-                # Option 2: Fallback to keyword/semantic matching (EXISTING JOBS)
-                print(f"🔄 Using fallback matching for competencies")
-                
-                # Prepare alignment texts (from Claude's reasoning)
-                align_texts = []
-                if job.get('key_alignments'):
-                    for a in job['key_alignments']:
-                        if isinstance(a, str):
-                            align_texts.append(a.lower())
-                        elif isinstance(a, dict):
-                            align_texts.append(str(a.get('text', '')).lower())
-                
-                for comp in job['ai_competencies']:
-                    is_matched = False
-                    comp_lower = comp.lower().strip()
-                    
-                    # A. Check User Profile directly (Strongest evidence)
-                    if comp_lower in user_competencies or comp_lower in user_skills:
-                        is_matched = True
-                    
-                    # Fuzzy profile match
-                    if not is_matched and (user_competencies or user_skills):
-                         all_user_terms = user_competencies.union(user_skills)
-                         for term in all_user_terms:
-                             if term and (comp_lower in term or term in comp_lower):
-                                 if len(term) > 3 and len(comp_lower) > 3:
-                                     is_matched = True
-                                     break
-
-                    # B. Check against Key Alignments
-                    if not is_matched and align_texts:
-                        for align in align_texts:
-                            if comp_lower in align:
-                                is_matched = True
-                                break
-                        
-                        if not is_matched:
-                            comp_words = set(w for w in comp_lower.split() if len(w) > 3)
-                            if comp_words:
-                                for align in align_texts:
-                                    align_words = set(w for w in align.split() if len(w) > 3)
-                                    overlap = comp_words.intersection(align_words)
-                                    if len(overlap) / len(comp_words) >= 0.5:
-                                        is_matched = True
-                                        break
-                                
-                    matches[comp] = is_matched
-                
-                # C. Semantic matching fallback for unmatched competencies
-                unmatched_comps = [comp for comp, matched in matches.items() if not matched]
-                if unmatched_comps and user_cv_profile:
-                    try:
-                        from src.analysis.semantic_matcher import get_semantic_matcher
-                        semantic_matcher = get_semantic_matcher()
-                        
-                        user_comp_list = user_cv_profile.get('competencies', []) or []
-                        user_skill_list = user_cv_profile.get('technical_skills', []) or []
-                        
-                        # Parse JSON if needed
-                        import json
-                        if isinstance(user_comp_list, str):
-                            try:
-                                user_comp_list = json.loads(user_comp_list)
-                            except:
-                                user_comp_list = []
-                        if isinstance(user_skill_list, str):
-                            try:
-                                user_skill_list = json.loads(user_skill_list)
-                            except:
-                                user_skill_list = []
-                        
-                        # Extract 'name' from competency dicts
-                        comp_names = []
-                        for comp in user_comp_list:
-                            if isinstance(comp, dict):
-                                comp_names.append(comp.get('name', str(comp)))
-                            else:
-                                comp_names.append(str(comp))
-                        
-                        skill_names = [str(s) for s in user_skill_list]
-                        
-                        semantic_matches = semantic_matcher.match_competencies(
-                            unmatched_comps,
-                            comp_names,
-                            skill_names,
-                            threshold=0.45
-                        )
-                        
-                        # Update matches with semantic results
-                        for comp, sem_matched in semantic_matches.items():
-                            if sem_matched:
-                                matches[comp] = True
-                                print(f"✓ Semantic match: {comp}")
-                                
-                    except Exception as e:
-                        import logging
-                        logging.getLogger(__name__).warning(f"Semantic matching failed: {e}")
-            
-            job['competency_match_map'] = matches
-
-        # 2. Skills Matching (HYBRID: Claude → Keyword → Semantic)
-        if job.get('ai_key_skills'):
-            skill_matches = {}
-            
-            # Option 1: Try using Claude's structured skill mappings first (NEW JOBS)
-            claude_skill_mappings = job.get('skill_mappings')
-            if claude_skill_mappings and isinstance(claude_skill_mappings, list):
-                # Use Claude's expert mappings
-                print(f"✨ Using Claude skill mappings ({len(claude_skill_mappings)} mappings)")
-                mapped_skills = set()
-                for mapping in claude_skill_mappings:
-                    if isinstance(mapping, dict):
-                        job_skill = mapping.get('job_skill', '')
-                        if job_skill:
-                            skill_matches[job_skill] = True
-                            mapped_skills.add(job_skill.lower())
-                
-                # Mark unmapped skills as unmatched
-                for skill in job['ai_key_skills']:
-                    if skill.lower() not in mapped_skills:
-                        skill_matches[skill] = False
-            else:
-                # Option 2: Fallback to keyword/semantic matching (EXISTING JOBS)
-                print(f"🔄 Using fallback matching for skills")
-                
-                for skill in job['ai_key_skills']:
-                    s_lower = str(skill).lower().strip()
-                    is_matched = False
-                    
-                    # Check direct match
-                    if s_lower in user_skills:
-                        is_matched = True
-                    
-                    # Check fuzzy match
-                    if not is_matched:
-                         for us in user_skills:
-                             if len(us) > 2 and len(s_lower) > 2:
-                                 if s_lower in us or us in s_lower:
-                                     is_matched = True
-                                     break
-                    
-                    skill_matches[skill] = is_matched
-                
-                # C. Semantic matching fallback for unmatched skills
-                unmatched_skills = [skill for skill, matched in skill_matches.items() if not matched]
-                if unmatched_skills and user_cv_profile:
-                    try:
-                        from src.analysis.semantic_matcher import get_semantic_matcher
-                        semantic_matcher = get_semantic_matcher()
-                        
-                        user_skill_list = user_cv_profile.get('technical_skills', []) or []
-                        
-                        # Parse JSON if needed
-                        import json
-                        if isinstance(user_skill_list, str):
-                            try:
-                                user_skill_list = json.loads(user_skill_list)
-                            except:
-                                user_skill_list = []
-                        
-                        # Extract names if dict format
-                        skill_names = []
-                        for s in user_skill_list:
-                            if isinstance(s, dict):
-                                skill_names.append(s.get('name', str(s)))
-                            else:
-                                skill_names.append(str(s))
-                        
-                        semantic_matches = semantic_matcher.match_skills(
-                            unmatched_skills,
-                            skill_names,
-                            threshold=0.45
-                        )
-                        
-                        # Update matches with semantic results
-                        for skill, sem_matched in semantic_matches.items():
-                            if sem_matched:
-                                skill_matches[skill] = True
-                                print(f"✓ Semantic skill match: {skill}")
-                                
-                    except Exception as e:
-                        import logging
-                        logging.getLogger(__name__).warning(f"Semantic skill matching failed: {e}")
-            
-            job['skill_match_map'] = skill_matches
-
-    # Normalize work_history to work_experience for frontend compatibility
-    if user_cv_profile and 'work_history' in user_cv_profile:
-        work_experiences = []
-        for wh in user_cv_profile.get('work_history', []):
-            # Parse duration string (e.g., "Jul 2021 - Present")
-            duration = wh.get('duration', '')
-            parts = duration.split(' - ')
-            start_date = parts[0] if parts else ''
-            end_date = parts[1] if len(parts) > 1 else 'Present'
-
-            work_experiences.append({
-                'title': wh.get('title', ''),
-                'company': wh.get('company', ''),
-                'start_date': start_date,
-                'end_date': end_date,
-                'description': wh.get('description', ''),
-                'key_achievements': wh.get('key_achievements', [])
-            })
-        user_cv_profile['work_experience'] = work_experiences
-
-    return render_template('job_detail.html', job=job, user_profile=user_cv_profile)
+    return render_template('job_detail.html', job=job)
 
 
 @app.route('/jobs/<int:job_id>/generate-cover-letter')
@@ -1535,8 +948,9 @@ def generate_cover_letter_page(job_id):
     user, stats = get_user_context()
     
     # Get job
-    job = job_db.get_job(job_id)
-
+    jobs_list = job_db.get_jobs_by_score(0, max_results=1000)
+    job = next((j for j in jobs_list if j['id'] == job_id), None)
+    
     if not job:
         flash('Job not found', 'error')
         return redirect(url_for('jobs'))
@@ -1571,8 +985,9 @@ def create_cover_letter(job_id):
     language = request.form.get('language', 'english')
     
     # Get job
-    job = job_db.get_job(job_id)
-
+    jobs_list = job_db.get_jobs_by_score(0, max_results=1000)
+    job = next((j for j in jobs_list if j['id'] == job_id), None)
+    
     if not job:
         flash('Job not found', 'error')
         return redirect(url_for('jobs'))
@@ -1616,10 +1031,11 @@ def update_job_status(job_id, status):
     """Update job status"""
     try:
         # Get job to verify it exists
-        job = job_db.get_job(job_id)
+        jobs_list = job_db.get_jobs_by_score(0, max_results=1000)
+        job = next((j for j in jobs_list if j['id'] == job_id), None)
 
         if job:
-            job_db.update_job_status(job['id'], status)
+            job_db.update_job_status(job['job_id'], status)
             flash(f'Job marked as {status}', 'success')
         else:
             flash('Job not found', 'error')
@@ -1629,8 +1045,27 @@ def update_job_status(job_id, status):
     return redirect(url_for('jobs'))
 
 
+@app.route('/run-search')
+def run_search():
+    """Redirect to search progress page and start search in background"""
+    user, stats = get_user_context()
+    
+    # Create a unique search ID for this user
+    search_id = f"{user['id']}_{int(time.time())}"
+    session['current_search_id'] = search_id
+    
+    # Initialize progress queue
+    search_progress[search_id] = queue.Queue()
+    
+    # Start search in background thread
+    thread = threading.Thread(target=run_search_background, args=(search_id, user))
+    thread.daemon = True
+    thread.start()
+    
+    return render_template('search_progress.html', user=user, stats=stats)
 
-# Deprecated: run_search_background removed - use run_job_matching instead
+
+def run_search_background(search_id, user):
     """Run job search in background with progress updates"""
     
     def send_progress(percent, message, msg_type='info'):
@@ -1879,10 +1314,8 @@ def update_job_status(job_id, status):
         traceback.print_exc()
 
 
-# Deprecated: search_stream removed - use matching-status instead
-
-@app.errorhandler(404)
-def not_found(e):
+@app.route('/search-stream')
+def search_stream():
     """Stream search progress via Server-Sent Events"""
     search_id = session.get('current_search_id')
     
@@ -1959,25 +1392,6 @@ def dashboard():
                          learning_summary=learning_summary)
 
 
-@app.route('/cost-dashboard')
-@login_required
-def cost_dashboard():
-    """Cost tracking dashboard - shows usage and billing information"""
-    user, stats = get_user_context()
-    
-    # TODO: Once cost_sessions table is created, fetch real data
-    # For now, show placeholder data
-    
-    return render_template('cost_dashboard.html',
-                         user=user,
-                         stats=stats,
-                         total_month=0.00,
-                         total_30days=0.00,
-                         session_count=0,
-                         avg_session=0.00,
-                         sessions=[])
-
-
 @app.route('/learning-insights')
 def learning_insights():
     """Show what the AI has learned from user feedback"""
@@ -2003,127 +1417,51 @@ def learning_insights():
                          feedback_history=feedback_history)
 
 
-@app.route('/my-resumes')
-@login_required
-def my_resumes():
-    """View all generated resumes for current user"""
-    user, stats = get_user_context()
-    user_id = get_user_id()
-
-    if not resume_ops:
-        flash('Resume feature not available', 'error')
-        return redirect(url_for('dashboard'))
-
-    try:
-        # Get all resumes for this user
-        resumes = resume_ops.get_user_resumes(user_id)
-
-        # Enrich with job details
-        for resume in resumes:
-            job = job_db.get_job_by_id(resume['job_id'])
-            if job:
-                resume['job_title'] = job.get('title', 'Unknown Job')
-                resume['job_company'] = job.get('company', 'Unknown Company')
-            else:
-                resume['job_title'] = 'Job Not Found'
-                resume['job_company'] = ''
-
-            # Check if PDF exists
-            pdf_path = resume.get('resume_pdf_path')
-            resume['pdf_exists'] = pdf_path and os.path.exists(pdf_path)
-
-        return render_template('my_resumes.html',
-                             user=user,
-                             stats=stats,
-                             resumes=resumes)
-
-    except Exception as e:
-        print(f"Error loading resumes: {e}")
-        import traceback
-        traceback.print_exc()
-        flash(f'Error loading resumes: {str(e)}', 'error')
-        return redirect(url_for('dashboard'))
-
-
-@app.route('/my-resumes/<int:resume_id>/delete', methods=['POST'])
-@login_required
-def delete_resume_route(resume_id):
-    """Delete a generated resume"""
-    user_id = get_user_id()
-
-    if not resume_ops:
-        flash('Resume feature not available', 'error')
-        return redirect(url_for('dashboard'))
-
-    try:
-        # Delete from database (with user verification)
-        deleted = resume_ops.delete_resume(resume_id, user_id)
-
-        if deleted:
-            flash('Resume deleted successfully', 'success')
-        else:
-            flash('Resume not found or access denied', 'error')
-
-    except Exception as e:
-        print(f"Error deleting resume: {e}")
-        flash(f'Error deleting resume: {str(e)}', 'error')
-
-    return redirect(url_for('my_resumes'))
-
-
 @app.route('/jobs/<int:job_id>/shortlist', methods=['POST'])
-@login_required
 def shortlist_job(job_id):
-    """Add job to shortlist (user-specific)"""
+    """Add job to shortlist"""
     try:
-        user_id = get_user_id()
-        job_db.update_user_job_status(user_id, job_id, 'shortlisted')
+        job_db.update_job_status(job_id, 'shortlisted')
         flash('Job added to your dashboard!', 'success')
     except Exception as e:
         flash(f'Error adding job to shortlist: {str(e)}', 'error')
-
+    
     return redirect(request.referrer or url_for('jobs'))
 
 
 @app.route('/jobs/<int:job_id>/remove-shortlist', methods=['POST'])
-@login_required
 def remove_shortlist(job_id):
-    """Remove job from shortlist (user-specific)"""
+    """Remove job from shortlist"""
     try:
-        user_id = get_user_id()
-        job_db.update_user_job_status(user_id, job_id, 'viewed')
+        job_db.update_job_status(job_id, 'viewed')
         flash('Job removed from dashboard', 'info')
     except Exception as e:
         flash(f'Error removing job: {str(e)}', 'error')
-
+    
     return redirect(request.referrer or url_for('dashboard'))
 
 
 @app.route('/jobs/<int:job_id>/delete', methods=['POST'])
-@login_required
 def delete_job(job_id):
     """
-    Hide job permanently for this user - it won't appear in future searches
-    Job is marked as 'deleted' in user_job_matches (user-specific)
+    Hide job permanently - it won't appear in future searches
+    Job is marked as 'deleted' but not removed from database
     """
     try:
-        user_id = get_user_id()
-        job_db.update_user_job_status(user_id, job_id, 'deleted')
+        job_db.update_job_status(job_id, 'deleted')
         flash('Job hidden permanently. It will not appear in future searches.', 'success')
     except Exception as e:
         flash(f'Error hiding job: {str(e)}', 'error')
-
+    
     return redirect(url_for('jobs'))
 
 
 @app.route('/deleted-jobs')
-@login_required
 def deleted_jobs():
     """View all deleted/hidden jobs"""
     user, stats = get_user_context()
-    user_id = get_user_id()
-
-    deleted_jobs_list = job_db.get_deleted_jobs(user_id=user_id, limit=100)
+    
+    deleted_jobs_list = job_db.get_deleted_jobs(limit=100)
     
     # Parse JSON fields
     for job in deleted_jobs_list:
@@ -2181,19 +1519,17 @@ def job_feedback(job_id):
     feedback_reason = request.form.get('feedback_reason', '')
     
     # Get original job score
-    # Get original job score for this user
     conn = job_db._get_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute('SELECT claude_score FROM user_job_matches WHERE job_id = %s AND user_id = %s', (job_id, user['id']))
-        row = cursor.fetchone()
-    finally:
-        # Proper pool management
-        cursor.close()
-        job_db._return_connection(conn)
+    cursor = conn.cursor()
+    cursor.execute('SELECT match_score FROM jobs WHERE id = ?', (job_id,))
+    row = cursor.fetchone()
+    conn.close()
     
-    # If no match record found, default to 0
-    original_score = row[0] if row else 0
+    if not row:
+        flash('Job not found', 'error')
+        return redirect(url_for('jobs'))
+    
+    original_score = row[0] or 0
     
     # Save feedback
     success = job_db.add_feedback(
@@ -2321,22 +1657,17 @@ def update_search_preferences():
             traceback.print_exc()
             flash('Search preferences updated, but job loading failed. Will retry on next daily update.', 'warning')
 
-        # Auto-trigger filtering if user has CV (with duplicate check)
+        # Auto-trigger filtering if user has CV
         try:
             user_cvs = cv_manager.get_user_cvs(user['id'])
             if user_cvs:
-                # Check if already running
-                if user['id'] in matching_status and matching_status[user['id']].get('status') == 'running':
-                    flash('Search preferences updated! Job matching is already in progress.', 'success')
-                else:
-                    # Trigger filtering in background thread
-                    threading.Thread(
-                        target=run_background_filtering,
-                        args=(user['id'],),
-                        daemon=True
-                    ).start()
-                    flash('Search preferences updated! Job matching started automatically. Check progress on Jobs page.', 'success')
-                    return redirect(url_for('jobs'))  # Redirect to jobs page to see progress
+                flash('Starting automatic job matching in the background...', 'info')
+                # Trigger filtering in background thread
+                threading.Thread(
+                    target=run_background_filtering,
+                    args=(user['id'],),
+                    daemon=True
+                ).start()
         except Exception as filter_error:
             print(f"Error starting background filter: {filter_error}", flush=True)
 
@@ -2373,7 +1704,7 @@ def run_job_matching():
         
         # Check if already running
         if user_id in matching_status and matching_status[user_id].get('status') == 'running':
-            flash('⏳ Job matching is already in progress! Scroll down to see the progress indicator.', 'warning')
+            flash('Job matching is already in progress. Please wait...', 'info')
             return redirect(url_for('jobs'))
         
         # Check if filtering is needed
@@ -2731,462 +2062,6 @@ def api_stats():
     }
     
     return jsonify(stats)
-
-
-@app.route('/admin/clear-model-cache', methods=['POST'])
-@login_required
-def clear_model_cache():
-    """Clear cached semantic models (admin only)"""
-    global _semantic_models
-
-    user = get_user_context()[0]
-
-    # Simple admin check - you can make this more restrictive
-    if not user:
-        return jsonify({'error': 'Unauthorized'}), 403
-
-    try:
-        cleared_models = list(_semantic_models.keys())
-        _semantic_models.clear()
-
-        return jsonify({
-            'success': True,
-            'message': 'Model cache cleared successfully',
-            'cleared_models': cleared_models
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-# ============ Resume Generation API Routes ============
-
-@app.route('/api/save-competency-evidence', methods=['POST'])
-@login_required
-def save_competency_evidence():
-    """
-    Save user's claimed competencies/skills with evidence
-
-    Request Body:
-    {
-        "selections": [
-            {
-                "name": "Agile Methodology",
-                "type": "competency",
-                "work_experience_ids": [1, 3],
-                "evidence": "Led daily standups..."
-            }
-        ]
-    }
-
-    Returns:
-        JSON with success status and message
-    """
-    if not resume_ops:
-        return jsonify({
-            'success': False,
-            'error': 'Resume generation not available'
-        }), 503
-
-    user_id = get_user_id()
-    data = request.json
-
-    if not data or 'selections' not in data:
-        return jsonify({
-            'success': False,
-            'error': 'Missing selections data'
-        }), 400
-
-    try:
-        selections = data.get('selections', [])
-
-        if not selections:
-            return jsonify({
-                'success': False,
-                'error': 'No selections provided'
-            }), 400
-
-        # Save all selections in a single transaction
-        resume_ops.save_multiple_claims(user_id, selections)
-
-        return jsonify({
-            'success': True,
-            'message': f'Evidence saved for {len(selections)} items'
-        })
-
-    except Exception as e:
-        import traceback
-        print(f"Error saving competency evidence: {e}")
-        print(traceback.format_exc())
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
-@app.route('/api/generate-resume/<int:job_id>', methods=['POST'])
-@login_required
-def generate_resume(job_id):
-    """
-    Generate tailored resume for a specific job
-
-    Args:
-        job_id: Job ID to generate resume for
-
-    Returns:
-        JSON with resume HTML, PDF URL, and metadata
-    """
-    if not resume_generator or not resume_ops:
-        return jsonify({
-            'success': False,
-            'error': 'Resume generation not available'
-        }), 503
-
-    user_id = get_user_id()
-
-    try:
-        # Get selections from request body
-        request_data = request.get_json() or {}
-        selections = request_data.get('selections', [])
-
-        # Save selections to database first (if provided)
-        if selections:
-            print(f"Saving {len(selections)} selections to database...")
-            resume_ops.save_multiple_claims(user_id, selections)
-
-        # Get user's CV profile
-        profile = cv_manager.get_primary_profile(user_id)
-        if not profile:
-            return jsonify({
-                'success': False,
-                'error': 'No CV profile found. Please upload your CV first.'
-            }), 400
-
-        # Normalize work_history to work_experience for resume generator
-        if profile and 'work_history' in profile:
-            work_experiences = []
-            for wh in profile.get('work_history', []):
-                # Parse duration string (e.g., "Jul 2021 - Present")
-                duration = wh.get('duration', '')
-                parts = duration.split(' - ')
-                start_date = parts[0] if parts else ''
-                end_date = parts[1] if len(parts) > 1 else 'Present'
-
-                work_experiences.append({
-                    'title': wh.get('title', ''),
-                    'company': wh.get('company', ''),
-                    'start_date': start_date,
-                    'end_date': end_date,
-                    'description': wh.get('description', ''),
-                    'key_achievements': wh.get('key_achievements', [])
-                })
-            profile['work_experience'] = work_experiences
-
-        # Get job details
-        job = job_db.get_job_by_id(job_id)
-        if not job:
-            return jsonify({
-                'success': False,
-                'error': 'Job not found'
-            }), 404
-
-        # Get user's claimed competencies/skills (including newly saved)
-        claimed_data = resume_ops.get_user_claimed_data(user_id)
-
-        # Get user's contact information for resume header
-        # Use resume-specific fields if set, otherwise fall back to login credentials
-        user_info = None
-        conn = cv_manager.connection_pool.getconn()
-        try:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT name, email, phone, resume_name, resume_email, resume_phone
-                FROM users WHERE id = %s
-            """, (user_id,))
-            user_row = cur.fetchone()
-            if user_row:
-                user_info = {
-                    'name': user_row[3] or user_row[0],  # resume_name or fallback to name
-                    'email': user_row[4] or user_row[1],  # resume_email or fallback to email
-                    'phone': user_row[5] or user_row[2]   # resume_phone or fallback to phone
-                }
-        finally:
-            cv_manager.connection_pool.putconn(conn)
-
-        # Generate resume HTML
-        print(f"Generating resume for user {user_id}, job {job_id}...")
-        resume_html = resume_generator.generate_resume_html(
-            profile,
-            job,
-            claimed_data,
-            user_info
-        )
-
-        print(f"Resume HTML generated successfully (not saved yet - waiting for user to edit and save)")
-
-        # Return HTML without saving to database (user will edit first, then save)
-        return jsonify({
-            'success': True,
-            'resume_html': resume_html,
-            'job_title': job.get('title'),
-            'company': job.get('company')
-        })
-
-    except Exception as e:
-        import traceback
-        print(f"Error generating resume: {e}")
-        print(traceback.format_exc())
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
-@app.route('/api/save-resume/<int:job_id>', methods=['POST'])
-@login_required
-def save_resume_route(job_id):
-    """
-    Save edited resume to database
-
-    Args:
-        job_id: Job ID the resume was generated for
-
-    Request Body:
-        {
-            "resume_html": "<edited HTML>",
-            "selections": [...]  # Optional - already saved during generation
-        }
-
-    Returns:
-        JSON with resume_id and success status
-    """
-    if not resume_generator or not resume_ops:
-        return jsonify({
-            'success': False,
-            'error': 'Resume save not available'
-        }), 503
-
-    user_id = get_user_id()
-
-    try:
-        # Get edited resume HTML from request
-        request_data = request.get_json() or {}
-        resume_html = request_data.get('resume_html')
-
-        if not resume_html:
-            return jsonify({
-                'success': False,
-                'error': 'No resume HTML provided'
-            }), 400
-
-        # Get job details to include in response
-        job = job_db.get_job_by_id(job_id)
-        if not job:
-            return jsonify({
-                'success': False,
-                'error': 'Job not found'
-            }), 404
-
-        # Get user's claimed competencies/skills
-        claimed_data = resume_ops.get_user_claimed_data(user_id)
-
-        # Create resumes directory if it doesn't exist
-        resumes_dir = os.path.join('static', 'resumes')
-        os.makedirs(resumes_dir, exist_ok=True)
-
-        # Generate PDF from edited HTML
-        pdf_filename = f"resume_user{user_id}_job{job_id}_{int(time.time())}.pdf"
-        pdf_path = os.path.join(resumes_dir, pdf_filename)
-
-        try:
-            print(f"Generating PDF from edited resume at {pdf_path}...")
-            resume_generator.html_to_pdf(resume_html, pdf_path)
-            print(f"✅ PDF generated successfully")
-        except Exception as pdf_error:
-            print(f"⚠️  PDF generation failed: {pdf_error}")
-            print("Continuing without PDF...")
-            pdf_path = None
-
-        # Save to database
-        resume_id = resume_ops.save_generated_resume(
-            user_id,
-            job_id,
-            resume_html,
-            pdf_path,
-            claimed_data
-        )
-
-        print(f"Edited resume saved successfully: ID {resume_id}")
-
-        return jsonify({
-            'success': True,
-            'resume_id': resume_id,
-            'pdf_url': f'/download/resume/{resume_id}' if pdf_path else None,
-            'job_title': job.get('title'),
-            'company': job.get('company')
-        })
-
-    except Exception as e:
-        import traceback
-        print(f"Error saving resume: {e}")
-        print(traceback.format_exc())
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
-@app.route('/api/update-contact-info', methods=['POST'])
-@login_required
-def update_contact_info():
-    """
-    Update user's resume contact information (separate from login credentials)
-
-    Request Body:
-        {
-            "resume_name": "Full Name",  # Optional - will use login name if empty
-            "resume_email": "email@example.com",  # Optional - will use login email if empty
-            "resume_phone": "+1 (555) 123-4567"  # Optional
-        }
-
-    Returns:
-        JSON with success status and fallback values
-    """
-    user_id = get_user_id()
-
-    try:
-        request_data = request.get_json() or {}
-        resume_name = request_data.get('resume_name', '').strip() or None
-        resume_email = request_data.get('resume_email', '').strip() or None
-        resume_phone = request_data.get('resume_phone', '').strip() or None
-
-        # Validate email format if provided
-        if resume_email:
-            import re
-            email_regex = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
-            if not email_regex.match(resume_email):
-                return jsonify({
-                    'success': False,
-                    'error': 'Invalid email format'
-                }), 400
-
-        # Update user record with resume-specific fields
-        conn = cv_manager.connection_pool.getconn()
-        try:
-            cur = conn.cursor()
-
-            # Update resume contact fields
-            cur.execute("""
-                UPDATE users
-                SET resume_name = %s, resume_email = %s, resume_phone = %s, last_updated = NOW()
-                WHERE id = %s
-            """, (resume_name, resume_email, resume_phone, user_id))
-
-            # Get login credentials for fallback display
-            cur.execute("SELECT name, email FROM users WHERE id = %s", (user_id,))
-            user_row = cur.fetchone()
-
-            conn.commit()
-        finally:
-            cv_manager.connection_pool.putconn(conn)
-
-        fallback_name = user_row[0] if user_row else 'Not set'
-        fallback_email = user_row[1] if user_row else 'Not set'
-
-        print(f"Updated resume contact info for user {user_id}:")
-        print(f"  Resume Name: {resume_name or f'(using login: {fallback_name})'}")
-        print(f"  Resume Email: {resume_email or f'(using login: {fallback_email})'}")
-        print(f"  Resume Phone: {resume_phone or '(not set)'}")
-
-        return jsonify({
-            'success': True,
-            'message': 'Resume contact information updated successfully',
-            'fallback_name': fallback_name,
-            'fallback_email': fallback_email
-        })
-
-    except Exception as e:
-        import traceback
-        print(f"Error updating contact info: {e}")
-        print(traceback.format_exc())
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
-@app.route('/download/resume/<int:resume_id>')
-@login_required
-def download_resume(resume_id):
-    """
-    Download generated resume (HTML or PDF)
-
-    Args:
-        resume_id: Resume ID to download
-
-    Query Parameters:
-        format: 'html' or 'pdf' (default: 'pdf')
-
-    Returns:
-        File download or error
-    """
-    if not resume_ops:
-        flash('Resume download not available', 'error')
-        return redirect(url_for('jobs'))
-
-    user_id = get_user_id()
-    download_format = request.args.get('format', 'pdf')
-
-    try:
-        # Get resume with user verification
-        resume = resume_ops.get_resume_by_id(resume_id, user_id)
-
-        if not resume:
-            flash('Resume not found', 'error')
-            return redirect(url_for('jobs'))
-
-        job_id = resume['job_id']
-
-        if download_format == 'html':
-            # Download as HTML
-            from flask import make_response
-
-            response = make_response(resume['resume_html'])
-            response.headers['Content-Type'] = 'text/html; charset=utf-8'
-            response.headers['Content-Disposition'] = f'attachment; filename="resume_job_{job_id}.html"'
-            return response
-
-        elif download_format == 'pdf':
-            # Download as PDF (if generated)
-            pdf_path = resume.get('resume_pdf_path')
-
-            if not pdf_path or not os.path.exists(pdf_path):
-                # PDF not generated yet - offer HTML as fallback
-                flash('PDF not available. Downloading HTML version instead.', 'info')
-                from flask import make_response
-
-                response = make_response(resume['resume_html'])
-                response.headers['Content-Type'] = 'text/html; charset=utf-8'
-                response.headers['Content-Disposition'] = f'attachment; filename="resume_job_{job_id}.html"'
-                return response
-
-            # Send PDF file
-            return send_file(
-                pdf_path,
-                mimetype='application/pdf',
-                as_attachment=True,
-                download_name=f"resume_job_{job_id}.pdf"
-            )
-
-        else:
-            flash('Invalid format. Use "html" or "pdf"', 'error')
-            return redirect(url_for('jobs'))
-
-    except Exception as e:
-        import traceback
-        print(f"Error downloading resume: {e}")
-        print(traceback.format_exc())
-        flash(f'Error downloading resume: {str(e)}', 'error')
-        return redirect(url_for('jobs'))
 
 
 if __name__ == '__main__':

@@ -59,6 +59,21 @@ class ResumeGenerator:
                 html_content = html_content.split('```\n', 1)[1]
                 html_content = html_content.rsplit('```', 1)[0]
 
+            # Remove any preamble text before <!DOCTYPE html>
+            # Claude sometimes adds commentary before the actual HTML
+            if '<!DOCTYPE html>' in html_content:
+                html_content = '<!DOCTYPE html>' + html_content.split('<!DOCTYPE html>', 1)[1]
+            elif '<html' in html_content.lower():
+                # If no DOCTYPE but has <html> tag, extract from there
+                import re
+                match = re.search(r'<html[^>]*>', html_content, re.IGNORECASE)
+                if match:
+                    html_content = html_content[match.start():]
+
+            # Remove any text after the closing </html> tag
+            if '</html>' in html_content.lower():
+                html_content = html_content[:html_content.lower().rfind('</html>') + 7]
+
             return html_content.strip()
 
         except Exception as e:

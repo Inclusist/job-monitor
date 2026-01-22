@@ -1,50 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Inclusist{% endblock %}</title>
-
-    <!-- Google Fonts - Poppins -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap"
-        rel="stylesheet">
-
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-
-    <!-- Flowbite -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/flowbite/2.2.1/flowbite.min.css" rel="stylesheet" />
-
-    <!-- Alpine.js for interactivity -->
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-
-    <!-- Custom Tailwind Config -->
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        primary: {
-                            50: '#f5f7ff',
-                            100: '#ebf0fe',
-                            200: '#d6e0fd',
-                            300: '#b3c5fb',
-                            400: '#8da5f8',
-                            500: '#667eea',
-                            600: '#5568d3',
-                            700: '#4453b0',
-                            800: '#34408d',
-                            900: '#283174',
-                        }
-                    }
-                }
-            }
-        }
-    </script>
-
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <style>
         * {
@@ -54,7 +13,7 @@
         }
 
         body {
-            font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: #f5f5f5;
             color: #333;
             line-height: 1.6;
@@ -64,7 +23,7 @@
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             padding: 1rem 2rem;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
 
         .navbar .container {
@@ -84,7 +43,7 @@
         }
 
         .navbar .logo-container:hover {
-            opacity: 0.7;
+            opacity: 0.9;
         }
 
         .navbar .logo {
@@ -93,8 +52,8 @@
         }
 
         .navbar h1 {
-            font-size: 2rem;
-            font-weight: 700;
+            font-size: 1.5rem;
+            font-weight: 600;
             margin: 0;
         }
 
@@ -110,11 +69,11 @@
         .navbar nav a:hover {
             opacity: 0.8;
         }
-
+        
         .navbar nav a.active {
             opacity: 1;
         }
-
+        
         .navbar nav a.active::after {
             content: '';
             position: absolute;
@@ -136,7 +95,7 @@
             background: white;
             border-radius: 12px;
             padding: 2rem;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
             margin-bottom: 2rem;
         }
 
@@ -201,8 +160,7 @@
             margin-top: 1rem;
         }
 
-        th,
-        td {
+        th, td {
             padding: 1rem;
             text-align: left;
             border-bottom: 1px solid #eee;
@@ -283,7 +241,7 @@
             background: white;
             padding: 1.5rem;
             border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
             text-align: center;
         }
 
@@ -299,78 +257,26 @@
         }
     </style>
 </head>
-
 <body>
     <div class="navbar">
         <div class="container">
             <a href="{{ url_for('index') }}" class="logo-container">
-                <img src="{{ url_for('static', filename='images/inclusist-icon.png') }}" alt="Inclusist" class="logo">
+                <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Inclusist Logo" class="logo">
                 <h1>Inclusist</h1>
             </a>
-            <nav style="display: flex; align-items: center; gap: 1.5rem;">
+            <nav>
                 {% if current_user.is_authenticated %}
                 <a href="{{ url_for('index') }}">Home</a>
+                <a href="{{ url_for('upload_cv') }}">Upload CV</a>
+                <a href="{{ url_for('view_profile') }}">My Profile</a>
+                <a href="{{ url_for('search_preferences') }}" title="Configure search keywords & locations">⚙️ Search</a>
                 <a href="{{ url_for('jobs') }}">Jobs</a>
-                <a href="{{ url_for('semantic_search') }}">🔍 Search</a>
-                <a href="{{ url_for('dashboard') }}"
-                    style="background: rgba(255,255,255,0.2); padding: 0.5rem 1rem; border-radius: 6px;">📋
-                    Dashboard</a>
-
-                <!-- Profile Dropdown Menu -->
-                <div x-data="{ open: false }" @click.away="open = false" style="position: relative;">
-                    <button @click="open = !open"
-                        style="display: flex; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.15); padding: 0.5rem 1rem; border-radius: 8px; border: none; color: white; cursor: pointer; font-family: inherit; font-size: inherit;">
-                        <span style="font-size: 1.2rem;">👤</span>
-                        <span>{{ current_user.email.split('@')[0] }}</span>
-                        <span x-show="!open" style="font-size: 0.8rem;">▼</span>
-                        <span x-show="open" style="font-size: 0.8rem;">▲</span>
-                    </button>
-
-                    <div x-show="open" x-transition:enter="transition ease-out duration-100"
-                        x-transition:enter-start="transform opacity-0 scale-95"
-                        x-transition:enter-end="transform opacity-100 scale-100"
-                        x-transition:leave="transition ease-in duration-75"
-                        x-transition:leave-start="transform opacity-100 scale-100"
-                        x-transition:leave-end="transform opacity-0 scale-95"
-                        style="position: absolute; right: 0; top: 100%; margin-top: 0.5rem; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 200px; overflow: hidden; z-index: 1000;">
-                        <a href="{{ url_for('view_profile') }}"
-                            style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #333; text-decoration: none; border-bottom: 1px solid #eee; transition: background 0.2s;"
-                            onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
-                            <span>👤</span>
-                            <span>Profile</span>
-                        </a>
-                        <a href="{{ url_for('search_preferences') }}"
-                            style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #333; text-decoration: none; border-bottom: 1px solid #eee; transition: background 0.2s;"
-                            onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
-                            <span>⚙️</span>
-                            <span>Search Settings</span>
-                        </a>
-                        <a href="{{ url_for('cost_dashboard') }}"
-                            style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #333; text-decoration: none; border-bottom: 1px solid #eee; transition: background 0.2s;"
-                            onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
-                            <span>💰</span>
-                            <span>Cost Dashboard</span>
-                        </a>
-                        <a href="{{ url_for('learning_insights') }}"
-                            style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #333; text-decoration: none; border-bottom: 1px solid #eee; transition: background 0.2s;"
-                            onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
-                            <span>🧠</span>
-                            <span>Learning Insights</span>
-                        </a>
-                        <a href="{{ url_for('my_resumes') }}"
-                            style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #333; text-decoration: none; border-bottom: 1px solid #eee; transition: background 0.2s;"
-                            onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
-                            <span>📄</span>
-                            <span>My Resumes</span>
-                        </a>
-                        <a href="{{ url_for('logout') }}"
-                            style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #dc3545; text-decoration: none; transition: background 0.2s;"
-                            onmouseover="this.style.background='#fff5f5'" onmouseout="this.style.background='white'">
-                            <span>🚪</span>
-                            <span>Logout</span>
-                        </a>
-                    </div>
-                </div>
+                <a href="{{ url_for('dashboard') }}" style="background: rgba(255,255,255,0.2); padding: 0.5rem 1rem; border-radius: 6px;">📋 Dashboard</a>
+                <a href="{{ url_for('learning_insights') }}" title="See what the AI learned">🧠</a>
+                <a href="{{ url_for('admin_stats') }}" title="Admin Dashboard" style="background: rgba(255,215,0,0.3); padding: 0.5rem 1rem; border-radius: 6px;">📊 Stats</a>
+                <span style="opacity: 0.8; margin-left: 1rem;">|</span>
+                <span style="opacity: 0.9; margin-left: 0.5rem;">{{ current_user.email }}</span>
+                <a href="{{ url_for('logout') }}" style="margin-left: 0.5rem;">Logout</a>
                 {% else %}
                 <a href="{{ url_for('login') }}">Login</a>
                 <a href="{{ url_for('register') }}">Register</a>
@@ -381,18 +287,14 @@
 
     <div class="container">
         {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-        {% for category, message in messages %}
-        <div class="alert alert-{{ category }}">{{ message }}</div>
-        {% endfor %}
-        {% endif %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
         {% endwith %}
 
         {% block content %}{% endblock %}
     </div>
-
-    <!-- Flowbite JavaScript -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/flowbite/2.2.1/flowbite.min.js"></script>
 </body>
-
 </html>

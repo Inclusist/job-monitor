@@ -4,10 +4,28 @@
 
 {% block content %}
 <div class="card">
-    <h2 style="margin-bottom: 1rem;">📄 My Generated Resumes</h2>
+    <h2 style="margin-bottom: 1rem;">📄 My Resumes & Cover Letters</h2>
     <p style="color: #666; margin-bottom: 2rem;">
-        View and download all your AI-generated, job-tailored resumes.
+        View and download all your AI-generated, job-tailored resumes and cover letters.
     </p>
+
+    <!-- Navigation Tabs -->
+    <div x-data="{ tab: 'resumes' }" style="margin-bottom: 2rem;">
+        <div style="display: flex; gap: 0.5rem; border-bottom: 2px solid #e0e0e0; margin-bottom: 1.5rem;">
+            <button @click="tab = 'resumes'"
+                    :style="tab === 'resumes' ? 'border-bottom: 3px solid #667eea; color: #667eea;' : 'color: #666;'"
+                    style="padding: 0.75rem 1.5rem; background: none; border: none; font-weight: 600; cursor: pointer; transition: all 0.2s;">
+                📄 Resumes ({{ resumes|length }})
+            </button>
+            <button @click="tab = 'coverletters'"
+                    :style="tab === 'coverletters' ? 'border-bottom: 3px solid #667eea; color: #667eea;' : 'color: #666;'"
+                    style="padding: 0.75rem 1.5rem; background: none; border: none; font-weight: 600; cursor: pointer; transition: all 0.2s;">
+                ✉️ Cover Letters ({{ cover_letters|length }})
+            </button>
+        </div>
+
+        <!-- Resumes Tab -->
+        <div x-show="tab === 'resumes'" x-transition>
 
     {% if resumes %}
     <div style="display: grid; gap: 1.5rem;">
@@ -135,6 +153,92 @@
         </a>
     </div>
     {% endif %}
+        </div>
+
+        <!-- Cover Letters Tab -->
+        <div x-show="tab === 'coverletters'" x-transition>
+    {% if cover_letters %}
+    <div style="display: grid; gap: 1.5rem;">
+        {% for cover_letter in cover_letters %}
+        <div class="card" style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%); border-left: 4px solid #28a745;">
+            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
+                <div style="flex: 1;">
+                    <h3 style="margin-bottom: 0.5rem; color: #333;">
+                        {{ cover_letter.job_title }}
+                    </h3>
+                    <p style="color: #666; font-size: 0.95rem; margin-bottom: 0.5rem;">
+                        🏢 {{ cover_letter.job_company }}
+                    </p>
+                    <p style="color: #999; font-size: 0.875rem;">
+                        🕐 Generated on {{ cover_letter.created_at.strftime('%b %d, %Y at %I:%M %p') if cover_letter.created_at else 'Unknown date' }}
+                    </p>
+                </div>
+
+                <div style="text-align: right;">
+                    <span class="badge" style="background: #28a745; font-size: 0.875rem;">
+                        Cover Letter #{{ cover_letter.id }}
+                    </span>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                <!-- View Cover Letter -->
+                <a href="{{ url_for('view_cover_letter', cover_letter_id=cover_letter.id) }}"
+                   class="btn"
+                   style="background: #667eea; display: inline-flex; align-items: center; gap: 0.5rem;">
+                    <span>👁️</span>
+                    <span>View</span>
+                </a>
+
+                <!-- Download HTML -->
+                <a href="{{ url_for('download_cover_letter', cover_letter_id=cover_letter.id) }}"
+                   class="btn"
+                   style="background: #007bff; display: inline-flex; align-items: center; gap: 0.5rem;">
+                    <span>📥</span>
+                    <span>Download HTML</span>
+                </a>
+
+                <!-- View Job -->
+                <a href="{{ url_for('job_detail', job_id=cover_letter.job_id) }}"
+                   class="btn"
+                   style="background: #28a745; display: inline-flex; align-items: center; gap: 0.5rem;">
+                    <span>👁️</span>
+                    <span>View Job</span>
+                </a>
+
+                <!-- Delete Cover Letter -->
+                <form method="POST"
+                      action="{{ url_for('delete_cover_letter', cover_letter_id=cover_letter.id) }}"
+                      style="display: inline;"
+                      onsubmit="return confirm('Are you sure you want to delete this cover letter? This cannot be undone.');">
+                    <button type="submit"
+                            class="btn"
+                            style="background: #6c757d; display: inline-flex; align-items: center; gap: 0.5rem;">
+                        <span>🗑️</span>
+                        <span>Delete</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% else %}
+    <!-- Empty State -->
+    <div style="text-align: center; padding: 3rem 1rem;">
+        <div style="font-size: 4rem; margin-bottom: 1rem;">✉️</div>
+        <h3 style="color: #666; margin-bottom: 1rem;">No Cover Letters Generated Yet</h3>
+        <p style="color: #999; margin-bottom: 2rem; max-width: 500px; margin-left: auto; margin-right: auto;">
+            Generate your first cover letter by visiting a job detail page and clicking "Generate Cover Letter".
+        </p>
+        <a href="{{ url_for('jobs') }}" class="btn" style="background: #667eea;">
+            🔍 Browse Jobs
+        </a>
+    </div>
+    {% endif %}
+        </div>
+    </div>
 </div>
 
 <style>

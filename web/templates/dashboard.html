@@ -97,13 +97,47 @@
     </div>
     {% endif %}
 
+    <!-- Resume & Cover Letter Section -->
+    <div style="margin-bottom: 1.5rem; padding: 1rem; background: #f0f8ff; border-radius: 8px; border: 1px solid #d0e8ff;">
+        <p style="color: #666; font-size: 0.875rem; margin: 0 0 0.75rem 0; font-weight: 600;">📄 Application Documents:</p>
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+            {% if job.saved_resume %}
+                <a href="{{ url_for('download_resume', resume_id=job.saved_resume.id) }}?format=pdf"
+                   class="btn"
+                   style="background: #28a745; display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; padding: 0.5rem 1rem;">
+                    <span>✅</span>
+                    <span>View Resume</span>
+                </a>
+            {% else %}
+                <a href="{{ url_for('job_detail', job_id=job.id) }}#generate-resume"
+                   class="btn"
+                   style="background: #6c757d; display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; padding: 0.5rem 1rem;">
+                    <span>➕</span>
+                    <span>Generate Resume</span>
+                </a>
+            {% endif %}
+
+            {% if job.saved_cover_letter_id %}
+                <a href="{{ url_for('view_cover_letter', cover_letter_id=job.saved_cover_letter_id) }}"
+                   class="btn"
+                   style="background: #28a745; display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; padding: 0.5rem 1rem;">
+                    <span>✅</span>
+                    <span>View Cover Letter</span>
+                </a>
+            {% else %}
+                <a href="{{ url_for('generate_cover_letter_page', job_id=job.id) }}"
+                   class="btn"
+                   style="background: #6c757d; display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; padding: 0.5rem 1rem;">
+                    <span>➕</span>
+                    <span>Generate Cover Letter</span>
+                </a>
+            {% endif %}
+        </div>
+    </div>
+
     <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
         <a href="{{ url_for('job_detail', job_id=job.id) }}" class="btn" style="flex: 1; min-width: 150px;">
             📄 View Details
-        </a>
-        <a href="{{ url_for('generate_cover_letter_page', job_id=job.id) }}" class="btn"
-            style="background: #28a745; flex: 1; min-width: 150px;">
-            ✍️ Generate Cover Letter
         </a>
         <a href="{{ job.url }}" target="_blank" class="btn" style="background: #007bff; flex: 1; min-width: 150px;">
             🚀 Apply Now

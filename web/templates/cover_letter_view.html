@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}Cover Letter - {{ cover_letter.job_title }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <div>
+            <h2 style="margin-bottom: 0.5rem;">📄 Cover Letter</h2>
+            <p style="color: #666; margin: 0;">
+                {{ cover_letter.job_title }} at {{ cover_letter.job_company }}
+            </p>
+            <p style="color: #999; font-size: 0.875rem; margin-top: 0.3rem;">
+                Generated on {{ cover_letter.created_at.strftime('%b %d, %Y at %I:%M %p') if cover_letter.created_at else 'Unknown date' }}
+            </p>
+        </div>
+        <a href="{{ url_for('my_resumes') }}" class="btn" style="background: #6c757d;">
+            ← Back to My Documents
+        </a>
+    </div>
+
+    <!-- Action Buttons -->
+    <div style="display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
+        <a href="{{ url_for('download_cover_letter', cover_letter_id=cover_letter.id) }}"
+           class="btn"
+           style="background: #28a745; display: inline-flex; align-items: center; gap: 0.5rem;">
+            <span>📥</span>
+            <span>Download HTML</span>
+        </a>
+
+        <a href="{{ url_for('job_detail', job_id=cover_letter.job_id) }}"
+           class="btn"
+           style="background: #007bff; display: inline-flex; align-items: center; gap: 0.5rem;">
+            <span>👁️</span>
+            <span>View Job</span>
+        </a>
+
+        <button onclick="window.print()"
+                class="btn"
+                style="background: #667eea; display: inline-flex; align-items: center; gap: 0.5rem;">
+            <span>🖨️</span>
+            <span>Print</span>
+        </button>
+
+        <button onclick="copyToClipboard()"
+                class="btn"
+                style="background: #17a2b8; display: inline-flex; align-items: center; gap: 0.5rem;">
+            <span>📋</span>
+            <span>Copy to Clipboard</span>
+        </button>
+    </div>
+
+    <!-- Cover Letter Preview -->
+    <div style="background: white; border: 2px solid #e0e0e0; border-radius: 8px; padding: 2rem;">
+        <div id="coverLetterContent">
+            {{ cover_letter.cover_letter_html | safe }}
+        </div>
+    </div>
+</div>
+
+<script>
+function copyToClipboard() {
+    const content = document.getElementById('coverLetterContent');
+    const range = document.createRange();
+    range.selectNode(content);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+
+    try {
+        document.execCommand('copy');
+        alert('Cover letter copied to clipboard!');
+    } catch (err) {
+        alert('Failed to copy. Please select and copy manually.');
+    }
+
+    window.getSelection().removeAllRanges();
+}
+</script>
+
+<style>
+@media print {
+    .navbar, .btn, .card > div:first-child {
+        display: none !important;
+    }
+
+    .card {
+        box-shadow: none;
+        padding: 0;
+    }
+
+    #coverLetterContent {
+        border: none !important;
+        padding: 0 !important;
+    }
+}
+</style>
+{% endblock %}

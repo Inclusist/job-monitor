@@ -59,39 +59,42 @@ class CoverLetterGenerator:
         cv_profile: Dict,
         job: Dict,
         style: str = 'professional',
-        language: str = 'english'
+        language: str = 'english',
+        claimed_data: Optional[Dict] = None
     ) -> Dict[str, str]:
         """
         Generate a personalized cover letter
-        
+
         Args:
             cv_profile: User's parsed CV profile
             job: Job details dictionary
             style: Cover letter style (professional, technical, results, etc.)
             language: 'english' or 'german'
-            
+            claimed_data: Dict with 'competencies' and 'skills' keys containing user claims with evidence
+
         Returns:
             Dictionary with cover_letter text and metadata
         """
-        
+
         if style not in self.STYLES:
             style = 'professional'
-        
+
         style_info = self.STYLES[style]
-        
+
         # Build context from CV
         expertise = cv_profile.get('expertise_summary', '')
         skills = cv_profile.get('skills', {})
         experience = cv_profile.get('work_experience', [])[:3]
         education = cv_profile.get('education', [])[:2]
-        
+
         # Build prompt based on style and language
         prompt = self._build_prompt(
             cv_profile=cv_profile,
             job=job,
             style=style,
             style_info=style_info,
-            language=language
+            language=language,
+            claimed_data=claimed_data
         )
         
         try:
@@ -127,10 +130,11 @@ class CoverLetterGenerator:
         job: Dict,
         style: str,
         style_info: Dict,
-        language: str
+        language: str,
+        claimed_data: Optional[Dict] = None
     ) -> str:
         """Build the prompt for Claude based on style and language"""
-        
+
         # Extract key info
         expertise = cv_profile.get('expertise_summary', '')
         skills = cv_profile.get('skills', {})
@@ -221,13 +225,46 @@ Recent Experience:
         
         for exp in experience:
             prompt += f"- {exp.get('title', '')} at {exp.get('company', '')} ({exp.get('duration', '')})\n"
-        
+
         prompt += f"""
 Education:
 """
         for edu in education:
             prompt += f"- {edu.get('degree', '')} in {edu.get('field', '')} from {edu.get('institution', '')}\n"
-        
+
+        # Add claimed competencies and skills with evidence
+        if claimed_data and (claimed_data.get('competencies') or claimed_data.get('skills')):
+            prompt += f"""
+
+CLAIMED COMPETENCIES & SKILLS WITH EVIDENCE:
+The candidate has provided specific evidence for the following competencies and skills.
+Use these as strong selling points in the cover letter - they have concrete examples backing them.
+"""
+
+            claimed_competencies = claimed_data.get('competencies', {})
+            if claimed_competencies:
+                prompt += "\nCompetencies (with evidence):\n"
+                for comp_name, comp_data in list(claimed_competencies.items())[:8]:  # Limit to top 8
+                    evidence = comp_data.get('evidence', '')
+                    if evidence:
+                        # Truncate evidence to keep prompt concise
+                        evidence_short = evidence[:150] + "..." if len(evidence) > 150 else evidence
+                        prompt += f"- {comp_name}: {evidence_short}\n"
+                    else:
+                        prompt += f"- {comp_name}\n"
+
+            claimed_skills = claimed_data.get('skills', {})
+            if claimed_skills:
+                prompt += "\nTechnical Skills (with evidence):\n"
+                for skill_name, skill_data in list(claimed_skills.items())[:10]:  # Limit to top 10
+                    evidence = skill_data.get('evidence', '')
+                    if evidence:
+                        # Truncate evidence to keep prompt concise
+                        evidence_short = evidence[:150] + "..." if len(evidence) > 150 else evidence
+                        prompt += f"- {skill_name}: {evidence_short}\n"
+                    else:
+                        prompt += f"- {skill_name}\n"
+
         prompt += f"""
 
 JOB DETAILS:
@@ -247,11 +284,13 @@ LANGUAGE:
 REQUIREMENTS:
 1. Address the specific requirements mentioned in the job description
 2. Highlight relevant experience and skills that match this role
-3. Keep it to 3-4 paragraphs (250-350 words)
-4. Include proper greeting and closing
-5. Make it personal and compelling
-6. Do NOT make up information not in the candidate profile
-7. Use the applicant's name: {name}
+3. PRIORITIZE the claimed competencies and skills with evidence - these are the candidate's strongest selling points
+4. When mentioning claimed competencies/skills, you can subtly reference the evidence (e.g., "demonstrated through..." or "proven experience in...")
+5. Keep it to 3-4 paragraphs (250-350 words)
+6. Include proper greeting and closing
+7. Make it personal and compelling
+8. Do NOT make up information not in the candidate profile
+9. Use the applicant's name: {name}
 
 Generate the cover letter now:
 """

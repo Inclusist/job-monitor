@@ -11,8 +11,7 @@
         </div>
         <div style="text-align: right;">
             {% if job.match_score %}
-            <div
-                style="font-size: 2.5rem; font-weight: bold; color: {% if job.match_score >= 85 %}#155724{% elif job.match_score >= 70 %}#856404{% else %}#721c24{% endif %};">
+            <div style="font-size: 2.5rem; font-weight: bold; color: {% if job.match_score >= 85 %}#155724{% elif job.match_score >= 70 %}#856404{% else %}#721c24{% endif %};">
                 {{ job.match_score }}
             </div>
             {% else %}
@@ -20,21 +19,18 @@
                 N/A
             </div>
             {% endif %}
-            <span class="badge badge-{{ job.priority or 'medium' }}">{{ (job.priority or 'medium')|capitalize }}
-                Priority</span>
+            <span class="badge badge-{{ job.priority or 'medium' }}">{{ (job.priority or 'medium')|capitalize }} Priority</span>
         </div>
     </div>
 
-    <div
-        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
         <div>
             <p style="color: #666; font-size: 0.875rem;">Location</p>
             <p style="font-weight: 500;">{{ job.location }}</p>
         </div>
         <div>
             <p style="color: #666; font-size: 0.875rem;">Posted</p>
-            <p style="font-weight: 500;">{{ job.posted_date.strftime('%Y-%m-%d') if job.posted_date else 'Unknown' }}
-            </p>
+            <p style="font-weight: 500;">{{ job.posted_date[:10] if job.posted_date else 'Unknown' }}</p>
         </div>
         <div>
             <p style="color: #666; font-size: 0.875rem;">Salary</p>
@@ -48,228 +44,56 @@
 
     <div style="margin-bottom: 2rem;">
         <a href="{{ job.url }}" target="_blank" class="btn">🔗 View Job Posting</a>
-        <a href="{{ url_for('generate_cover_letter_page', job_id=job.id) }}" class="btn"
-            style="background: #28a745; margin-left: 1rem;">✍️ Generate Cover Letter</a>
-
+        <a href="{{ url_for('generate_cover_letter_page', job_id=job.id) }}" class="btn" style="background: #28a745; margin-left: 1rem;">✍️ Generate Cover Letter</a>
+        
         {% if job.status != 'shortlisted' %}
-        <form method="POST" action="{{ url_for('shortlist_job', job_id=job.id) }}"
-            style="display: inline; margin-left: 1rem;">
+        <form method="POST" action="{{ url_for('shortlist_job', job_id=job.id) }}" style="display: inline; margin-left: 1rem;">
             <button type="submit" class="btn" style="background: #007bff;">⭐ Add to Dashboard</button>
         </form>
         {% else %}
-        <form method="POST" action="{{ url_for('remove_shortlist', job_id=job.id) }}"
-            style="display: inline; margin-left: 1rem;">
+        <form method="POST" action="{{ url_for('remove_shortlist', job_id=job.id) }}" style="display: inline; margin-left: 1rem;">
             <button type="submit" class="btn btn-secondary">✓ On Dashboard</button>
         </form>
         {% endif %}
-
+        
         <a href="{{ url_for('jobs') }}" class="btn btn-secondary" style="margin-left: 1rem;">← Back to Jobs</a>
     </div>
 </div>
 
-<!-- Quick Resume Generation -->
-<div class="card" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; border: none; padding: 1.5rem;">
-    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-        <div style="flex: 1; min-width: 300px;">
-            <h3 style="color: white; margin-bottom: 0.5rem;">⚡ Quick Resume Generation</h3>
-            <p style="margin: 0; opacity: 0.95; font-size: 0.95rem;">
-                Generate a tailored resume using your existing profile without claiming new competencies or skills.
-            </p>
-        </div>
-        <button onclick="generateResumeWithoutChanges()" class="btn" style="background: white; color: #28a745; font-weight: 600; white-space: nowrap;">
-            🚀 Generate Resume Now
-        </button>
-    </div>
-</div>
-
-<!-- Match Breakdown Dashboard -->
-<div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
-    <h3 style="color: white; margin-bottom: 1.5rem;">📊 Match Breakdown</h3>
-
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
-        <!-- Role Alignment -->
-        <div style="background: rgba(255,255,255,0.15); padding: 1.25rem; border-radius: 10px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-                <span style="font-size: 0.875rem;">🎯 Role Fit</span>
-                <span style="font-size: 1.5rem; font-weight: bold;">
-                    {% if job.role_fit_score %}{{ job.role_fit_score }}/10{% else %}N/A{% endif %}
-                </span>
-            </div>
-            <div style="background: rgba(255,255,255,0.2); height: 6px; border-radius: 3px; overflow: hidden;">
-                <div style="background: #28a745; height: 100%; width: {{ (job.role_fit_score or 0) * 10 }}%;"></div>
-            </div>
-            <p style="font-size: 0.75rem; margin-top: 0.5rem; opacity: 0.9;">
-                {{ job.ai_experience_level or 'Level not specified' }}
-            </p>
-        </div>
-
-        <!-- Seniority Match -->
-        <div style="background: rgba(255,255,255,0.15); padding: 1.25rem; border-radius: 10px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-                <span style="font-size: 0.875rem;">👔 Seniority</span>
-                <span style="font-size: 1.5rem; font-weight: bold;">
-                    {% if job.ai_experience_level and ('senior' in (job.ai_experience_level|lower) or 'lead' in
-                    (job.ai_experience_level|lower)) %}
-                    ✓
-                    {% elif job.ai_experience_level %}
-                    ~
-                    {% else %}
-                    ?
-                    {% endif %}
-                </span>
-            </div>
-            <p style="font-size: 0.75rem; opacity: 0.9;">
-                Job: {{ job.ai_experience_level or 'Not specified' }}
-            </p>
-        </div>
-
-        <!-- Location Fit -->
-        <div style="background: rgba(255,255,255,0.15); padding: 1.25rem; border-radius: 10px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-                <span style="font-size: 0.875rem;">📍 Location</span>
-                <span style="font-size: 1.5rem; font-weight: bold;">
-                    {% if job.ai_work_arrangement and ('remote' in (job.ai_work_arrangement|lower) or 'hybrid' in
-                    (job.ai_work_arrangement|lower)) %}
-                    ✓
-                    {% else %}
-                    ~
-                    {% endif %}
-                </span>
-            </div>
-            <p style="font-size: 0.75rem; opacity: 0.9;">
-                {{ job.ai_work_arrangement or job.location or 'Not specified' }}
-            </p>
-        </div>
-
-        <!-- Growth Potential -->
-        <div style="background: rgba(255,255,255,0.15); padding: 1.25rem; border-radius: 10px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-                <span style="font-size: 0.875rem;">🚀 Growth</span>
-                <span style="font-size: 1.5rem; font-weight: bold;">
-                    {% if job.growth_potential_score %}{{ job.growth_potential_score }}/10{% else %}N/A{% endif %}
-                </span>
-            </div>
-            <div style="background: rgba(255,255,255,0.2); height: 6px; border-radius: 3px; overflow: hidden;">
-                <div style="background: #ffc107; height: 100%; width: {{ (job.growth_potential_score or 0) * 10 }}%;">
-                </div>
-            </div>
-            <p style="font-size: 0.75rem; margin-top: 0.5rem; opacity: 0.9;">
-                Learning opportunities
-            </p>
-        </div>
-    </div>
-</div>
-
-{% if job.ai_competencies %}
-<div class="card" style="border-left: 4px solid #667eea;">
-    <h3 style="color: #667eea;">🎯 Required Competencies</h3>
-    <p style="color: #666; margin-bottom: 1.5rem;">
-        Strategic fit between your capabilities and this role's requirements
-    </p>
-
-    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem;">
-        {% for competency in job.ai_competencies %}
-        {# Use backend-calculated match status #}
-        {% set matched = job.competency_match_map.get(competency, false) if job.competency_match_map else false %}
-
-        <div class="competency-box {% if not matched %}selectable-box{% endif %}"
-             data-name="{{ competency }}"
-             data-type="competency"
-             {% if not matched %}onclick="toggleSelection(this)"{% endif %}
-             style="padding: 1rem; background: {% if matched %}#d4edda{% else %}#f8f9fa{% endif %};
-                        border-left: 3px solid {% if matched %}#28a745{% else %}#6c757d{% endif %};
-                        border-radius: 6px; position: relative;
-                        {% if not matched %}cursor: pointer; transition: all 0.2s;{% endif %}">
-            <div
-                style="font-weight: 600; color: {% if matched %}#155724{% else %}#333{% endif %}; margin-bottom: 0.5rem;">
-                {{ competency }}
-            </div>
-            {% if matched %}
-            <span class="badge" style="background: #28a745; font-size: 0.75rem;">✓ Matched</span>
-            {% else %}
-            <span class="badge item-status" style="background: #6c757d; font-size: 0.75rem;">Required</span>
-            {% endif %}
-        </div>
-        {% endfor %}
-    </div>
-
-    <p style="margin-top: 1rem; font-size: 0.9rem; color: #666; font-style: italic;">
-        💡 Green highlights indicate competencies that explicitly align with your profile. Click gray boxes to claim missing competencies for your resume.
-    </p>
-</div>
-{% endif %}
-
-{% if job.ai_key_skills %}
-<div class="card" style="border-left: 4px solid #28a745;">
-    <h3 style="color: #28a745;">💻 Technical Skills Required</h3>
-    <p style="color: #666; margin-bottom: 1.5rem;">
-        Tools, technologies, and hard skills needed for this role
-    </p>
-
-    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
-        {% for skill in job.ai_key_skills %}
-        {% set s_matched = job.skill_match_map.get(skill, false) if job.skill_match_map else false %}
-        <span class="skill-box {% if not s_matched %}selectable-box{% endif %}"
-              data-name="{{ skill }}"
-              data-type="skill"
-              {% if not s_matched %}onclick="toggleSelection(this)"{% endif %}
-              style="padding: 0.5rem 1rem;
-                   background: {% if s_matched %}#d4edda{% else %}#f8f9fa{% endif %};
-                   border: 1px solid {% if s_matched %}#28a745{% else %}#dee2e6{% endif %};
-                   border-radius: 20px; font-size: 0.875rem;
-                   color: {% if s_matched %}#155724{% else %}#555{% endif %};
-                   {% if s_matched %}font-weight: 500;{% endif %}
-                   {% if not s_matched %}cursor: pointer; transition: all 0.2s;{% endif %}">
-            {% if s_matched %}✓ {% endif %}{{ skill }}
-        </span>
-        {% endfor %}
-    </div>
-
-    <p style="margin-top: 1rem; font-size: 0.9rem; color: #666; font-style: italic;">
-        🔧 Skills are concrete tools and technologies extracted from the job requirements. Click unmatched items to claim them for your resume.
-    </p>
-</div>
-{% endif %}
-
 <div class="card">
     <h3>📊 How accurate is this match score?</h3>
     <p style="color: #666; margin-bottom: 1rem;">
-        Your feedback helps improve future job recommendations.
+        Your feedback helps improve future job recommendations. 
         <strong>Adding a reason helps the AI learn faster!</strong>
-        <a href="{{ url_for('learning_insights') }}" style="color: #667eea; text-decoration: underline;">See what it
-            learned</a>
+        <a href="{{ url_for('learning_insights') }}" style="color: #667eea; text-decoration: underline;">See what it learned</a>
     </p>
-
+    
     <form method="POST" action="{{ url_for('job_feedback', job_id=job.id) }}" id="feedbackForm">
         <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
-            <button type="submit" name="feedback_type" value="agree" class="btn"
-                style="background: #28a745; flex: 1; min-width: 150px;">
+            <button type="submit" name="feedback_type" value="agree" class="btn" style="background: #28a745; flex: 1; min-width: 150px;">
                 👍 Accurate
             </button>
-            <button type="button" class="btn" style="background: #ffc107; flex: 1; min-width: 150px;"
-                onclick="showFeedbackDetails('too_high')">
+            <button type="button" class="btn" style="background: #ffc107; flex: 1; min-width: 150px;" onclick="showFeedbackDetails('too_high')">
                 📉 Score Too High
             </button>
-            <button type="button" class="btn" style="background: #17a2b8; flex: 1; min-width: 150px;"
-                onclick="showFeedbackDetails('too_low')">
+            <button type="button" class="btn" style="background: #17a2b8; flex: 1; min-width: 150px;" onclick="showFeedbackDetails('too_low')">
                 📈 Score Too Low
             </button>
-            <button type="button" class="btn btn-secondary" style="flex: 1; min-width: 150px;"
-                onclick="showFeedbackDetails('disagree')">
+            <button type="button" class="btn btn-secondary" style="flex: 1; min-width: 150px;" onclick="showFeedbackDetails('disagree')">
                 👎 Poor Match
             </button>
         </div>
-
-        <div id="feedbackDetails"
-            style="display: none; margin-top: 1.5rem; padding: 1.5rem; background: #f8f9fa; border-radius: 8px;">
+        
+        <div id="feedbackDetails" style="display: none; margin-top: 1.5rem; padding: 1.5rem; background: #f8f9fa; border-radius: 8px;">
             <input type="hidden" name="feedback_type" id="feedbackType" value="">
-
+            
             <div class="form-group">
                 <label for="user_score">What score would you give? (0-100)</label>
-                <input type="number" id="user_score" name="user_score" min="0" max="100" placeholder="Your score"
-                    style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;">
+                <input type="number" id="user_score" name="user_score" min="0" max="100" 
+                       placeholder="Your score" 
+                       style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;">
             </div>
-
+            
             <div class="form-group">
                 <label for="feedback_reason">
                     Why? (Optional but highly recommended!)
@@ -277,28 +101,27 @@
                         - The more specific, the better Claude learns
                     </span>
                 </label>
-                <textarea id="feedback_reason" name="feedback_reason" rows="3"
-                    placeholder="E.g., 'Too much travel required, I need remote work' or 'Perfect automotive + leadership combo!' or 'Not senior enough, need team management responsibilities'..."
-                    style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;"></textarea>
+                <textarea id="feedback_reason" name="feedback_reason" rows="3" 
+                          placeholder="E.g., 'Too much travel required, I need remote work' or 'Perfect automotive + leadership combo!' or 'Not senior enough, need team management responsibilities'..."
+                          style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;"></textarea>
                 <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">
-                    💡 Tip: Specific reasons like "Location doesn't work" or "Need more ML engineering" help Claude
-                    learn your preferences better than just disagreeing.
+                    💡 Tip: Specific reasons like "Location doesn't work" or "Need more ML engineering" help Claude learn your preferences better than just disagreeing.
                 </p>
             </div>
-
+            
             <div style="display: flex; gap: 1rem;">
                 <button type="submit" class="btn">Submit Feedback</button>
                 <button type="button" class="btn btn-secondary" onclick="hideFeedbackDetails()">Cancel</button>
             </div>
         </div>
     </form>
-
+    
     <script>
         function showFeedbackDetails(type) {
             document.getElementById('feedbackType').value = type;
             document.getElementById('feedbackDetails').style.display = 'block';
         }
-
+        
         function hideFeedbackDetails() {
             document.getElementById('feedbackDetails').style.display = 'none';
             document.getElementById('user_score').value = '';
@@ -349,901 +172,22 @@
     <h3>Actions</h3>
     <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
         <a href="{{ job.url }}" target="_blank" class="btn" style="background: #007bff;">🚀 Apply Now</a>
-
-        <form method="POST" action="{{ url_for('update_job_status', job_id=job.id, status='reviewed') }}"
-            style="display: inline; margin: 0;">
+        
+        <form method="POST" action="{{ url_for('update_job_status', job_id=job.id, status='reviewed') }}" style="display: inline; margin: 0;">
             <button type="submit" class="btn btn-secondary">✓ Mark as Reviewed</button>
         </form>
-
-        <form method="POST" action="{{ url_for('delete_job', job_id=job.id) }}"
-            onsubmit="return confirm('Hide this job permanently? It will not appear in future searches.');"
-            style="display: inline; margin: 0;">
+        
+        <form method="POST" action="{{ url_for('delete_job', job_id=job.id) }}" 
+              onsubmit="return confirm('Hide this job permanently? It will not appear in future searches.');"
+              style="display: inline; margin: 0;">
             <button type="submit" class="btn" style="background: #dc3545;">
                 🗑️ Hide Job Forever
             </button>
         </form>
     </div>
-
+    
     <p style="margin-top: 1rem; color: #666; font-size: 0.9rem;">
-        💡 Hiding a job marks it as "not interested" and prevents it from showing up in future searches, even if the
-        same job is posted again.
+        💡 Hiding a job marks it as "not interested" and prevents it from showing up in future searches, even if the same job is posted again.
     </p>
 </div>
-
-<!-- Resume Generation Controls -->
-<div id="resumeGenerationSection" style="display: none;">
-    <div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
-        <h3 style="color: white; margin-bottom: 1rem;">📄 Generate Tailored Resume</h3>
-        <p style="margin-bottom: 1.5rem; opacity: 0.95;">
-            You've selected <strong id="selectionCount">0</strong> items to claim for your resume.
-            Click the button below to provide evidence and generate your tailored resume.
-        </p>
-        <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-            <button onclick="openEvidenceModal()" class="btn" style="background: white; color: #667eea; font-weight: 600;">
-                📝 Provide Evidence & Generate Resume
-            </button>
-            <button onclick="clearSelections()" class="btn btn-secondary">
-                Clear Selections
-            </button>
-        </div>
-    </div>
-</div>
-
-<!-- Evidence Collection Modal -->
-<div id="evidenceModal" class="modal" style="display: none;">
-    <div class="modal-content" style="max-width: 700px;">
-        <div class="modal-header">
-            <h3 id="modalTitle">Provide Evidence</h3>
-            <span class="close" onclick="closeEvidenceModal()">&times;</span>
-        </div>
-        <div class="modal-body">
-            <!-- Progress indicator -->
-            <div style="margin-bottom: 2rem;">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                    <span style="font-size: 0.9rem; color: #666;">
-                        Step <strong id="currentStep">1</strong> of <strong id="totalSteps">1</strong>
-                    </span>
-                    <span style="font-size: 0.9rem; color: #666;">
-                        <strong id="progressPercent">0</strong>% Complete
-                    </span>
-                </div>
-                <div style="width: 100%; height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden;">
-                    <div id="progressBar" style="height: 100%; background: #667eea; width: 0%; transition: width 0.3s;"></div>
-                </div>
-            </div>
-
-            <!-- Current item form -->
-            <div id="evidenceForm">
-                <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
-                    <div style="font-size: 0.875rem; color: #666; margin-bottom: 0.25rem;">
-                        <span id="currentItemType">Competency</span>
-                    </div>
-                    <div style="font-size: 1.25rem; font-weight: 600; color: #333;">
-                        <span id="currentItemName">Item Name</span>
-                    </div>
-                </div>
-
-                <!-- Work Experience Selection -->
-                <div class="form-group">
-                    <label style="font-weight: 600; margin-bottom: 0.75rem; display: block;">
-                        Which work experiences demonstrate this?
-                        <span style="color: #dc3545;">*</span>
-                    </label>
-                    <p style="font-size: 0.875rem; color: #666; margin-bottom: 1rem;">
-                        Select one or more experiences where you demonstrated this competency/skill.
-                    </p>
-                    <div id="workExperienceList" style="max-height: 200px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem;">
-                        <!-- Work experience checkboxes will be inserted here -->
-                    </div>
-                </div>
-
-                <!-- Evidence Description -->
-                <div class="form-group">
-                    <label for="evidenceText" style="font-weight: 600; margin-bottom: 0.75rem; display: block;">
-                        Describe your experience
-                        <span style="color: #dc3545;">*</span>
-                    </label>
-                    <p style="font-size: 0.875rem; color: #666; margin-bottom: 1rem;">
-                        Provide specific details: what you did, tools/technologies used, outcomes achieved.
-                        <br>
-                        <em>Example: "Led daily standups and sprint planning for 5-person team. Managed product backlog in Jira, improved velocity by 30%."</em>
-                    </p>
-                    <textarea id="evidenceText"
-                              rows="5"
-                              placeholder="Enter your evidence here..."
-                              style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 0.95rem; resize: vertical; font-family: inherit;"></textarea>
-                    <div id="evidenceError" style="color: #dc3545; font-size: 0.875rem; margin-top: 0.5rem; display: none;">
-                        Please provide evidence (at least 20 characters) and select at least one work experience.
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="modal-footer" style="display: flex; justify-content: space-between;">
-            <button id="prevButton" onclick="previousItem()" class="btn btn-secondary" style="display: none;">
-                ← Previous
-            </button>
-            <div style="flex: 1;"></div>
-            <button id="nextButton" onclick="nextItem()" class="btn">
-                Next →
-            </button>
-            <button id="generateButton" onclick="generateResume()" class="btn" style="background: #28a745; display: none;">
-                ✨ Generate Resume
-            </button>
-        </div>
-    </div>
-</div>
-
-<!-- Resume Preview Modal -->
-<div id="resumePreviewModal" class="modal" style="display: none;">
-    <div class="modal-content" style="max-width: 900px; max-height: 90vh;">
-        <div class="modal-header">
-            <div style="flex: 1;">
-                <h3>📄 Your Tailored Resume</h3>
-                <p id="editModeIndicator" style="font-size: 0.875rem; color: #666; margin-top: 0.25rem; display: none;">
-                    ✏️ <strong>Edit Mode:</strong> Click anywhere in the resume to edit. Remember to save your changes!
-                </p>
-            </div>
-            <span class="close" onclick="closeResumePreview()">&times;</span>
-        </div>
-        <div class="modal-body">
-            <div id="resumePreviewContent"
-                 style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 2rem; background: white; max-height: 60vh; overflow-y: auto;">
-                <!-- Resume HTML will be inserted here -->
-            </div>
-        </div>
-        <div class="modal-footer" style="display: flex; gap: 1rem; flex-wrap: wrap;">
-            <button id="editResumeBtn" onclick="toggleEditMode()" class="btn" style="background: #ffc107; color: #000;">
-                ✏️ Edit Resume
-            </button>
-            <button id="saveResumeBtn" onclick="saveResume()" class="btn" style="background: #28a745; display: none;">
-                💾 Save Resume
-            </button>
-            <button id="cancelEditBtn" onclick="cancelEdit()" class="btn btn-secondary" style="display: none;">
-                Cancel Edits
-            </button>
-            <div style="flex: 1;"></div>
-            <button onclick="downloadResumeHTML()" class="btn" style="background: #007bff;">
-                📥 Download HTML
-            </button>
-            <button onclick="closeResumePreview()" class="btn btn-secondary">
-                Close
-            </button>
-        </div>
-    </div>
-</div>
-
-<!-- Loading Overlay -->
-<div id="loadingOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 10000; justify-content: center; align-items: center;">
-    <div style="background: white; padding: 2rem; border-radius: 12px; text-align: center; max-width: 400px;">
-        <div style="font-size: 3rem; margin-bottom: 1rem;">✨</div>
-        <h3 style="margin-bottom: 1rem;">Generating Your Resume</h3>
-        <p style="color: #666; margin-bottom: 1.5rem;">
-            Claude AI is crafting a tailored resume optimized for this job...
-        </p>
-        <div class="spinner"></div>
-    </div>
-</div>
-
-<style>
-/* Hover effect for selectable items */
-.selectable-box:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-}
-
-/* Selected state */
-.selectable-box.selected {
-    background: #cfe8ff !important;
-    border-color: #007bff !important;
-    border-left: 3px solid #007bff !important;
-}
-
-.selectable-box.selected .item-status {
-    background: #007bff !important;
-}
-
-/* Skill box selected state */
-.skill-box.selected {
-    background: #cfe8ff !important;
-    border-color: #007bff !important;
-    font-weight: 600 !important;
-    color: #004085 !important;
-}
-
-/* Modal styles */
-.modal {
-    position: fixed;
-    z-index: 9999;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    overflow: auto;
-    background-color: rgba(0,0,0,0.5);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-}
-
-.modal-content {
-    background-color: #fefefe;
-    margin: auto;
-    padding: 0;
-    border: 1px solid #888;
-    width: 90%;
-    max-width: 700px;
-    border-radius: 12px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-    animation: slideDown 0.3s ease-out;
-}
-
-@keyframes slideDown {
-    from {
-        transform: translateY(-50px);
-        opacity: 0;
-    }
-    to {
-        transform: translateY(0);
-        opacity: 1;
-    }
-}
-
-.modal-header {
-    padding: 1.5rem;
-    border-bottom: 1px solid #e0e0e0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.modal-header h3 {
-    margin: 0;
-    color: #333;
-}
-
-.modal-body {
-    padding: 1.5rem;
-    max-height: 60vh;
-    overflow-y: auto;
-}
-
-.modal-footer {
-    padding: 1.5rem;
-    border-top: 1px solid #e0e0e0;
-}
-
-.close {
-    color: #aaa;
-    font-size: 28px;
-    font-weight: bold;
-    cursor: pointer;
-    transition: color 0.2s;
-}
-
-.close:hover,
-.close:focus {
-    color: #000;
-}
-
-/* Loading spinner */
-.spinner {
-    border: 4px solid #f3f3f3;
-    border-top: 4px solid #667eea;
-    border-radius: 50%;
-    width: 40px;
-    height: 40px;
-    animation: spin 1s linear infinite;
-    margin: 0 auto;
-}
-
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-
-/* Work experience checkbox styling */
-.work-exp-checkbox {
-    display: flex;
-    align-items: start;
-    padding: 0.75rem;
-    margin-bottom: 0.5rem;
-    border: 2px solid #e0e0e0;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.work-exp-checkbox:hover {
-    background: #f8f9fa;
-    border-color: #667eea;
-}
-
-.work-exp-checkbox input[type="checkbox"] {
-    margin-right: 0.75rem;
-    margin-top: 0.25rem;
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-}
-
-.work-exp-checkbox.checked {
-    background: #e7f1ff;
-    border-color: #667eea;
-}
-</style>
-
-<script>
-// Track user selections for resume generation
-let userSelections = {
-    competencies: [],
-    skills: []
-};
-
-// Evidence collection state
-let evidenceData = [];
-let currentItemIndex = 0;
-let generatedResumeId = null;
-
-// User profile data (will be populated from backend)
-const userProfile = {{ user_profile | tojson | safe if user_profile else '{}' }};
-const jobId = {{ job.id }};
-
-/**
- * Toggle selection state of a competency or skill box
- */
-function toggleSelection(element) {
-    const name = element.getAttribute('data-name');
-    const type = element.getAttribute('data-type');
-
-    // Toggle selected class
-    element.classList.toggle('selected');
-
-    // Update selections array
-    if (element.classList.contains('selected')) {
-        // Add to selections
-        if (type === 'competency') {
-            if (!userSelections.competencies.includes(name)) {
-                userSelections.competencies.push(name);
-            }
-        } else if (type === 'skill') {
-            if (!userSelections.skills.includes(name)) {
-                userSelections.skills.push(name);
-            }
-        }
-
-        // Update badge text
-        const badge = element.querySelector('.item-status, span');
-        if (badge) {
-            if (type === 'competency') {
-                badge.textContent = '✓ Selected';
-            } else {
-                badge.textContent = '✓ ' + name;
-            }
-        }
-    } else {
-        // Remove from selections
-        if (type === 'competency') {
-            userSelections.competencies = userSelections.competencies.filter(c => c !== name);
-        } else if (type === 'skill') {
-            userSelections.skills = userSelections.skills.filter(s => s !== name);
-        }
-
-        // Reset badge text
-        const badge = element.querySelector('.item-status, span');
-        if (badge) {
-            if (type === 'competency') {
-                badge.textContent = 'Required';
-            } else {
-                badge.textContent = name;
-            }
-        }
-    }
-
-    // Update UI
-    updateResumeGenerationUI();
-}
-
-/**
- * Update the resume generation section visibility and count
- */
-function updateResumeGenerationUI() {
-    const totalSelections = userSelections.competencies.length + userSelections.skills.length;
-    const resumeSection = document.getElementById('resumeGenerationSection');
-    const countElement = document.getElementById('selectionCount');
-
-    if (totalSelections > 0) {
-        resumeSection.style.display = 'block';
-        countElement.textContent = totalSelections;
-    } else {
-        resumeSection.style.display = 'none';
-    }
-}
-
-/**
- * Clear all selections
- */
-function clearSelections() {
-    // Remove selected class from all elements
-    document.querySelectorAll('.selectable-box.selected').forEach(element => {
-        element.classList.remove('selected');
-
-        // Reset badge
-        const badge = element.querySelector('.item-status, span');
-        const type = element.getAttribute('data-type');
-        const name = element.getAttribute('data-name');
-
-        if (badge) {
-            if (type === 'competency') {
-                badge.textContent = 'Required';
-            } else {
-                badge.textContent = name;
-            }
-        }
-    });
-
-    // Clear selections
-    userSelections.competencies = [];
-    userSelections.skills = [];
-
-    // Update UI
-    updateResumeGenerationUI();
-}
-
-/**
- * Open evidence collection modal
- */
-function openEvidenceModal() {
-    // Build evidence data array
-    evidenceData = [];
-
-    // Add competencies
-    userSelections.competencies.forEach(name => {
-        evidenceData.push({
-            name: name,
-            type: 'competency',
-            work_experience_ids: [],
-            evidence: ''
-        });
-    });
-
-    // Add skills
-    userSelections.skills.forEach(name => {
-        evidenceData.push({
-            name: name,
-            type: 'skill',
-            work_experience_ids: [],
-            evidence: ''
-        });
-    });
-
-    // Reset to first item
-    currentItemIndex = 0;
-
-    // Show modal
-    document.getElementById('evidenceModal').style.display = 'flex';
-
-    // Render first item
-    renderCurrentItem();
-}
-
-/**
- * Close evidence modal
- */
-function closeEvidenceModal() {
-    if (confirm('Are you sure? Your progress will be lost.')) {
-        document.getElementById('evidenceModal').style.display = 'none';
-        currentItemIndex = 0;
-    }
-}
-
-/**
- * Render current item in the form
- */
-function renderCurrentItem() {
-    const item = evidenceData[currentItemIndex];
-    const total = evidenceData.length;
-    const progress = Math.round(((currentItemIndex + 1) / total) * 100);
-
-    // Update header
-    document.getElementById('currentStep').textContent = currentItemIndex + 1;
-    document.getElementById('totalSteps').textContent = total;
-    document.getElementById('progressPercent').textContent = progress;
-    document.getElementById('progressBar').style.width = progress + '%';
-
-    // Update item info
-    document.getElementById('currentItemType').textContent =
-        item.type === 'competency' ? 'Competency' : 'Technical Skill';
-    document.getElementById('currentItemName').textContent = item.name;
-
-    // Populate work experience list
-    const workExpList = document.getElementById('workExperienceList');
-    workExpList.innerHTML = '';
-
-    if (userProfile.work_experience && userProfile.work_experience.length > 0) {
-        userProfile.work_experience.forEach((exp, index) => {
-            const checked = item.work_experience_ids.includes(index) ? 'checked' : '';
-            const checkedClass = checked ? 'checked' : '';
-
-            const expDiv = document.createElement('label');
-            expDiv.className = 'work-exp-checkbox ' + checkedClass;
-            expDiv.innerHTML = `
-                <input type="checkbox"
-                       value="${index}"
-                       ${checked}
-                       onchange="toggleWorkExperience(this, ${index})">
-                <div>
-                    <div style="font-weight: 600;">${exp.title || 'Position'}</div>
-                    <div style="font-size: 0.875rem; color: #666;">
-                        ${exp.company || 'Company'} |
-                        ${exp.start_date || 'Start'} - ${exp.end_date || 'Present'}
-                    </div>
-                </div>
-            `;
-            workExpList.appendChild(expDiv);
-        });
-    } else {
-        workExpList.innerHTML = '<p style="color: #666; font-style: italic;">No work experience found in your profile.</p>';
-    }
-
-    // Set evidence text
-    document.getElementById('evidenceText').value = item.evidence || '';
-
-    // Hide error
-    document.getElementById('evidenceError').style.display = 'none';
-
-    // Update button visibility
-    document.getElementById('prevButton').style.display = currentItemIndex > 0 ? 'block' : 'none';
-    document.getElementById('nextButton').style.display = currentItemIndex < total - 1 ? 'block' : 'none';
-    document.getElementById('generateButton').style.display = currentItemIndex === total - 1 ? 'block' : 'none';
-}
-
-/**
- * Toggle work experience selection
- */
-function toggleWorkExperience(checkbox, expIndex) {
-    const item = evidenceData[currentItemIndex];
-
-    if (checkbox.checked) {
-        if (!item.work_experience_ids.includes(expIndex)) {
-            item.work_experience_ids.push(expIndex);
-        }
-        checkbox.parentElement.classList.add('checked');
-    } else {
-        item.work_experience_ids = item.work_experience_ids.filter(id => id !== expIndex);
-        checkbox.parentElement.classList.remove('checked');
-    }
-}
-
-/**
- * Save current item and move to next
- */
-function nextItem() {
-    if (!validateCurrentItem()) {
-        return;
-    }
-
-    // Save current evidence
-    saveCurrentEvidence();
-
-    // Move to next
-    currentItemIndex++;
-    renderCurrentItem();
-}
-
-/**
- * Move to previous item
- */
-function previousItem() {
-    // Save current evidence
-    saveCurrentEvidence();
-
-    // Move to previous
-    currentItemIndex--;
-    renderCurrentItem();
-}
-
-/**
- * Save current evidence data
- */
-function saveCurrentEvidence() {
-    const item = evidenceData[currentItemIndex];
-    item.evidence = document.getElementById('evidenceText').value.trim();
-}
-
-/**
- * Validate current item before proceeding
- */
-function validateCurrentItem() {
-    const item = evidenceData[currentItemIndex];
-    const evidence = document.getElementById('evidenceText').value.trim();
-    const hasWorkExp = item.work_experience_ids.length > 0;
-
-    if (!evidence || evidence.length < 20 || !hasWorkExp) {
-        document.getElementById('evidenceError').style.display = 'block';
-        return false;
-    }
-
-    return true;
-}
-
-// Track edit state
-let isEditMode = false;
-let originalResumeHTML = '';
-let currentResumeHTML = '';
-
-/**
- * Generate resume without making any changes (Quick Generate)
- */
-async function generateResumeWithoutChanges() {
-    // Ask for confirmation
-    const confirmed = confirm(
-        '📄 Quick Resume Generation\n\n' +
-        'This will generate a tailored resume using your existing profile without claiming any new competencies or skills.\n\n' +
-        'Your current profile data will be used as-is.\n\n' +
-        'Do you want to proceed?'
-    );
-
-    if (!confirmed) {
-        return;
-    }
-
-    // Show loading
-    document.getElementById('loadingOverlay').style.display = 'flex';
-
-    try {
-        // Call API to generate resume with empty selections
-        const response = await fetch(`/api/generate-resume/${jobId}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                selections: []  // Empty selections - use existing profile only
-            })
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-            // Store resume HTML (not saved to database yet)
-            originalResumeHTML = result.resume_html;
-            currentResumeHTML = result.resume_html;
-            generatedResumeId = null; // No ID yet - not saved
-
-            // Show resume preview
-            document.getElementById('resumePreviewContent').innerHTML = result.resume_html;
-            document.getElementById('loadingOverlay').style.display = 'none';
-            document.getElementById('resumePreviewModal').style.display = 'flex';
-
-            // Reset edit mode
-            isEditMode = false;
-            document.getElementById('editModeIndicator').style.display = 'none';
-            document.getElementById('resumePreviewContent').contentEditable = 'false';
-        } else {
-            throw new Error(result.error || 'Failed to generate resume');
-        }
-    } catch (error) {
-        document.getElementById('loadingOverlay').style.display = 'none';
-        alert('Error generating resume: ' + error.message + '\n\nPlease try again or contact support.');
-        console.error('Quick resume generation error:', error);
-    }
-}
-
-/**
- * Generate resume after collecting all evidence
- */
-async function generateResume() {
-    if (!validateCurrentItem()) {
-        return;
-    }
-
-    // Save last item
-    saveCurrentEvidence();
-
-    // Close modal
-    document.getElementById('evidenceModal').style.display = 'none';
-
-    // Show loading
-    document.getElementById('loadingOverlay').style.display = 'flex';
-
-    try {
-        // Call API to generate resume
-        const response = await fetch(`/api/generate-resume/${jobId}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                selections: evidenceData
-            })
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-            // Store resume HTML (not saved to database yet)
-            originalResumeHTML = result.resume_html;
-            currentResumeHTML = result.resume_html;
-            generatedResumeId = null; // No ID yet - not saved
-
-            // Show resume preview
-            document.getElementById('resumePreviewContent').innerHTML = result.resume_html;
-            document.getElementById('loadingOverlay').style.display = 'none';
-            document.getElementById('resumePreviewModal').style.display = 'flex';
-
-            // Reset edit mode
-            isEditMode = false;
-            document.getElementById('editModeIndicator').style.display = 'none';
-            document.getElementById('resumePreviewContent').contentEditable = 'false';
-        } else {
-            throw new Error(result.error || 'Failed to generate resume');
-        }
-    } catch (error) {
-        document.getElementById('loadingOverlay').style.display = 'none';
-        alert('Error generating resume: ' + error.message + '\\n\\nPlease try again or contact support.');
-        console.error('Resume generation error:', error);
-    }
-}
-
-/**
- * Toggle edit mode for resume
- */
-function toggleEditMode() {
-    isEditMode = !isEditMode;
-    const contentDiv = document.getElementById('resumePreviewContent');
-    const editBtn = document.getElementById('editResumeBtn');
-    const saveBtn = document.getElementById('saveResumeBtn');
-    const cancelBtn = document.getElementById('cancelEditBtn');
-    const indicator = document.getElementById('editModeIndicator');
-
-    if (isEditMode) {
-        // Enable editing
-        contentDiv.contentEditable = 'true';
-        contentDiv.style.border = '2px solid #ffc107';
-        editBtn.style.display = 'none';
-        saveBtn.style.display = 'inline-block';
-        cancelBtn.style.display = 'inline-block';
-        indicator.style.display = 'block';
-        contentDiv.focus();
-    } else {
-        // Disable editing
-        contentDiv.contentEditable = 'false';
-        contentDiv.style.border = '1px solid #e0e0e0';
-        editBtn.style.display = 'inline-block';
-        saveBtn.style.display = 'none';
-        cancelBtn.style.display = 'none';
-        indicator.style.display = 'none';
-    }
-}
-
-/**
- * Cancel edits and restore original
- */
-function cancelEdit() {
-    if (confirm('Discard all changes and restore original?')) {
-        document.getElementById('resumePreviewContent').innerHTML = originalResumeHTML;
-        currentResumeHTML = originalResumeHTML;
-        toggleEditMode(); // Turn off edit mode
-    }
-}
-
-/**
- * Save edited resume to database
- */
-async function saveResume() {
-    const contentDiv = document.getElementById('resumePreviewContent');
-    const editedHTML = contentDiv.innerHTML;
-
-    // Show loading
-    document.getElementById('loadingOverlay').style.display = 'flex';
-
-    try {
-        // Call API to save resume
-        const response = await fetch(`/api/save-resume/${jobId}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                resume_html: editedHTML,
-                selections: evidenceData
-            })
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-            generatedResumeId = result.resume_id;
-            document.getElementById('loadingOverlay').style.display = 'none';
-
-            alert('✅ Resume saved successfully!\\n\\nYou can find it in "My Resumes" section.');
-
-            // Turn off edit mode
-            isEditMode = false;
-            toggleEditMode();
-
-            // Update the original HTML to the saved version
-            originalResumeHTML = editedHTML;
-            currentResumeHTML = editedHTML;
-        } else {
-            throw new Error(result.error || 'Failed to save resume');
-        }
-    } catch (error) {
-        document.getElementById('loadingOverlay').style.display = 'none';
-        alert('Error saving resume: ' + error.message);
-        console.error('Resume save error:', error);
-    }
-}
-
-/**
- * Close resume preview modal
- */
-function closeResumePreview() {
-    document.getElementById('resumePreviewModal').style.display = 'none';
-
-    // Clear selections after successful generation
-    clearSelections();
-}
-
-/**
- * Download resume in specified format (requires saved resume)
- */
-function downloadResume(format) {
-    if (!generatedResumeId) {
-        alert('No resume ID found. Please generate a resume first.');
-        return;
-    }
-
-    // Redirect to download endpoint
-    window.location.href = `/download/resume/${generatedResumeId}?format=${format}`;
-}
-
-/**
- * Download currently displayed resume as HTML (works even if not saved)
- */
-function downloadResumeHTML() {
-    const contentDiv = document.getElementById('resumePreviewContent');
-
-    if (!contentDiv || !contentDiv.innerHTML) {
-        alert('No resume content to download.');
-        return;
-    }
-
-    // Get the current HTML (whether original or edited)
-    const resumeHTML = contentDiv.innerHTML;
-
-    // Create a complete HTML document
-    const fullHTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Resume</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 2rem;
-            line-height: 1.6;
-        }
-    </style>
-</head>
-<body>
-${resumeHTML}
-</body>
-</html>`;
-
-    // Create blob and download
-    const blob = new Blob([fullHTML], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `resume_${new Date().getTime()}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-}
-</script>
 {% endblock %}
