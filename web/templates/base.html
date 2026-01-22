@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Inclusist{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+    <!-- Alpine.js for dropdown interactivity -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
     <style>
         * {
             margin: 0;
@@ -264,19 +268,67 @@
                 <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Inclusist Logo" class="logo">
                 <h1>Inclusist</h1>
             </a>
-            <nav>
+            <nav style="display: flex; align-items: center; gap: 1.5rem;">
                 {% if current_user.is_authenticated %}
                 <a href="{{ url_for('index') }}">Home</a>
-                <a href="{{ url_for('upload_cv') }}">Upload CV</a>
-                <a href="{{ url_for('view_profile') }}">My Profile</a>
-                <a href="{{ url_for('search_preferences') }}" title="Configure search keywords & locations">⚙️ Search</a>
                 <a href="{{ url_for('jobs') }}">Jobs</a>
                 <a href="{{ url_for('dashboard') }}" style="background: rgba(255,255,255,0.2); padding: 0.5rem 1rem; border-radius: 6px;">📋 Dashboard</a>
-                <a href="{{ url_for('learning_insights') }}" title="See what the AI learned">🧠</a>
-                <a href="{{ url_for('admin_stats') }}" title="Admin Dashboard" style="background: rgba(255,215,0,0.3); padding: 0.5rem 1rem; border-radius: 6px;">📊 Stats</a>
-                <span style="opacity: 0.8; margin-left: 1rem;">|</span>
-                <span style="opacity: 0.9; margin-left: 0.5rem;">{{ current_user.email }}</span>
-                <a href="{{ url_for('logout') }}" style="margin-left: 0.5rem;">Logout</a>
+
+                <!-- Profile Dropdown Menu -->
+                <div x-data="{ open: false }" @click.away="open = false" style="position: relative;">
+                    <button @click="open = !open"
+                        style="display: flex; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.15); padding: 0.5rem 1rem; border-radius: 8px; border: none; color: white; cursor: pointer; font-family: inherit; font-size: inherit;">
+                        <span style="font-size: 1.2rem;">👤</span>
+                        <span>{{ current_user.email.split('@')[0] }}</span>
+                        <span x-show="!open" style="font-size: 0.8rem;">▼</span>
+                        <span x-show="open" style="font-size: 0.8rem;">▲</span>
+                    </button>
+
+                    <div x-show="open" x-transition:enter="transition ease-out duration-100"
+                        x-transition:enter-start="transform opacity-0 scale-95"
+                        x-transition:enter-end="transform opacity-100 scale-100"
+                        x-transition:leave="transition ease-in duration-75"
+                        x-transition:leave-start="transform opacity-100 scale-100"
+                        x-transition:leave-end="transform opacity-0 scale-95"
+                        style="position: absolute; right: 0; top: 100%; margin-top: 0.5rem; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 200px; overflow: hidden; z-index: 1000;">
+                        <a href="{{ url_for('view_profile') }}"
+                            style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #333; text-decoration: none; border-bottom: 1px solid #eee; transition: background 0.2s;"
+                            onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
+                            <span>👤</span>
+                            <span>Profile</span>
+                        </a>
+                        <a href="{{ url_for('my_resumes') }}"
+                            style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #333; text-decoration: none; border-bottom: 1px solid #eee; transition: background 0.2s;"
+                            onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
+                            <span>📄</span>
+                            <span>My Resumes & Cover Letters</span>
+                        </a>
+                        <a href="{{ url_for('search_preferences') }}"
+                            style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #333; text-decoration: none; border-bottom: 1px solid #eee; transition: background 0.2s;"
+                            onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
+                            <span>⚙️</span>
+                            <span>Search Settings</span>
+                        </a>
+                        <a href="{{ url_for('learning_insights') }}"
+                            style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #333; text-decoration: none; border-bottom: 1px solid #eee; transition: background 0.2s;"
+                            onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
+                            <span>🧠</span>
+                            <span>Learning Insights</span>
+                        </a>
+                        <a href="{{ url_for('admin_stats') }}"
+                            style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #333; text-decoration: none; border-bottom: 1px solid #eee; transition: background 0.2s;"
+                            onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
+                            <span>📊</span>
+                            <span>Admin Stats</span>
+                        </a>
+                        <a href="{{ url_for('logout') }}"
+                            style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #dc3545; text-decoration: none; transition: background 0.2s;"
+                            onmouseover="this.style.background='#fff5f5'" onmouseout="this.style.background='white'">
+                            <span>🚪</span>
+                            <span>Logout</span>
+                        </a>
+                    </div>
+                </div>
                 {% else %}
                 <a href="{{ url_for('login') }}">Login</a>
                 <a href="{{ url_for('register') }}">Register</a>
