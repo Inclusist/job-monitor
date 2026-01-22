@@ -1787,6 +1787,59 @@ def delete_resume_route(resume_id):
     return redirect(url_for('my_resumes'))
 
 
+@app.route('/cover-letter/<int:cover_letter_id>')
+@login_required
+def view_cover_letter(cover_letter_id):
+    """View a generated cover letter"""
+    user, stats = get_user_context()
+    user_id = get_user_id()
+
+    try:
+        # Get cover letter from database with user verification
+        conn = cv_manager.connection_pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, job_id, job_title, job_company, cover_letter_html,
+                       cover_letter_pdf_path, created_at
+                FROM cover_letters
+                WHERE id = %s AND user_id = %s
+            """, (cover_letter_id, user_id))
+
+            row = cur.fetchone()
+
+            if not row:
+                flash('Cover letter not found', 'error')
+                return redirect(url_for('my_resumes'))
+
+            cover_letter = {
+                'id': row[0],
+                'job_id': row[1],
+                'job_title': row[2],
+                'job_company': row[3],
+                'html': row[4],
+                'pdf_path': row[5],
+                'created_at': row[6],
+                'pdf_exists': row[5] and os.path.exists(row[5])
+            }
+
+            cur.close()
+        finally:
+            cv_manager.connection_pool.putconn(conn)
+
+        return render_template('cover_letter_view.html',
+                             user=user,
+                             stats=stats,
+                             cover_letter=cover_letter)
+
+    except Exception as e:
+        print(f"Error viewing cover letter: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f'Error loading cover letter: {str(e)}', 'error')
+        return redirect(url_for('my_resumes'))
+
+
 @app.route('/download/resume/<int:resume_id>')
 @login_required
 def download_resume(resume_id):
