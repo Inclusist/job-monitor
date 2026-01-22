@@ -853,20 +853,26 @@ def run_semantic_search():
                 conditions.append("ai_work_arrangement ILIKE '%remote%'")
 
             if locations:
-                # Build ILIKE patterns for each location
-                location_patterns = [f'%{loc}%' for loc in locations]
-                conditions.append("""
-                    (EXISTS (
-                        SELECT 1 FROM unnest(cities_derived) AS city
-                        WHERE city ILIKE ANY(%s)
-                    )
-                    OR
-                    EXISTS (
-                        SELECT 1 FROM unnest(locations_derived) AS loc
-                        WHERE loc ILIKE ANY(%s)
-                    ))
-                """)
-                params.extend([location_patterns, location_patterns])
+                # Build location conditions for each location
+                location_conditions = []
+                for loc in locations:
+                    location_conditions.append("""
+                        (EXISTS (
+                            SELECT 1 FROM unnest(cities_derived) AS city
+                            WHERE city ILIKE %s
+                        )
+                        OR
+                        EXISTS (
+                            SELECT 1 FROM unnest(locations_derived) AS loc_item
+                            WHERE loc_item ILIKE %s
+                        ))
+                    """)
+                    params.append(f'%{loc}%')
+                    params.append(f'%{loc}%')
+
+                # Combine all location conditions with OR
+                if location_conditions:
+                    conditions.append("(" + " OR ".join(location_conditions) + ")")
 
             if conditions:
                 query_sql += " WHERE " + " OR ".join(conditions)
