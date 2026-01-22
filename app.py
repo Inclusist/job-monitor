@@ -836,50 +836,17 @@ def run_semantic_search():
             cursor = conn.cursor()
             cursor.row_factory = lambda c, r: dict(zip([col[0] for col in c.description], r))
 
-        # Build query with optional location filter
+        # Build query - simplified without location filtering for now
         query_sql = """
             SELECT id, title, company, location, description,
                    discovered_date, url, ai_work_arrangement,
                    cities_derived, locations_derived
             FROM jobs
+            WHERE deleted = FALSE
+            ORDER BY discovered_date DESC
         """
-        params = []
 
-        # Apply location filter if specified
-        if locations or include_remote:
-            conditions = []
-
-            if include_remote:
-                conditions.append("ai_work_arrangement ILIKE '%remote%'")
-
-            if locations:
-                # Build location conditions for each location
-                location_conditions = []
-                for loc in locations:
-                    location_conditions.append("""
-                        (EXISTS (
-                            SELECT 1 FROM unnest(cities_derived) AS city
-                            WHERE city ILIKE %s
-                        )
-                        OR
-                        EXISTS (
-                            SELECT 1 FROM unnest(locations_derived) AS loc_item
-                            WHERE loc_item ILIKE %s
-                        ))
-                    """)
-                    params.append(f'%{loc}%')
-                    params.append(f'%{loc}%')
-
-                # Combine all location conditions with OR
-                if location_conditions:
-                    conditions.append("(" + " OR ".join(location_conditions) + ")")
-
-            if conditions:
-                query_sql += " WHERE " + " OR ".join(conditions)
-
-        query_sql += " ORDER BY discovered_date DESC"
-
-        cursor.execute(query_sql, params)
+        cursor.execute(query_sql)
         jobs = [dict(row) for row in cursor.fetchall()]
         cursor.close()
         if hasattr(job_db, '_return_connection'):
