@@ -1491,8 +1491,102 @@ def restore_job(job_id):
         flash('Job restored successfully', 'success')
     except Exception as e:
         flash(f'Error restoring job: {str(e)}', 'error')
-    
+
     return redirect(request.referrer or url_for('deleted_jobs'))
+
+
+@app.route('/my-resumes')
+@login_required
+def my_resumes():
+    """View all generated resumes and cover letters for current user"""
+    user, stats = get_user_context()
+    user_id = get_user_id()
+
+    if not resume_ops:
+        flash('Resume feature not available', 'error')
+        return redirect(url_for('dashboard'))
+
+    try:
+        # Get all resumes for this user
+        resumes = resume_ops.get_user_resumes(user_id)
+
+        # Enrich with job details
+        for resume in resumes:
+            job = job_db.get_job_by_id(resume['job_id'])
+            if job:
+                resume['job_title'] = job.get('title', 'Unknown Job')
+                resume['job_company'] = job.get('company', 'Unknown Company')
+            else:
+                resume['job_title'] = 'Job Not Found'
+                resume['job_company'] = ''
+
+            # Check if PDF exists
+            pdf_path = resume.get('resume_pdf_path')
+            resume['pdf_exists'] = pdf_path and os.path.exists(pdf_path)
+
+        # Get all cover letters for this user
+        conn = cv_manager.connection_pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, job_id, job_title, job_company, created_at
+                FROM cover_letters
+                WHERE user_id = %s
+                ORDER BY created_at DESC
+            """, (user_id,))
+
+            cover_letters = []
+            for row in cur.fetchall():
+                cover_letters.append({
+                    'id': row[0],
+                    'job_id': row[1],
+                    'job_title': row[2],
+                    'job_company': row[3],
+                    'created_at': row[4]
+                })
+
+            cur.close()
+        finally:
+            cv_manager.connection_pool.putconn(conn)
+
+        return render_template('my_resumes.html',
+                             user=user,
+                             stats=stats,
+                             resumes=resumes,
+                             cover_letters=cover_letters)
+
+    except Exception as e:
+        print(f"Error loading resumes: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f'Error loading resumes: {str(e)}', 'error')
+        return redirect(url_for('dashboard'))
+
+
+@app.route('/my-resumes/<int:resume_id>/delete', methods=['POST'])
+@login_required
+def delete_resume_route(resume_id):
+    """Delete a generated resume"""
+    user_id = get_user_id()
+
+    if not resume_ops:
+        flash('Resume feature not available', 'error')
+        return redirect(url_for('dashboard'))
+
+    try:
+        # Delete from database (with user verification)
+        deleted = resume_ops.delete_resume(resume_id, user_id)
+
+        if deleted:
+            flash('Resume deleted successfully', 'success')
+        else:
+            flash('Resume not found or access denied', 'error')
+
+    except Exception as e:
+        print(f"Error deleting resume: {e}")
+        flash(f'Error deleting resume: {str(e)}', 'error')
+
+    return redirect(url_for('my_resumes'))
 
 
 @app.route('/jobs/<int:job_id>/permanent-delete', methods=['POST'])
