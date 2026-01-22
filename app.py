@@ -15,6 +15,7 @@ import json
 import time
 import queue
 import threading
+import numpy as np
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -95,6 +96,23 @@ handler = CVHandler(cv_manager, parser, analyzer, storage_root='data/cvs') if an
 
 # Progress tracking for job search
 search_progress = {}
+
+# Semantic search model (lazy loading)
+_semantic_model = None
+
+def get_semantic_model():
+    """Get or load sentence transformer model (lazy loading)"""
+    global _semantic_model
+    if _semantic_model is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+            print("📥 Loading sentence transformer model...")
+            _semantic_model = SentenceTransformer('TechWolf/JobBERT-v3')
+            print("✅ TechWolf JobBERT-v3 model loaded")
+        except ImportError:
+            print("❌ Error: sentence-transformers package not installed")
+            return None
+    return _semantic_model
 
 # Initialize OAuth
 oauth = OAuth(app)
@@ -753,6 +771,197 @@ def jobs():
     return render_template('jobs.html', user=user, stats=stats, 
                           new_jobs=new_jobs, previous_jobs=previous_jobs,
                           priority=priority, min_score=min_score, status=status)
+
+
+@app.route('/semantic-search')
+@login_required
+def semantic_search():
+    """Semantic search testing page"""
+    user, stats = get_user_context()
+
+    # Check if user has a CV profile
+    cv_profile = cv_manager.get_profile_by_user(user['id'])
+
+    if not cv_profile:
+        flash('Please upload your CV first to use semantic search', 'warning')
+        return redirect(url_for('upload_cv'))
+
+    # Get job count
+    conn = job_db._get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM jobs")
+    job_count = cursor.fetchone()[0]
+    cursor.close()
+    if hasattr(job_db, '_return_connection'):
+        job_db._return_connection(conn)
+    else:
+        conn.close()
+
+    return render_template('semantic_search.html', user=user, stats=stats, job_count=job_count)
+
+
+@app.route('/run-semantic-search', methods=['POST'])
+@login_required
+def run_semantic_search():
+    """Run semantic search and return results"""
+    user, stats = get_user_context()
+
+    try:
+        # Get parameters
+        query = request.json.get('query', '').strip()
+        threshold = float(request.json.get('threshold', 0.5))
+        match_mode = request.json.get('match_mode', 'title_only')  # title_only or full_text
+        limit = int(request.json.get('limit', 20))
+        locations = request.json.get('locations', [])
+        include_remote = request.json.get('include_remote', True)
+
+        if not query:
+            return jsonify({'error': 'Query is required'}), 400
+
+        # Load model
+        model = get_semantic_model()
+        if model is None:
+            return jsonify({'error': 'Semantic model not available'}), 500
+
+        # Get jobs with optional location filtering
+        start_time = time.time()
+        conn = job_db._get_connection()
+
+        # Use RealDictCursor for PostgreSQL
+        try:
+            from psycopg2.extras import RealDictCursor
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+        except ImportError:
+            # SQLite fallback
+            cursor = conn.cursor()
+            cursor.row_factory = lambda c, r: dict(zip([col[0] for col in c.description], r))
+
+        # Build query with optional location filter
+        query_sql = """
+            SELECT id, title, company, location, description,
+                   discovered_date, url, ai_work_arrangement,
+                   cities_derived, locations_derived
+            FROM jobs
+        """
+        params = []
+
+        # Apply location filter if specified
+        if locations or include_remote:
+            conditions = []
+
+            if include_remote:
+                conditions.append("ai_work_arrangement ILIKE '%remote%'")
+
+            if locations:
+                # Build ILIKE patterns for each location
+                location_patterns = [f'%{loc}%' for loc in locations]
+                conditions.append("""
+                    (EXISTS (
+                        SELECT 1 FROM unnest(cities_derived) AS city
+                        WHERE city ILIKE ANY(%s)
+                    )
+                    OR
+                    EXISTS (
+                        SELECT 1 FROM unnest(locations_derived) AS loc
+                        WHERE loc ILIKE ANY(%s)
+                    ))
+                """)
+                params.extend([location_patterns, location_patterns])
+
+            if conditions:
+                query_sql += " WHERE " + " OR ".join(conditions)
+
+        query_sql += " ORDER BY discovered_date DESC"
+
+        cursor.execute(query_sql, params)
+        jobs = [dict(row) for row in cursor.fetchall()]
+        cursor.close()
+        if hasattr(job_db, '_return_connection'):
+            job_db._return_connection(conn)
+        else:
+            conn.close()
+
+        fetch_time = time.time() - start_time
+
+        # Encode query
+        encode_start = time.time()
+        query_embedding = model.encode(query, show_progress_bar=False)
+        query_encode_time = time.time() - encode_start
+
+        # Encode jobs and calculate similarity
+        results = []
+        encode_start = time.time()
+
+        for job in jobs:
+            # Build job text based on mode
+            if match_mode == 'title_only':
+                job_text = job.get('title', '')
+            else:  # full_text
+                parts = []
+                if job.get('title'):
+                    parts.append(job['title'])
+                    parts.append(job['title'])  # Add title twice for emphasis
+                if job.get('company'):
+                    parts.append(f"Company: {job['company']}")
+                if job.get('location'):
+                    parts.append(f"Location: {job['location']}")
+                if job.get('description'):
+                    desc = job['description'][:3000]
+                    parts.append(desc)
+                job_text = " ".join(parts)
+
+            # Encode job
+            job_embedding = model.encode(job_text, show_progress_bar=False)
+
+            # Calculate cosine similarity
+            similarity = float(np.dot(query_embedding, job_embedding) /
+                             (np.linalg.norm(query_embedding) * np.linalg.norm(job_embedding)))
+
+            if similarity >= threshold:
+                results.append({
+                    'job_id': job['id'],
+                    'title': job['title'],
+                    'company': job['company'],
+                    'location': job['location'],
+                    'url': job['url'],
+                    'discovered_date': job['discovered_date'].isoformat() if hasattr(job['discovered_date'], 'isoformat') else str(job['discovered_date']),
+                    'similarity': round(similarity, 4),
+                    'match_score': int(similarity * 100)
+                })
+
+        jobs_encode_time = time.time() - encode_start
+
+        # Sort by similarity
+        results.sort(key=lambda x: x['similarity'], reverse=True)
+
+        # Limit results
+        results = results[:limit]
+
+        total_time = time.time() - start_time
+
+        return jsonify({
+            'results': results,
+            'stats': {
+                'total_jobs': len(jobs),
+                'matches_found': len(results),
+                'threshold': threshold,
+                'match_mode': match_mode,
+                'query': query,
+                'locations': locations,
+                'include_remote': include_remote,
+                'timings': {
+                    'fetch_jobs': round(fetch_time, 3),
+                    'encode_query': round(query_encode_time, 3),
+                    'encode_jobs': round(jobs_encode_time, 3),
+                    'total': round(total_time, 3)
+                }
+            }
+        }), 200
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/suggest-search')
