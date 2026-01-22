@@ -842,7 +842,6 @@ def run_semantic_search():
                    discovered_date, url, ai_work_arrangement,
                    cities_derived, locations_derived
             FROM jobs
-            WHERE deleted = FALSE
             ORDER BY discovered_date DESC
         """
 
