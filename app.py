@@ -1840,6 +1840,98 @@ def view_cover_letter(cover_letter_id):
         return redirect(url_for('my_resumes'))
 
 
+@app.route('/download/cover-letter/<int:cover_letter_id>')
+@login_required
+def download_cover_letter(cover_letter_id):
+    """
+    Download generated cover letter (HTML or PDF)
+
+    Args:
+        cover_letter_id: Cover letter ID to download
+
+    Query Parameters:
+        format: 'html' or 'pdf' (default: 'pdf')
+
+    Returns:
+        File download or error
+    """
+    user_id = get_user_id()
+    download_format = request.args.get('format', 'pdf')
+
+    try:
+        # Get cover letter from database with user verification
+        conn = cv_manager.connection_pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, job_id, job_title, cover_letter_html, cover_letter_pdf_path
+                FROM cover_letters
+                WHERE id = %s AND user_id = %s
+            """, (cover_letter_id, user_id))
+
+            row = cur.fetchone()
+
+            if not row:
+                flash('Cover letter not found', 'error')
+                return redirect(url_for('my_resumes'))
+
+            cover_letter = {
+                'id': row[0],
+                'job_id': row[1],
+                'job_title': row[2],
+                'html': row[3],
+                'pdf_path': row[4]
+            }
+
+            cur.close()
+        finally:
+            cv_manager.connection_pool.putconn(conn)
+
+        job_id = cover_letter['job_id']
+
+        if download_format == 'html':
+            # Download as HTML
+            from flask import make_response
+
+            response = make_response(cover_letter['html'])
+            response.headers['Content-Type'] = 'text/html; charset=utf-8'
+            response.headers['Content-Disposition'] = f'attachment; filename="cover_letter_job_{job_id}.html"'
+            return response
+
+        elif download_format == 'pdf':
+            # Download as PDF (if generated)
+            pdf_path = cover_letter.get('pdf_path')
+
+            if not pdf_path or not os.path.exists(pdf_path):
+                # PDF not generated yet - offer HTML as fallback
+                flash('PDF not available. Downloading HTML version instead.', 'info')
+                from flask import make_response
+
+                response = make_response(cover_letter['html'])
+                response.headers['Content-Type'] = 'text/html; charset=utf-8'
+                response.headers['Content-Disposition'] = f'attachment; filename="cover_letter_job_{job_id}.html"'
+                return response
+
+            # Send PDF file
+            return send_file(
+                pdf_path,
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=f"cover_letter_job_{job_id}.pdf"
+            )
+
+        else:
+            flash('Invalid format. Use "html" or "pdf"', 'error')
+            return redirect(url_for('my_resumes'))
+
+    except Exception as e:
+        import traceback
+        print(f"Error downloading cover letter: {e}")
+        print(traceback.format_exc())
+        flash(f'Error downloading cover letter: {str(e)}', 'error')
+        return redirect(url_for('my_resumes'))
+
+
 @app.route('/download/resume/<int:resume_id>')
 @login_required
 def download_resume(resume_id):
