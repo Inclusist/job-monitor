@@ -94,6 +94,23 @@ else:
 
 handler = CVHandler(cv_manager, parser, analyzer, storage_root='data/cvs') if analyzer else None
 
+# Initialize resume operations
+resume_ops = None
+resume_generator = None
+if database_url and database_url.startswith('postgres') and hasattr(job_db, 'connection_pool'):
+    from src.database.postgres_resume_operations import PostgresResumeOperations
+    from src.resume.resume_generator import ResumeGenerator
+
+    resume_ops = PostgresResumeOperations(job_db.connection_pool)
+
+    if anthropic_key:
+        resume_generator = ResumeGenerator(anthropic_key)
+        print("✓ Resume generation enabled")
+    else:
+        print("Warning: Resume generation disabled (ANTHROPIC_API_KEY not set)")
+else:
+    print("Warning: Resume generation disabled (PostgreSQL required)")
+
 # Progress tracking for job search
 search_progress = {}
 
