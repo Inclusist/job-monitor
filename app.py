@@ -30,6 +30,7 @@ from cv.cv_handler import CVHandler
 from collectors.adzuna import AdzunaCollector
 from collectors.activejobs import ActiveJobsCollector
 from utils.job_loader import trigger_new_user_job_load, trigger_preferences_update_job_load, get_default_preferences
+from src.analysis.on_demand_analyzer import analyze_job_on_demand
 
 # Load environment variables
 load_dotenv()
@@ -2073,6 +2074,21 @@ def permanent_delete(job_id):
         flash(f'Error: {str(e)}', 'error')
     
     return redirect(url_for('deleted_jobs'))
+
+
+@app.route('/jobs/<int:job_id>/analyze', methods=['POST'])
+@login_required
+def analyze_job(job_id):
+    """Trigger on-demand Claude analysis for a single job."""
+    user_id = get_user_id()
+    
+    # Run analysis in a background thread to avoid blocking the request
+    thread = threading.Thread(target=analyze_job_on_demand, args=(user_id, job_id))
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({'success': True, 'message': 'Analysis started in the background.'})
+
 
 
 @app.route('/jobs/<int:job_id>/feedback', methods=['POST'])

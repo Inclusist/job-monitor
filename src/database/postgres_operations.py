@@ -26,6 +26,7 @@ class PostgresDatabase:
             database_url: PostgreSQL connection string (e.g., from Railway DATABASE_URL)
         """
         self.database_url = database_url
+        self.embedding_model = self._load_embedding_model()
         
         # Create connection pool for better performance
         try:
@@ -40,6 +41,21 @@ class PostgresDatabase:
             raise
         
         self._create_tables()
+
+    def _load_embedding_model(self):
+        """Load the sentence transformer model."""
+        try:
+            from sentence_transformers import SentenceTransformer
+            logger.info("Loading sentence transformer model for full-text embeddings...")
+            model = SentenceTransformer('TechWolf/JobBERT-v3', device='cpu', trust_remote_code=True)
+            logger.info("Sentence transformer model loaded successfully.")
+            return model
+        except ImportError:
+            logger.warning("sentence-transformers package not found. Full-text embeddings will not be generated for new jobs.")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to load sentence transformer model: {e}")
+            return None
     
     def _get_connection(self):
         """Get a connection from the pool"""
@@ -258,6 +274,15 @@ class PostgresDatabase:
             conn = self._get_connection()
             cursor = conn.cursor()
 
+            # Generate full-text embedding if model is available
+            embedding_json = None
+            if self.embedding_model:
+                title = job_data.get('title', '')
+                description = job_data.get('description', '')
+                full_text = f"{title} {description}"
+                embedding = self.embedding_model.encode(full_text, show_progress_bar=False)
+                embedding_json = json.dumps(embedding.tolist())
+
             # Parse posted_date if it's a string
             posted_date = job_data.get('posted_date')
             if isinstance(posted_date, str):
@@ -281,8 +306,9 @@ class PostgresDatabase:
                     ai_employment_type, ai_work_arrangement, ai_experience_level,
                     ai_key_skills, ai_keywords, ai_taxonomies_a,
                     ai_core_responsibilities, ai_requirements_summary,
+                    embedding_jobbert_full,
                     discovered_date, last_updated
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (external_id) DO UPDATE SET
                     last_updated = EXCLUDED.last_updated
                 RETURNING id
@@ -312,6 +338,7 @@ class PostgresDatabase:
                 get_list('ai_industry', []) if isinstance(job_data.get('ai_industry'), list) else get_list('ai_taxonomies_a', []),
                 job_data.get('ai_core_responsibilities'),
                 job_data.get('ai_requirements_summary'),
+                embedding_json,
                 now,
                 now
             ))
@@ -1341,7 +1368,7 @@ class PostgresDatabase:
     
     def get_unfiltered_jobs_for_user(self, user_id: int, user_cities: List[str] = None) -> List[Dict]:
         """
-        Get jobs that haven't been matched/filtered for this user yet
+        Get jobs that haven't been matched/filtered for this user yet and have full-text embeddings.
 
         Args:
             user_id: User ID
@@ -1349,17 +1376,17 @@ class PostgresDatabase:
                         Will match remote jobs OR jobs in these cities (case-insensitive)
 
         Returns:
-            List of unfiltered jobs matching location/work criteria
+            List of unfiltered jobs matching location/work criteria with their embeddings.
         """
         conn = self._get_connection()
         try:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
 
-            # Base query - jobs not yet matched for this user
+            # Base query - jobs not yet matched for this user and have a full-text embedding
             query = """
-                SELECT j.* FROM jobs j
+                SELECT j.id, j.title, j.description, j.embedding_jobbert_full FROM jobs j
                 LEFT JOIN user_job_matches ujm ON j.id = ujm.job_id AND ujm.user_id = %s
-                WHERE ujm.id IS NULL
+                WHERE ujm.id IS NULL AND j.embedding_jobbert_full IS NOT NULL
             """
             params = [user_id]
 

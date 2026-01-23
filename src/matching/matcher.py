@@ -7,6 +7,7 @@ import importlib.util
 from pathlib import Path
 from typing import Dict, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import numpy as np
 
 from src.database.postgres_operations import PostgresDatabase
 from src.database.postgres_cv_operations import PostgresCVManager
@@ -349,11 +350,36 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
             }
             return
         
-        # Get user preferences for keyword boosting
+        # Get user preferences for keyword boosting and location filtering
         user = cv_manager_inst.get_user_by_id(user_id)
         preferences = user.get('preferences', {})
         config_keywords = preferences.get('search_keywords', [])
+        user_cities = preferences.get('search_locations', [])
+
+        # Get unfiltered jobs
+        matching_status[user_id].update({
+            'stage': 'fetching_jobs',
+            'progress': 20,
+            'message': 'Fetching jobs to analyze...'
+        })
         
+        t_query_start = time.time()
+        jobs_to_filter = job_db_inst.get_unfiltered_jobs_for_user(user_id, user_cities=user_cities)
+        t_query = time.time() - t_query_start
+        print(f"Found {len(jobs_to_filter)} jobs with embeddings to filter (query: {t_query:.2f}s)")
+        
+        if not jobs_to_filter:
+            print("✓ No new jobs to filter")
+            matching_status[user_id] = {
+                'status': 'completed',
+                'stage': 'done',
+                'progress': 100,
+                'message': 'No new jobs to filter',
+                'matches_found': 0,
+                'jobs_analyzed': 0
+            }
+            return
+
         # Filter jobs with semantic similarity
         matching_status[user_id].update({
             'stage': 'semantic_filtering',
@@ -361,58 +387,45 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
             'message': f'Analyzing {len(jobs_to_filter)} jobs with semantic similarity...',
             'total_jobs': len(jobs_to_filter)
         })
+
+        t_semantic_start = time.time()
+
+        # Vectorized similarity calculation
+        job_embeddings = np.array([job['embedding_jobbert_full'] for job in jobs_to_filter])
+        
+        # Normalize embeddings
+        cv_embedding_norm = cv_embedding / np.linalg.norm(cv_embedding)
+        job_embeddings_norm = job_embeddings / np.linalg.norm(job_embeddings, axis=1)[:, np.newaxis]
+        
+        # Calculate cosine similarities
+        similarities = np.dot(job_embeddings_norm, cv_embedding_norm)
+        
+        t_similarity_total = time.time() - t_semantic_start
         
         matches = []
         max_score = 0
-        
-        # Timing breakdown
-        t_semantic_start = time.time()
-        t_encode_total = 0
-        t_similarity_total = 0
-        t_keyword_total = 0
-        
-        for idx, job in enumerate(jobs_to_filter):
-            job_text = filter_module.build_job_text(job)
+
+        for i, job in enumerate(jobs_to_filter):
+            similarity = similarities[i]
             
-            t_encode = time.time()
-            job_embedding = model.encode(job_text, show_progress_bar=False)
-            t_encode_total += time.time() - t_encode
-            
-            t_sim = time.time()
-            similarity = filter_module.calculate_similarity(cv_embedding, job_embedding)
-            t_similarity_total += time.time() - t_sim
-            
-            t_kw = time.time()
             boosted_score, matched_keywords = filter_module.apply_keyword_boosts(
                 similarity, job, config_keywords
             )
-            t_keyword_total += time.time() - t_kw
             
-            # Track max score for debugging
             if boosted_score > max_score:
                 max_score = boosted_score
-            
-            if boosted_score >= 0.30:  # 30% threshold (temporarily lowered for testing)
+
+            if boosted_score >= 0.30:  # 30% threshold
                 matches.append({
                     'job': job,
                     'score': int(boosted_score * 100),
                     'matched_keywords': matched_keywords
                 })
-            
-            # Update progress during filtering
-            if (idx + 1) % 10 == 0 or idx == len(jobs_to_filter) - 1:
-                progress = 30 + int((idx + 1) / len(jobs_to_filter) * 20)  # 30-50%
-                matching_status[user_id].update({
-                    'progress': progress,
-                    'message': f'Filtered {idx + 1}/{len(jobs_to_filter)} jobs, {len(matches)} matches so far...'
-                })
-        
+
         t_semantic_total = time.time() - t_semantic_start
-        print(f"\n⏱️  SEMANTIC FILTERING:")
-        print(f"  Total: {t_semantic_total:.2f}s ({t_semantic_total/60:.2f} min)")
-        print(f"  Encoding: {t_encode_total:.2f}s ({t_encode_total/len(jobs_to_filter)*1000:.0f}ms/job)")
-        print(f"  Similarity: {t_similarity_total:.2f}s")
-        print(f"  Keyword boost: {t_keyword_total:.2f}s")
+        print(f"\n⏱️  SEMANTIC FILTERING (VECTORIZED):")
+        print(f"  Total: {t_semantic_total:.2f}s")
+        print(f"  Similarity calculation: {t_similarity_total:.2f}s")
         print(f"✓ Found {len(matches)} matches above 30% threshold (max: {max_score:.3f})")
         
         # Save semantic matches to database (batch insert for performance)
@@ -442,91 +455,91 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
         t_save = time.time() - t_save_start
         print(f"✓ Saved {saved_count} semantic matches in {t_save:.2f}s")
         
-        # Step 2: Claude analysis on high-scoring matches (>= 70%)
-        high_score_matches = [m for m in matches if m['score'] >= 70]
-        
-        # Initialize Claude analyzer
-        try:
-            api_key = os.environ.get('ANTHROPIC_API_KEY')
-            if api_key:
-                analyzer = ClaudeJobAnalyzer(api_key=api_key, db=job_db_inst, user_email=user.get('email', 'unknown'))
-            else:
-                print("⚠️  No ANTHROPIC_API_KEY found, skipping Claude analysis")
-                analyzer = None
-        except Exception as e:
-            print(f"⚠️  Could not initialize Claude analyzer: {e}")
-            analyzer = None
-        
+        # Step 2: Claude analysis on high-scoring matches (>= 70%) - DISABLED
         jobs_analyzed = 0
-        if high_score_matches and analyzer:
-            print(f"\n🤖 Running Claude analysis on {len(high_score_matches)} high-scoring jobs...")
+        # high_score_matches = [m for m in matches if m['score'] >= 70]
+        
+        # # Initialize Claude analyzer
+        # try:
+        #     api_key = os.environ.get('ANTHROPIC_API_KEY')
+        #     if api_key:
+        #         analyzer = ClaudeJobAnalyzer(api_key=api_key, db=job_db_inst, user_email=user.get('email', 'unknown'))
+        #     else:
+        #         print("⚠️  No ANTHROPIC_API_KEY found, skipping Claude analysis")
+        #         analyzer = None
+        # except Exception as e:
+        #     print(f"⚠️  Could not initialize Claude analyzer: {e}")
+        #     analyzer = None
+        
+        # if high_score_matches and analyzer:
+        #     print(f"\n🤖 Running Claude analysis on {len(high_score_matches)} high-scoring jobs...")
             
-            # Set the profile once for all analyses
-            analyzer.set_profile(profile)
+        #     # Set the profile once for all analyses
+        #     analyzer.set_profile(profile)
             
-            matching_status[user_id].update({
-                'stage': 'claude_analysis',
-                'progress': 60,
-                'message': f'Running AI analysis on {min(len(high_score_matches), 20)} top matches...'
-            })
+        #     matching_status[user_id].update({
+        #         'stage': 'claude_analysis',
+        #         'progress': 60,
+        #         'message': f'Running AI analysis on {min(len(high_score_matches), 20)} top matches...'
+        #     })
             
-            # Collect all Claude analyses first, then batch update
-            claude_batch_updates = []
+        #     # Collect all Claude analyses first, then batch update
+        #     claude_batch_updates = []
             
-            for idx, match in enumerate(high_score_matches[:20]):  # Limit to top 20
-                job = match['job']
+        #     for idx, match in enumerate(high_score_matches[:20]):  # Limit to top 20
+        #         job = match['job']
                 
-                try:
-                    # Analyze with Claude
-                    analysis = analyzer.analyze_job(job)
+        #         try:
+        #             # Analyze with Claude
+        #             analysis = analyzer.analyze_job(job)
                     
-                    if analysis and 'match_score' in analysis:
-                        # Convert lists to strings for database storage
-                        key_alignments = analysis.get('key_alignments', [])
-                        potential_gaps = analysis.get('potential_gaps', [])
+        #             if analysis and 'match_score' in analysis:
+        #                 # Convert lists to strings for database storage
+        #                 key_alignments = analysis.get('key_alignments', [])
+        #                 potential_gaps = analysis.get('potential_gaps', [])
                         
-                        # Handle both list of strings and list of dicts
-                        if key_alignments and isinstance(key_alignments[0], dict):
-                            key_alignments = [str(item) for item in key_alignments]
-                        if potential_gaps and isinstance(potential_gaps[0], dict):
-                            potential_gaps = [str(item) for item in potential_gaps]
+        #                 # Handle both list of strings and list of dicts
+        #                 if key_alignments and isinstance(key_alignments[0], dict):
+        #                     key_alignments = [str(item) for item in key_alignments]
+        #                 if potential_gaps and isinstance(potential_gaps[0], dict):
+        #                     potential_gaps = [str(item) for item in potential_gaps]
                         
-                        # Add to batch
-                        claude_batch_updates.append({
-                            'user_id': user_id,
-                            'job_id': job['id'],
-                            'claude_score': analysis['match_score'],
-                            'priority': analysis.get('priority', 'medium'),
-                            'match_reasoning': analysis.get('reasoning', ''),
-                            'key_alignments': key_alignments,
-                            'potential_gaps': potential_gaps
-                        })
+        #                 # Add to batch
+        #                 claude_batch_updates.append({
+        #                     'user_id': user_id,
+        #                     'job_id': job['id'],
+        #                     'claude_score': analysis['match_score'],
+        #                     'priority': analysis.get('priority', 'medium'),
+        #                     'match_reasoning': analysis.get('reasoning', ''),
+        #                     'key_alignments': key_alignments,
+        #                     'potential_gaps': potential_gaps
+        #                 })
                         
-                        print(f"  ✓ {job.get('title', 'Unknown')[:50]} - Claude: {analysis['match_score']}%")
-                        jobs_analyzed += 1
+        #                 print(f"  ✓ {job.get('title', 'Unknown')[:50]} - Claude: {analysis['match_score']}%")
+        #                 jobs_analyzed += 1
                         
-                        # Update progress
-                        progress = 60 + int((idx + 1) / min(len(high_score_matches), 20) * 30)  # 60-90%
-                        matching_status[user_id].update({
-                            'progress': progress,
-                            'message': f'AI analyzed {idx + 1}/{min(len(high_score_matches), 20)} jobs...',
-                            'jobs_analyzed': jobs_analyzed
-                        })
+        #                 # Update progress
+        #                 progress = 60 + int((idx + 1) / min(len(high_score_matches), 20) * 30)  # 60-90%
+        #                 matching_status[user_id].update({
+        #                     'progress': progress,
+        #                     'message': f'AI analyzed {idx + 1}/{min(len(high_score_matches), 20)} jobs...',
+        #                     'jobs_analyzed': jobs_analyzed
+        #                 })
                     
-                except Exception as e:
-                    print(f"  ⚠ Error analyzing job {job['id']}: {e}")
-                    continue
+        #         except Exception as e:
+        #             print(f"  ⚠ Error analyzing job {job['id']}: {e}")
+        #             continue
             
-            # Batch update all Claude analyses at once (much faster than individual updates)
-            if claude_batch_updates:
-                matching_status[user_id].update({
-                    'progress': 92,
-                    'message': f'Saving {len(claude_batch_updates)} AI analyses to database...'
-                })
-                updated_count = job_db_inst.add_user_job_matches_batch(claude_batch_updates)
-                print(f"✓ Saved {updated_count} Claude analyses to database")
+        #     # Batch update all Claude analyses at once (much faster than individual updates)
+        #     if claude_batch_updates:
+        #         matching_status[user_id].update({
+        #             'progress': 92,
+        #             'message': f'Saving {len(claude_batch_updates)} AI analyses to database...'
+        #         })
+        #         updated_count = job_db_inst.add_user_job_matches_batch(claude_batch_updates)
+        #         print(f"✓ Saved {updated_count} Claude analyses to database")
             
-            print(f"✓ Claude analysis complete")
+        #     print(f"✓ Claude analysis complete")
         
         # Mark as completed
         matching_status[user_id] = {

@@ -313,6 +313,12 @@
                     <div style="display: flex; gap: 0.5rem;">
                         <a href="{{ url_for('job_detail', job_id=job.job_table_id) }}" class="btn"
                             style="padding: 0.5rem 1rem; font-size: 0.875rem;">View</a>
+                        <button class="btn btn-secondary analyze-btn" 
+                                data-job-id="{{ job.job_table_id }}" 
+                                data-url="{{ url_for('analyze_job', job_id=job.job_table_id) }}"
+                                style="padding: 0.5rem 1rem; font-size: 0.875rem;">
+                            🤖 Analyze
+                        </button>
                         <form method="POST" action="{{ url_for('delete_job', job_id=job.job_table_id) }}"
                             style="display: inline; margin: 0;"
                             onsubmit="return confirm('Hide this job permanently? It will not appear in future searches.');">
@@ -393,6 +399,12 @@
                     <div style="display: flex; gap: 0.5rem;">
                         <a href="{{ url_for('job_detail', job_id=job.job_table_id) }}" class="btn"
                             style="padding: 0.5rem 1rem; font-size: 0.875rem;">View</a>
+                        <button class="btn btn-secondary analyze-btn"
+                                data-job-id="{{ job.job_table_id }}"
+                                data-url="{{ url_for('analyze_job', job_id=job.job_table_id) }}"
+                                style="padding: 0.5rem 1rem; font-size: 0.875rem;">
+                            🤖 Analyze
+                        </button>
                         <form method="POST" action="{{ url_for('delete_job', job_id=job.job_table_id) }}"
                             style="display: inline; margin: 0;"
                             onsubmit="return confirm('Hide this job permanently? It will not appear in future searches.');">
@@ -409,6 +421,43 @@
 {% endif %}
 
 {% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const analyzeButtons = document.querySelectorAll('.analyze-btn');
+    analyzeButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const url = button.dataset.url;
+            button.disabled = true;
+            button.textContent = 'Analyzing...';
+
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    button.textContent = '✅ Started';
+                    button.style.backgroundColor = '#28a745';
+                } else {
+                    button.textContent = 'Error';
+                    button.style.backgroundColor = '#dc3545';
+                    button.disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                button.textContent = 'Error';
+                button.style.backgroundColor = '#dc3545';
+                button.disabled = false;
+            });
+        });
+    });
+});
+</script>
 
 {% if not user or not stats.primary_cv_name %}
 <div class="alert alert-info">
