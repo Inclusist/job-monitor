@@ -137,6 +137,70 @@
     </p>
 </div>
 
+{% if job.competency_mappings %}
+<div class="card">
+    <h3>Competency Analysis</h3>
+    <table class="table" style="margin-top: 1rem;">
+        <thead>
+            <tr>
+                <th>Your Competency</th>
+                <th>Job Requirement</th>
+                <th>Match</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for mapping in job.competency_mappings %}
+            <tr>
+                <td>{{ mapping.user_competency }}</td>
+                <td>{{ mapping.job_requirement }}</td>
+                <td>
+                    {% if mapping.match == 'true' %}
+                        <span class="badge" style="background: #28a745;">✓ Match</span>
+                    {% elif mapping.match == 'partial' %}
+                        <span class="badge" style="background: #ffc107; color: #000;">~ Partial</span>
+                    {% else %}
+                        <span class="badge" style="background: #dc3545;">✗ Gap</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if job.skill_mappings %}
+<div class="card">
+    <h3>Skill Analysis</h3>
+    <table class="table" style="margin-top: 1rem;">
+        <thead>
+            <tr>
+                <th>Your Skill</th>
+                <th>Job Requirement</th>
+                <th>Match</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for mapping in job.skill_mappings %}
+            <tr>
+                <td>{{ mapping.user_skill }}</td>
+                <td>{{ mapping.job_requirement }}</td>
+                <td>
+                    {% if mapping.match == 'true' %}
+                        <span class="badge" style="background: #28a745;">✓ Match</span>
+                    {% elif mapping.match == 'partial' %}
+                        <span class="badge" style="background: #ffc107; color: #000;">~ Partial</span>
+                    {% else %}
+                        <span class="badge" style="background: #dc3545;">✗ Gap</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
 {% if job.key_alignments %}
 <div class="card">
     <h3>✅ Key Alignments</h3>

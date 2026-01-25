@@ -290,7 +290,9 @@ Evaluate this job opportunity and provide your assessment in the following JSON 
   "priority": "<high|medium|low>",
   "key_alignments": ["<alignment 1>", "<alignment 2>", ...],
   "potential_gaps": ["<gap 1>", "<gap 2>", ...],
-  "reasoning": "<2-3 sentence summary explaining the match score and priority>"
+  "reasoning": "<2-3 sentence summary explaining the match score and priority>",
+  "competency_mappings": [{{"user_competency": "<competency>", "job_requirement": "<requirement>", "match": "<true|false|partial>"}}, ...],
+  "skill_mappings": [{{"user_skill": "<skill>", "job_requirement": "<requirement>", "match": "<true|false|partial>"}}]
 }}
 
 **Scoring Guidelines:**
@@ -304,6 +306,11 @@ Evaluate this job opportunity and provide your assessment in the following JSON 
 - High: Score 85+, strong alignment with career goals, good location/company
 - Medium: Score 70-84, decent fit with some reservations
 - Low: Score below 70, significant gaps or misalignment
+
+**Mapping Guidelines:**
+- For `competency_mappings` and `skill_mappings`, compare the candidate's profile to the job description.
+- For each competency or skill, identify the corresponding job requirement.
+- Set `match` to `true` for a strong match, `false` for a clear gap, and `partial` for a partial match.
 
 **Matching Considerations:**
 1. Technical skill match

@@ -60,6 +60,8 @@ def analyze_job_on_demand(user_id: int, job_id: int) -> bool:
         if analysis and 'match_score' in analysis:
             key_alignments = analysis.get('key_alignments', [])
             potential_gaps = analysis.get('potential_gaps', [])
+            competency_mappings = analysis.get('competency_mappings', [])
+            skill_mappings = analysis.get('skill_mappings', [])
 
             if key_alignments and isinstance(key_alignments[0], dict):
                 key_alignments = [str(item) for item in key_alignments]
@@ -73,16 +75,29 @@ def analyze_job_on_demand(user_id: int, job_id: int) -> bool:
                 'priority': analysis.get('priority', 'medium'),
                 'match_reasoning': analysis.get('reasoning', ''),
                 'key_alignments': key_alignments,
-                'potential_gaps': potential_gaps
+                'potential_gaps': potential_gaps,
+                'competency_mappings': competency_mappings,
+                'skill_mappings': skill_mappings
             }
             
             job_db_inst.add_user_job_matches_batch([update_data])
+
+            # Also update the jobs table with the extracted competencies and skills
+            if competency_mappings or skill_mappings:
+                extracted_competencies = [mapping['user_competency'] for mapping in competency_mappings if 'user_competency' in mapping]
+                extracted_skills = [mapping['user_skill'] for mapping in skill_mappings if 'user_skill' in mapping]
+                
+                job_update_data = [{
+                    'job_id': job_id,
+                    'ai_competencies': extracted_competencies,
+                    'ai_key_skills': extracted_skills
+                }]
+                job_db_inst.update_jobs_competencies_batch(job_update_data)
+                print(f"  ✓ Updated job {job_id} with {len(extracted_competencies)} competencies and {len(extracted_skills)} skills.")
+
             print(f"  ✓ {job.get('title', 'Unknown')[:50]} - Claude: {analysis['match_score']}")
             print("✓ On-demand Claude analysis complete.")
             return True
-        else:
-            print("❌ Claude analysis failed to produce a score.")
-            return False
 
     except Exception as e:
         print(f"❌ Error in on-demand Claude analysis: {e}")
