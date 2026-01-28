@@ -794,13 +794,13 @@ def jobs():
         if status:
             matches = [m for m in matches if m.get('status') == status]
         
-        # Separate by discovery date (new vs previous)
+        # Separate by MATCHING date (not discovery date) - when the job was matched for this user
         from datetime import datetime, timedelta
         today = datetime.now().date()
-        
+
         new_jobs = []
         previous_jobs = []
-        
+
         for match in matches:
             # Use claude_score as the primary match_score for display
             if match.get('claude_score'):
@@ -809,29 +809,36 @@ def jobs():
                 match['match_score'] = match['semantic_score']
             else:
                 match['match_score'] = None
-            
-            # Check discovery date
-            discovered = match.get('discovered_date')
-            if discovered:
+
+            # Check when this job was MATCHED (not discovered)
+            # Use the most recent of semantic_date or claude_date
+            match_date = None
+
+            if match.get('claude_date'):
+                match_date = match['claude_date']
+            elif match.get('semantic_date'):
+                match_date = match['semantic_date']
+
+            if match_date:
                 # Handle both string (SQLite) and datetime (PostgreSQL) formats
-                if isinstance(discovered, str):
+                if isinstance(match_date, str):
                     try:
-                        discovered_date = datetime.fromisoformat(discovered.replace('Z', '+00:00')).date()
+                        match_date = datetime.fromisoformat(match_date.replace('Z', '+00:00')).date()
                     except (ValueError, AttributeError):
-                        discovered_date = None
-                elif hasattr(discovered, 'date'):
+                        match_date = None
+                elif hasattr(match_date, 'date'):
                     # It's already a datetime object (PostgreSQL)
-                    discovered_date = discovered.date()
+                    match_date = match_date.date()
                 else:
                     # It's already a date object
-                    discovered_date = discovered
-                
-                if discovered_date and discovered_date == today:
-                    new_jobs.append(match)
+                    match_date = match_date
+
+                if match_date and match_date == today:
+                    new_jobs.append(match)  # Matched today
                 else:
-                    previous_jobs.append(match)
+                    previous_jobs.append(match)  # Matched earlier
             else:
-                previous_jobs.append(match)
+                previous_jobs.append(match)  # No match date (shouldn't happen)
 
         # Parse JSON fields for both lists
         for job in new_jobs + previous_jobs:
