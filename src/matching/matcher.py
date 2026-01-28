@@ -381,7 +381,7 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
         job_embeddings = {}
         jobs_needing_encoding = []
         t_load_start = time.time()
-
+    
         for job in jobs_to_filter:
             if job.get('embedding_jobbert_title'):
                 try:

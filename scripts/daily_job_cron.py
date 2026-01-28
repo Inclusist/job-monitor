@@ -176,7 +176,7 @@ def collect_daily_jobs(db, api_key):
     # Fetch jobs from last 24 hours (cleaner data than 1h endpoint)
     jobs = collector.search_all_recent_jobs(
         location="Germany",
-        max_pages=15,  # Up to 1500 jobs per day (only charged for actual results)
+        max_pages=30,  # Up to 3000 jobs per day (only charged for actual results)
         date_posted="24h",  # 24-HOUR endpoint (better quality)
         remote_only=False
     )
