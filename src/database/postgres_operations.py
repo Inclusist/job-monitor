@@ -1002,13 +1002,9 @@ class PostgresDatabase:
                 ON CONFLICT (user_id, job_id)
                 DO UPDATE SET
                     semantic_score = COALESCE(EXCLUDED.semantic_score, user_job_matches.semantic_score),
-                    semantic_date = CASE WHEN EXCLUDED.semantic_score IS NOT NULL
-                                       THEN EXCLUDED.semantic_date
-                                       ELSE user_job_matches.semantic_date END,
+                    semantic_date = COALESCE(EXCLUDED.semantic_date, user_job_matches.semantic_date),
                     claude_score = COALESCE(EXCLUDED.claude_score, user_job_matches.claude_score),
-                    claude_date = CASE WHEN EXCLUDED.claude_score IS NOT NULL
-                                     THEN EXCLUDED.claude_date
-                                     ELSE user_job_matches.claude_date END,
+                    claude_date = COALESCE(EXCLUDED.claude_date, user_job_matches.claude_date),
                     priority = EXCLUDED.priority,
                     match_reasoning = COALESCE(EXCLUDED.match_reasoning, user_job_matches.match_reasoning),
                     key_alignments = COALESCE(EXCLUDED.key_alignments, user_job_matches.key_alignments),
