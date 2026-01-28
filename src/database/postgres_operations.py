@@ -1355,6 +1355,11 @@ class PostgresDatabase:
         try:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
 
+            # Get user's last filter run to only fetch new jobs
+            cursor.execute("SELECT last_filter_run FROM users WHERE id = %s", (user_id,))
+            user_row = cursor.fetchone()
+            last_filter_run = user_row['last_filter_run'] if user_row else None
+
             # Base query - jobs not yet matched for this user
             query = """
                 SELECT j.* FROM jobs j
@@ -1362,6 +1367,12 @@ class PostgresDatabase:
                 WHERE ujm.id IS NULL
             """
             params = [user_id]
+
+            # Only fetch jobs discovered after last filter run (if exists)
+            # This prevents re-processing old jobs on every run!
+            if last_filter_run:
+                query += " AND j.discovered_date > %s"
+                params.append(last_filter_run)
 
             # Add location/work arrangement filter if user has preferences
             if user_cities:
