@@ -9,6 +9,7 @@ Generates tailored, ATS-optimized resumes based on:
 from anthropic import Anthropic
 from typing import Dict, List, Any, Optional
 import json
+import re
 import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
 import logging
@@ -85,6 +86,9 @@ class ResumeGenerator:
                 elif html_content.startswith('```'):
                     html_content = html_content.split('```\n', 1)[1].rsplit('```', 1)[0]
 
+            # Convert markdown formatting to HTML for both APIs
+            html_content = self._convert_markdown_to_html(html_content)
+
             # Log API usage for analytics
             logger.info(f"Resume generation complete | API: {api_used}")
             return html_content.strip()
@@ -135,6 +139,24 @@ class ResumeGenerator:
             html_content = html_content.split('```\n', 1)[1].rsplit('```', 1)[0]
 
         return html_content.strip()
+
+    def _convert_markdown_to_html(self, text: str) -> str:
+        """
+        Convert common markdown syntax to HTML tags
+
+        Args:
+            text: Text potentially containing markdown
+
+        Returns:
+            str: Text with markdown converted to HTML
+        """
+        # Convert **bold** to <strong>bold</strong>
+        text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
+
+        # Convert *italic* to <em>italic</em> (but not if already in <strong>)
+        text = re.sub(r'(?<!</strong>)\*([^*]+?)\*(?!<strong>)', r'<em>\1</em>', text)
+
+        return text
 
     def _build_prompt(self, user_profile: Dict, job: Dict,
                      claimed_data: Optional[Dict] = None,
