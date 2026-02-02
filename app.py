@@ -795,9 +795,9 @@ def jobs():
         if status:
             matches = [m for m in matches if m.get('status') == status]
         
-        # Separate by MATCHING date (not discovery date) - when the job was matched for this user
+        # Separate by job discovery date vs last_filter_run - truly new opportunities
         from datetime import datetime, timedelta
-        today = datetime.now().date()
+        last_filter_run = user.get('last_filter_run')
 
         new_jobs = []
         previous_jobs = []
@@ -811,39 +811,48 @@ def jobs():
             else:
                 match['match_score'] = None
 
-            # Check when this job was MATCHED (not discovered)
-            # Use the most recent of semantic_date or claude_date
-            match_date = None
-
-            if match.get('claude_date'):
-                match_date = match['claude_date']
-            elif match.get('semantic_date'):
-                match_date = match['semantic_date']
+            # Check when this job was DISCOVERED (not when it was matched)
+            # Jobs discovered after last_filter_run are truly "new opportunities"
+            discovered_date = match.get('discovered_date')
 
             # Debug: print first 5 matches to see dates
             if len(new_jobs) + len(previous_jobs) < 5:
-                print(f"DEBUG: job_id={match.get('job_id')}, semantic_date={match.get('semantic_date')}, claude_date={match.get('claude_date')}, matched_date={match_date}, today={today}")
+                print(f"DEBUG: job_id={match.get('job_id')}, discovered_date={discovered_date}, last_filter_run={last_filter_run}")
 
-            if match_date:
-                # Handle both string (SQLite) and datetime (PostgreSQL) formats
-                if isinstance(match_date, str):
+            is_new = False
+            if discovered_date and last_filter_run:
+                # Normalize both to datetime for comparison
+                disc_dt = discovered_date
+                if isinstance(disc_dt, str):
                     try:
-                        match_date = datetime.fromisoformat(match_date.replace('Z', '+00:00')).date()
+                        disc_dt = datetime.fromisoformat(disc_dt.replace('Z', '+00:00'))
                     except (ValueError, AttributeError):
-                        match_date = None
-                elif hasattr(match_date, 'date'):
-                    # It's already a datetime object (PostgreSQL)
-                    match_date = match_date.date()
-                else:
-                    # It's already a date object
-                    match_date = match_date
+                        disc_dt = None
+                elif hasattr(disc_dt, 'date') and not isinstance(disc_dt, datetime):
+                    # It's a date object, convert to datetime
+                    disc_dt = datetime.combine(disc_dt, datetime.min.time())
 
-                if match_date and match_date == today:
-                    new_jobs.append(match)  # Matched today
-                else:
-                    previous_jobs.append(match)  # Matched earlier
+                lfr_dt = last_filter_run
+                if isinstance(lfr_dt, str):
+                    try:
+                        lfr_dt = datetime.fromisoformat(lfr_dt.replace('Z', '+00:00'))
+                    except (ValueError, AttributeError):
+                        lfr_dt = None
+                elif hasattr(lfr_dt, 'date') and not isinstance(lfr_dt, datetime):
+                    # It's a date object, convert to datetime
+                    lfr_dt = datetime.combine(lfr_dt, datetime.min.time())
+
+                # Compare: job discovered AFTER last filter run = new opportunity
+                if disc_dt and lfr_dt and disc_dt > lfr_dt:
+                    is_new = True
+            elif discovered_date and not last_filter_run:
+                # No last_filter_run means first time running - all jobs are "new"
+                is_new = True
+
+            if is_new:
+                new_jobs.append(match)  # Discovered since last run
             else:
-                previous_jobs.append(match)  # No match date (shouldn't happen)
+                previous_jobs.append(match)  # Discovered before last run
 
         # Parse JSON fields for both lists
         for job in new_jobs + previous_jobs:
