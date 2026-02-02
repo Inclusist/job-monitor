@@ -5,6 +5,11 @@ Uses Claude AI to generate personalized cover letters based on CV and job detail
 
 from anthropic import Anthropic
 from typing import Dict, Optional
+import google.generativeai as genai
+from google.api_core import exceptions as google_exceptions
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CoverLetterGenerator:
@@ -43,16 +48,25 @@ class CoverLetterGenerator:
         }
     }
     
-    def __init__(self, api_key: str, model: str = "claude-3-haiku-20240307"):
+    def __init__(self, api_key: str, model: str = "claude-3-haiku-20240307",
+                 gemini_api_key: Optional[str] = None):
         """
         Initialize cover letter generator
-        
+
         Args:
-            api_key: Anthropic API key
+            api_key: Anthropic API key (Claude - fallback)
             model: Claude model to use
+            gemini_api_key: Google Gemini API key (primary, optional)
         """
+        # Claude client (fallback)
         self.client = Anthropic(api_key=api_key)
         self.model = model
+
+        # Gemini client (primary)
+        self.gemini_model = None
+        if gemini_api_key:
+            genai.configure(api_key=gemini_api_key)
+            self.gemini_model = genai.GenerativeModel('gemini-2.5-flash')  # Latest flash model
     
     def generate_cover_letter(
         self,
@@ -93,34 +107,82 @@ class CoverLetterGenerator:
             style_info=style_info,
             language=language
         )
-        
+
+        api_used = None
+        cover_letter = None
+
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=2000,
-                messages=[{
-                    "role": "user",
-                    "content": prompt
-                }]
-            )
-            
-            cover_letter = response.content[0].text.strip()
-            
+            # TRY GEMINI FIRST
+            if self.gemini_model:
+                try:
+                    cover_letter = self._generate_with_gemini(prompt)
+                    api_used = 'gemini'
+                    logger.info(f"Cover letter generated with Gemini | Style: {style} | Language: {language}")
+                except Exception as gemini_error:
+                    logger.warning(f"Gemini failed, falling back to Claude: {gemini_error}")
+
+            # FALLBACK TO CLAUDE
+            if cover_letter is None:
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=2000,
+                    messages=[{
+                        "role": "user",
+                        "content": prompt
+                    }]
+                )
+                cover_letter = response.content[0].text.strip()
+                api_used = 'claude'
+                logger.info(f"Cover letter generated with Claude (fallback: {self.gemini_model is not None})")
+
             return {
                 'cover_letter': cover_letter,
                 'style': style_info['name'],
                 'language': language.capitalize(),
                 'job_title': job.get('title'),
-                'company': job.get('company')
+                'company': job.get('company'),
+                'api_used': api_used
             }
-            
+
         except Exception as e:
+            logger.error(f"Both APIs failed: {e}")
             return {
                 'error': f"Failed to generate cover letter: {str(e)}",
                 'style': style_info['name'],
                 'language': language.capitalize()
             }
-    
+
+    def _generate_with_gemini(self, prompt: str) -> str:
+        """
+        Generate cover letter using Gemini API
+
+        Args:
+            prompt: Complete prompt string
+
+        Returns:
+            str: Generated cover letter text
+
+        Raises:
+            Exception: If Gemini API call fails
+        """
+        if not self.gemini_model:
+            raise ValueError("Gemini not configured")
+
+        response = self.gemini_model.generate_content(
+            prompt,
+            generation_config=genai.GenerationConfig(
+                max_output_tokens=2000,
+                temperature=0.7,
+                top_p=0.9,
+            )
+        )
+
+        # Validate response
+        if not response.text or len(response.text.strip()) < 100:
+            raise ValueError("Gemini returned empty/invalid response")
+
+        return response.text.strip()
+
     def _build_prompt(
         self,
         cv_profile: Dict,

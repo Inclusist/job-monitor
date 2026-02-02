@@ -104,7 +104,8 @@ if database_url and database_url.startswith('postgres') and hasattr(job_db, 'con
     resume_ops = PostgresResumeOperations(job_db.connection_pool)
 
     if anthropic_key:
-        resume_generator = ResumeGenerator(anthropic_key)
+        gemini_key = os.getenv('GOOGLE_GEMINI_API_KEY') if os.getenv('ENABLE_GEMINI') == 'true' else None
+        resume_generator = ResumeGenerator(anthropic_key, gemini_api_key=gemini_key)
         print("✓ Resume generation enabled")
     else:
         print("Warning: Resume generation disabled (ANTHROPIC_API_KEY not set)")
@@ -818,6 +819,10 @@ def jobs():
                 match_date = match['claude_date']
             elif match.get('semantic_date'):
                 match_date = match['semantic_date']
+
+            # Debug: print first 5 matches to see dates
+            if len(new_jobs) + len(previous_jobs) < 5:
+                print(f"DEBUG: job_id={match.get('job_id')}, semantic_date={match.get('semantic_date')}, claude_date={match.get('claude_date')}, matched_date={match_date}, today={today}")
 
             if match_date:
                 # Handle both string (SQLite) and datetime (PostgreSQL) formats
@@ -1557,7 +1562,8 @@ def generate_cover_letter_page(job_id):
     
     # Get available styles
     api_key = os.getenv('ANTHROPIC_API_KEY')
-    generator = CoverLetterGenerator(api_key)
+    gemini_key = os.getenv('GOOGLE_GEMINI_API_KEY') if os.getenv('ENABLE_GEMINI') == 'true' else None
+    generator = CoverLetterGenerator(api_key, gemini_api_key=gemini_key)
     styles = generator.STYLES
     
     return render_template('generate_cover_letter.html', 
@@ -1594,8 +1600,9 @@ def create_cover_letter(job_id):
     try:
         # Generate cover letter
         api_key = os.getenv('ANTHROPIC_API_KEY')
-        generator = CoverLetterGenerator(api_key)
-        
+        gemini_key = os.getenv('GOOGLE_GEMINI_API_KEY') if os.getenv('ENABLE_GEMINI') == 'true' else None
+        generator = CoverLetterGenerator(api_key, gemini_api_key=gemini_key)
+
         result = generator.generate_cover_letter(
             cv_profile=cv_profile,
             job=job,

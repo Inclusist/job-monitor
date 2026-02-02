@@ -9,20 +9,33 @@ Generates tailored, ATS-optimized resumes based on:
 from anthropic import Anthropic
 from typing import Dict, List, Any, Optional
 import json
+import google.generativeai as genai
+from google.api_core import exceptions as google_exceptions
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ResumeGenerator:
     """Generate tailored resumes using Claude AI"""
 
-    def __init__(self, anthropic_api_key: str):
+    def __init__(self, anthropic_api_key: str, gemini_api_key: Optional[str] = None):
         """
         Initialize resume generator
 
         Args:
-            anthropic_api_key: Anthropic API key
+            anthropic_api_key: Anthropic API key (Claude - fallback)
+            gemini_api_key: Google Gemini API key (primary, optional)
         """
+        # Claude client (fallback)
         self.client = Anthropic(api_key=anthropic_api_key)
         self.model = "claude-3-5-haiku-20241022"  # Use Haiku (faster and cheaper, still high quality)
+
+        # Gemini client (primary)
+        self.gemini_model = None
+        if gemini_api_key:
+            genai.configure(api_key=gemini_api_key)
+            self.gemini_model = genai.GenerativeModel('gemini-2.5-flash')  # Latest flash model
 
     def generate_resume_html(self, user_profile: Dict, job: Dict,
                             claimed_data: Optional[Dict] = None,
@@ -41,29 +54,87 @@ class ResumeGenerator:
         """
         prompt = self._build_prompt(user_profile, job, claimed_data, user_info)
 
+        html_content = None
+        api_used = None
+
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=8192,  # Increased for longer resumes
-                temperature=0.7,  # Slightly creative but professional
-                messages=[{"role": "user", "content": prompt}]
-            )
+            # TRY GEMINI FIRST
+            if self.gemini_model:
+                try:
+                    html_content = self._generate_with_gemini(prompt)
+                    api_used = 'gemini'
+                    logger.info(f"Resume generated with Gemini | Job: {job.get('id')} | Length: {len(html_content)}")
+                except Exception as gemini_error:
+                    logger.warning(f"Gemini failed, falling back to Claude: {gemini_error}")
 
-            html_content = response.content[0].text
+            # FALLBACK TO CLAUDE
+            if html_content is None:
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=8192,  # Increased for longer resumes
+                    temperature=0.7,  # Slightly creative but professional
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                html_content = response.content[0].text
+                api_used = 'claude'
+                logger.info(f"Resume generated with Claude (fallback: {self.gemini_model is not None})")
 
-            # Clean up any markdown code fences if Claude included them
-            if html_content.startswith('```html'):
-                html_content = html_content.split('```html\n', 1)[1]
-                html_content = html_content.rsplit('```', 1)[0]
-            elif html_content.startswith('```'):
-                html_content = html_content.split('```\n', 1)[1]
-                html_content = html_content.rsplit('```', 1)[0]
+                # Clean up any markdown code fences if Claude included them
+                if html_content.startswith('```html'):
+                    html_content = html_content.split('```html\n', 1)[1].rsplit('```', 1)[0]
+                elif html_content.startswith('```'):
+                    html_content = html_content.split('```\n', 1)[1].rsplit('```', 1)[0]
 
+            # Log API usage for analytics
+            logger.info(f"Resume generation complete | API: {api_used}")
             return html_content.strip()
 
         except Exception as e:
-            print(f"Error generating resume: {e}")
+            logger.error(f"Both APIs failed for resume generation: {e}")
             raise
+
+    def _generate_with_gemini(self, prompt: str) -> str:
+        """
+        Generate resume HTML using Gemini API
+
+        Args:
+            prompt: Complete prompt string
+
+        Returns:
+            str: Generated HTML content
+
+        Raises:
+            Exception: If Gemini API call fails or returns invalid HTML
+        """
+        if not self.gemini_model:
+            raise ValueError("Gemini not configured")
+
+        response = self.gemini_model.generate_content(
+            prompt,
+            generation_config=genai.GenerationConfig(
+                max_output_tokens=8192,  # Match Claude's limit
+                temperature=0.7,
+                top_p=0.9,
+            )
+        )
+
+        # Validate response
+        if not response.text:
+            raise ValueError("Gemini returned empty response")
+
+        html_content = response.text.strip()
+
+        # Validate HTML structure
+        if '<!DOCTYPE html>' not in html_content or '</html>' not in html_content:
+            raise ValueError("Gemini did not return valid HTML")
+
+        # Clean markdown fences (Gemini may add them)
+        if html_content.startswith('```html'):
+            html_content = html_content.split('```html\n', 1)[1].rsplit('```', 1)[0]
+        elif html_content.startswith('```'):
+            html_content = html_content.split('```\n', 1)[1].rsplit('```', 1)[0]
+
+        return html_content.strip()
 
     def _build_prompt(self, user_profile: Dict, job: Dict,
                      claimed_data: Optional[Dict] = None,
