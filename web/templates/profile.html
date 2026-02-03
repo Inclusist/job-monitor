@@ -242,6 +242,39 @@
     </div>
 </div>
 
+<!-- Projects Section -->
+<div class="card">
+    <div class="card-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px 8px 0 0; padding: 1.25rem; margin: -1.25rem -1.25rem 1.25rem -1.25rem;">
+        <h3 style="margin: 0; color: white; display: flex; align-items: center; gap: 0.5rem;">
+            <span style="font-size: 1.5rem;">🚀</span> Projects
+        </h3>
+    </div>
+
+    {% if profile.get('projects') %}
+    <div id="projects-list" style="display: flex; flex-direction: column; gap: 1rem;">
+        {% for project in profile.get('projects', []) %}
+        <div class="project-card" data-index="{{ loop.index0 }}" style="position: relative; padding: 1.25rem; border: 1px solid #e5e7eb; border-radius: 8px; background: white; transition: box-shadow 0.2s;">
+            <div class="project-actions" style="position: absolute; top: 1rem; right: 1rem; display: flex; gap: 0.5rem;">
+                <button onclick="editProject({{ loop.index0 }})" class="btn-sm" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">Edit</button>
+                <button onclick="deleteProject({{ loop.index0 }})" class="btn-sm" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer;">Delete</button>
+            </div>
+            <div class="project-text" style="white-space: pre-line; font-size: 0.95rem; line-height: 1.8; padding-right: 8rem;">{{ project }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    <button onclick="openAddProjectModal()" class="btn" style="margin-top: 1.5rem; padding: 0.75rem 1.5rem; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; transition: background 0.2s;">
+        <span style="font-size: 1.1rem;">+ Add Project</span>
+    </button>
+    {% else %}
+    <div style="text-align: center; padding: 2rem;">
+        <p style="color: #6b7280; margin-bottom: 1.5rem; font-size: 1rem;">Showcase your personal projects and portfolio work</p>
+        <button onclick="openAddProjectModal()" class="btn" style="padding: 0.75rem 1.5rem; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; transition: background 0.2s;">
+            <span style="font-size: 1.1rem;">+ Add Your First Project</span>
+        </button>
+    </div>
+    {% endif %}
+</div>
+
 {% if profile.competencies %}
 <div class="card" style="border-left: 5px solid #28a745; background-color: #f0fff4;">
     <div style="display: flex; justify-content: space-between; align-items: flex-start;">
@@ -559,6 +592,206 @@ async function saveContactInfo() {
         console.error('Error:', error);
     }
 }
+
+// ==================== Projects Section ====================
+let currentProjects = {{ (profile.get('projects') or []) | tojson }};
+let editingIndex = null;
+
+function openAddProjectModal() {
+    editingIndex = null;
+    document.getElementById('projectModalTitle').textContent = 'Add Project';
+    document.getElementById('casualProjectText').value = '';
+    document.getElementById('formattedProjectText').value = '';
+    document.getElementById('step1-input').style.display = 'block';
+    document.getElementById('step2-edit').style.display = 'none';
+    document.getElementById('projectModal').style.display = 'flex';
+}
+
+function editProject(index) {
+    editingIndex = index;
+    document.getElementById('projectModalTitle').textContent = 'Edit Project';
+    document.getElementById('formattedProjectText').value = currentProjects[index];
+    document.getElementById('step1-input').style.display = 'none';
+    document.getElementById('step2-edit').style.display = 'block';
+    document.getElementById('projectModal').style.display = 'flex';
+}
+
+function closeProjectModal() {
+    document.getElementById('projectModal').style.display = 'none';
+}
+
+function backToInput() {
+    document.getElementById('step1-input').style.display = 'block';
+    document.getElementById('step2-edit').style.display = 'none';
+}
+
+async function formatProject() {
+    const casualText = document.getElementById('casualProjectText').value.trim();
+
+    if (!casualText) {
+        alert('Please enter a project description');
+        return;
+    }
+
+    if (casualText.length < 10) {
+        alert('Please enter at least 10 characters');
+        return;
+    }
+
+    // Show loading
+    document.getElementById('step1-input').style.display = 'none';
+    document.getElementById('loading').style.display = 'block';
+
+    try {
+        const response = await fetch('/api/format-project', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text: casualText})
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            document.getElementById('formattedProjectText').value = data.formatted_text;
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('step2-edit').style.display = 'block';
+        } else {
+            alert('Error: ' + data.error);
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('step1-input').style.display = 'block';
+        }
+    } catch (error) {
+        alert('Failed to format project: ' + error.message);
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('step1-input').style.display = 'block';
+    }
+}
+
+async function saveProject() {
+    const formattedText = document.getElementById('formattedProjectText').value.trim();
+
+    if (!formattedText) {
+        alert('Please enter project details');
+        return;
+    }
+
+    // Update local projects array
+    if (editingIndex !== null) {
+        currentProjects[editingIndex] = formattedText;
+    } else {
+        currentProjects.push(formattedText);
+    }
+
+    // Save to backend
+    try {
+        const response = await fetch('/api/save-projects', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({projects: currentProjects})
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            // Reload page to show updated projects
+            window.location.reload();
+        } else {
+            alert('Error saving: ' + data.error);
+        }
+    } catch (error) {
+        alert('Failed to save: ' + error.message);
+    }
+}
+
+async function deleteProject(index) {
+    if (!confirm('Delete this project?')) return;
+
+    currentProjects.splice(index, 1);
+
+    try {
+        const response = await fetch('/api/save-projects', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({projects: currentProjects})
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    } catch (error) {
+        alert('Failed to delete: ' + error.message);
+    }
+}
 </script>
+
+<!-- Add/Edit Project Modal -->
+<div id="projectModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 1000; align-items: center; justify-content: center;">
+    <div style="background: white; padding: 2rem; border-radius: 12px; width: 90%; max-width: 600px; max-height: 90vh; overflow-y: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+            <h3 id="projectModalTitle" style="margin: 0;">Add Project</h3>
+            <button onclick="closeProjectModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #666;">&times;</button>
+        </div>
+
+        <!-- Step 1: Casual Input -->
+        <div id="step1-input">
+            <label style="display: block; margin-bottom: 0.5rem; font-weight: 500; color: #374151;">Describe your project casually:</label>
+            <textarea id="casualProjectText"
+                      style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.95rem; font-family: inherit; resize: vertical;"
+                      rows="5"
+                      placeholder="Example: working on inclusist, a job matching app using ai and python. helps people find relevant jobs automatically"></textarea>
+            <p style="font-size: 0.85rem; color: #6b7280; margin-top: 0.5rem;">Just type naturally - AI will format it professionally!</p>
+            <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
+                <button onclick="formatProject()" id="formatBtn" style="flex: 1; padding: 0.75rem; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
+                    <span>✨ Format with AI</span>
+                </button>
+                <button onclick="closeProjectModal()" style="padding: 0.75rem 1.5rem; background: #e5e7eb; color: #374151; border: none; border-radius: 6px; cursor: pointer;">Cancel</button>
+            </div>
+        </div>
+
+        <!-- Step 2: AI Formatted Result (Editable) -->
+        <div id="step2-edit" style="display: none;">
+            <label style="display: block; margin-bottom: 0.5rem; font-weight: 500; color: #374151;">AI-formatted project (edit if needed):</label>
+            <textarea id="formattedProjectText"
+                      style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.95rem; font-family: inherit; resize: vertical;"
+                      rows="7"></textarea>
+            <p style="font-size: 0.85rem; color: #6b7280; margin-top: 0.5rem;">Review and edit before saving</p>
+            <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
+                <button onclick="saveProject()" id="saveBtn" style="flex: 1; padding: 0.75rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
+                    <span>💾 Save Project</span>
+                </button>
+                <button onclick="backToInput()" style="padding: 0.75rem 1.5rem; background: #e5e7eb; color: #374151; border: none; border-radius: 6px; cursor: pointer;">Back</button>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loading" style="display: none; text-align: center; padding: 2rem;">
+            <div style="border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto;"></div>
+            <p style="margin-top: 1rem; color: #6b7280;">AI is formatting your project...</p>
+        </div>
+    </div>
+</div>
+
+<style>
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.project-card:hover {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.btn:hover {
+    background: #5568d3 !important;
+}
+
+.btn-sm:hover {
+    opacity: 0.9;
+}
+</style>
 
 {% endblock %}

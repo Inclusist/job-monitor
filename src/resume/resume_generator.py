@@ -192,6 +192,11 @@ class ResumeGenerator:
             user_profile.get('education', [])
         )
 
+        # Format projects
+        projects_section = self._format_projects(
+            user_profile.get('projects', [])
+        )
+
         # Use user_info if provided, otherwise fall back to profile
         contact_name = user_info.get('name') if user_info else user_profile.get('name', 'Professional')
         contact_email = user_info.get('email') if user_info else user_profile.get('email', 'email@example.com')
@@ -226,7 +231,7 @@ class ResumeGenerator:
 {work_exp_section}
 
 {education_section}
-
+{projects_section}
 **Certifications:**
 {self._format_list(user_profile.get('certifications', []))}
 
@@ -285,7 +290,8 @@ Use this standard, ATS-friendly structure:
 3. **Core Competencies** - 8-12 key competencies/skills as a bullet list
 4. **Professional Experience** - Include ALL work experiences provided, no exceptions. List most recent first. Each role should have 3-5 achievement-focused bullet points.
 5. **Education** - Degree, institution, year
-6. **Additional Sections** (if applicable) - Certifications, Languages, Technical Skills
+6. **Projects** (if provided) - Include ALL projects listed, maintaining the bullet-point structure provided
+7. **Additional Sections** (if applicable) - Certifications, Languages, Technical Skills
 
 ### 3. Experience Bullet Points
 For each work experience:
@@ -590,6 +596,25 @@ Additional requirements:
                 formatted_items.append(str(item))
 
         return ", ".join(formatted_items[:10])  # Limit to 10 items
+
+    def _format_projects(self, projects: List[str]) -> str:
+        """
+        Format projects for resume prompt
+
+        Args:
+            projects: List of formatted project text blocks
+
+        Returns:
+            str: Formatted projects section for prompt
+        """
+        if not projects or len(projects) == 0:
+            return ""
+
+        formatted = "\n\nPROJECTS:\n"
+        for i, project in enumerate(projects, 1):
+            formatted += f"\n{i}. {project}\n"
+
+        return formatted
 
     def html_to_pdf(self, html_content: str, output_path: str) -> None:
         """

@@ -3,7 +3,7 @@ CV Analyzer - Uses Claude AI to parse CV text into structured profile data
 """
 
 import json
-from typing import Dict, Any
+from typing import Dict, Any, List
 from anthropic import Anthropic
 
 
@@ -46,6 +46,10 @@ class CVAnalyzer:
 
             response_text = response.content[0].text
             profile = self._parse_response(response_text)
+
+            # Format extracted projects
+            if profile.get('projects'):
+                profile['projects'] = self._format_extracted_projects(profile.get('projects', []))
 
             # Add metadata
             profile['parsing_model'] = self.model
@@ -124,6 +128,13 @@ Output JSON structure:
     }}
   ],
   "highest_degree": "Master",
+  "projects": [
+    {{
+      "name": "Project Name",
+      "description": "Brief description of what was built",
+      "technologies": "Tech stack used (e.g., Python, React, AWS)"
+    }}
+  ],
   "expertise_summary": "<2-3 sentence summary - kept for backward compatibility>",
   "career_highlights": ["highlight1", ...],
   "industries": ["Industry1", ...],
@@ -245,6 +256,7 @@ Respond ONLY with valid JSON, no additional text."""
             'leadership_experience': [],
             'education': [],
             'highest_degree': None,
+            'projects': [],
             'expertise_summary': f'CV parsing incomplete: {reason}',
             'career_highlights': [],
             'industries': [],
@@ -256,6 +268,39 @@ Respond ONLY with valid JSON, no additional text."""
             'parsing_cost': 0.0,
             'full_text': ''
         }
+
+    def _format_extracted_projects(self, projects_raw: List[Dict]) -> List[str]:
+        """
+        Convert extracted projects from CV into bullet-formatted text blocks
+
+        Args:
+            projects_raw: List of project dicts with name, description, technologies
+
+        Returns:
+            List of formatted project text blocks
+        """
+        if not projects_raw:
+            return []
+
+        formatted_projects = []
+        for proj in projects_raw:
+            if not isinstance(proj, dict):
+                continue
+
+            name = proj.get('name', 'Unnamed Project')
+            description = proj.get('description', '')
+            technologies = proj.get('technologies', '')
+
+            # Format as bullet-point text block
+            formatted = f"{name}\n"
+            if description:
+                formatted += f"• {description}\n"
+            if technologies:
+                formatted += f"• Technologies: {technologies}"
+
+            formatted_projects.append(formatted.strip())
+
+        return formatted_projects
 
     def _estimate_cost(self, input_text: str, output_text: str) -> float:
         """

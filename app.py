@@ -795,9 +795,13 @@ def jobs():
         if status:
             matches = [m for m in matches if m.get('status') == status]
         
-        # Separate by job discovery date vs last_filter_run - truly new opportunities
+        # Separate matches into "new" (from the most recent filter run) vs "previous".
+        # We compare match created_date against previous_filter_run:
+        #   - previous_filter_run = when the run BEFORE the latest one ended
+        #   - Matches created after that point belong to the latest run → "new"
+        #   - If previous_filter_run is NULL, this is the first/only run → all "new"
         from datetime import datetime, timedelta
-        last_filter_run = user.get('last_filter_run')
+        previous_filter_run = user.get('previous_filter_run')
 
         new_jobs = []
         previous_jobs = []
@@ -811,48 +815,38 @@ def jobs():
             else:
                 match['match_score'] = None
 
-            # Check when this job was DISCOVERED (not when it was matched)
-            # Jobs discovered after last_filter_run are truly "new opportunities"
-            discovered_date = match.get('discovered_date')
-
-            # Debug: print first 5 matches to see dates
-            if len(new_jobs) + len(previous_jobs) < 5:
-                print(f"DEBUG: job_id={match.get('job_id')}, discovered_date={discovered_date}, last_filter_run={last_filter_run}")
+            # Use created_date from user_job_matches — the time the match was scored,
+            # NOT discovered_date from jobs (that's when the job was scraped, which can
+            # be hours earlier and is unrelated to when this user's match was created).
+            match_created = match.get('created_date')
 
             is_new = False
-            if discovered_date and last_filter_run:
-                # Normalize both to datetime for comparison
-                disc_dt = discovered_date
-                if isinstance(disc_dt, str):
-                    try:
-                        disc_dt = datetime.fromisoformat(disc_dt.replace('Z', '+00:00'))
-                    except (ValueError, AttributeError):
-                        disc_dt = None
-                elif hasattr(disc_dt, 'date') and not isinstance(disc_dt, datetime):
-                    # It's a date object, convert to datetime
-                    disc_dt = datetime.combine(disc_dt, datetime.min.time())
-
-                lfr_dt = last_filter_run
-                if isinstance(lfr_dt, str):
-                    try:
-                        lfr_dt = datetime.fromisoformat(lfr_dt.replace('Z', '+00:00'))
-                    except (ValueError, AttributeError):
-                        lfr_dt = None
-                elif hasattr(lfr_dt, 'date') and not isinstance(lfr_dt, datetime):
-                    # It's a date object, convert to datetime
-                    lfr_dt = datetime.combine(lfr_dt, datetime.min.time())
-
-                # Compare: job discovered AFTER last filter run = new opportunity
-                if disc_dt and lfr_dt and disc_dt > lfr_dt:
-                    is_new = True
-            elif discovered_date and not last_filter_run:
-                # No last_filter_run means first time running - all jobs are "new"
+            if previous_filter_run is None:
+                # No previous run recorded → all current matches are "new"
                 is_new = True
+            elif match_created:
+                # Normalize both to naive datetime for comparison
+                mc_dt = match_created
+                if isinstance(mc_dt, str):
+                    try:
+                        mc_dt = datetime.fromisoformat(mc_dt.replace('Z', '+00:00')).replace(tzinfo=None)
+                    except (ValueError, AttributeError):
+                        mc_dt = None
+
+                pfr_dt = previous_filter_run
+                if isinstance(pfr_dt, str):
+                    try:
+                        pfr_dt = datetime.fromisoformat(pfr_dt.replace('Z', '+00:00')).replace(tzinfo=None)
+                    except (ValueError, AttributeError):
+                        pfr_dt = None
+
+                if mc_dt and pfr_dt and mc_dt > pfr_dt:
+                    is_new = True
 
             if is_new:
-                new_jobs.append(match)  # Discovered since last run
+                new_jobs.append(match)
             else:
-                previous_jobs.append(match)  # Discovered before last run
+                previous_jobs.append(match)
 
         # Parse JSON fields for both lists
         for job in new_jobs + previous_jobs:
@@ -3130,6 +3124,132 @@ def update_contact_info():
     except Exception as e:
         import traceback
         print(f"Error updating contact info: {e}")
+        print(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/format-project', methods=['POST'])
+@login_required
+def format_project():
+    """
+    Format casual project text using AI (Gemini/Claude)
+
+    Request Body:
+        {
+            "text": "working on inclusist, job matching app using ai and python"
+        }
+
+    Returns:
+        JSON with formatted_text and api_used
+    """
+    user_id = get_user_id()
+
+    try:
+        data = request.get_json()
+        casual_text = data.get('text', '').strip()
+
+        if not casual_text:
+            return jsonify({
+                'success': False,
+                'error': 'No text provided'
+            }), 400
+
+        if len(casual_text) < 10:
+            return jsonify({
+                'success': False,
+                'error': 'Project description too short (minimum 10 characters)'
+            }), 400
+
+        # Initialize formatter
+        from src.analysis.project_formatter import ProjectFormatter
+
+        anthropic_key = os.getenv('ANTHROPIC_API_KEY')
+        gemini_key = os.getenv('GOOGLE_GEMINI_API_KEY') if os.getenv('ENABLE_GEMINI') == 'true' else None
+
+        formatter = ProjectFormatter(anthropic_key, gemini_api_key=gemini_key)
+
+        # Format project
+        result = formatter.format_project(casual_text)
+
+        if 'error' in result:
+            return jsonify({
+                'success': False,
+                'error': result['error']
+            }), 500
+
+        print(f"Project formatted for user {user_id} using {result['api_used']}")
+
+        return jsonify({
+            'success': True,
+            'formatted_text': result['formatted_text'],
+            'api_used': result['api_used']
+        })
+
+    except Exception as e:
+        print(f"Error formatting project: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/save-projects', methods=['POST'])
+@login_required
+def save_projects():
+    """
+    Save projects to user's CV profile
+
+    Request Body:
+        {
+            "projects": [
+                "Project 1\n• Description\n• Technologies: ...",
+                "Project 2\n• Description\n• Technologies: ..."
+            ]
+        }
+
+    Returns:
+        JSON with success status
+    """
+    user_id = get_user_id()
+
+    try:
+        data = request.get_json()
+        projects = data.get('projects', [])
+
+        if not isinstance(projects, list):
+            return jsonify({
+                'success': False,
+                'error': 'Invalid projects format (must be array)'
+            }), 400
+
+        # Get primary CV profile
+        profile = cv_manager.get_primary_profile(user_id)
+
+        if not profile:
+            return jsonify({
+                'success': False,
+                'error': 'No CV profile found. Please upload a CV first.'
+            }), 404
+
+        # Update profile with projects
+        profile['projects'] = projects
+        cv_manager.update_cv_profile(profile['cv_id'], profile)
+
+        print(f"Saved {len(projects)} projects for user {user_id}")
+
+        return jsonify({
+            'success': True,
+            'message': f'Successfully saved {len(projects)} project(s)'
+        })
+
+    except Exception as e:
+        print(f"Error saving projects: {e}")
+        import traceback
         print(traceback.format_exc())
         return jsonify({
             'success': False,

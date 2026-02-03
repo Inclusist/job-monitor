@@ -677,7 +677,7 @@ class PostgresCVManager:
                 # Reuse parsing logic via get_cv_profile if possible, but for now duplicate parsing:
                 profile_dict = dict(profile)
                 json_fields = ['technical_skills', 'soft_skills', 'competencies', 'languages', 'education',
-                              'work_history', 'achievements', 'preferred_roles', 'industries', 'raw_analysis']
+                              'work_history', 'achievements', 'preferred_roles', 'industries', 'raw_analysis', 'projects']
                 for field in json_fields:
                     if profile_dict.get(field):
                         try:
@@ -724,7 +724,7 @@ class PostgresCVManager:
             if profile:
                 profile_dict = dict(profile)
                 json_fields = ['technical_skills', 'soft_skills', 'competencies', 'languages', 'education',
-                              'work_history', 'achievements', 'preferred_roles', 'industries', 'raw_analysis']
+                              'work_history', 'achievements', 'preferred_roles', 'industries', 'raw_analysis', 'projects']
                 for field in json_fields:
                     val = profile_dict.get(field)
                     if val:
@@ -1043,8 +1043,8 @@ class PostgresCVManager:
                     cv_id, user_id, technical_skills, soft_skills, languages,
                     education, work_history, achievements, total_years_experience,
                     expertise_summary, career_level, preferred_roles, industries,
-                    raw_analysis, created_date, last_updated
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    raw_analysis, projects, created_date, last_updated
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             """, (
                 cv_id,
@@ -1061,6 +1061,7 @@ class PostgresCVManager:
                 json.dumps(profile_data.get('preferred_roles', [])),
                 json.dumps(profile_data.get('industries', [])),
                 json.dumps({k: v for k, v in profile_data.items() if k != 'full_text'}),
+                json.dumps(profile_data.get('projects', [])),
                 now,
                 now
             ))
@@ -1176,15 +1177,17 @@ class PostgresCVManager:
             return False
     
     def update_filter_run_time(self, user_id: int):
-        """Update the last filter run timestamp"""
+        """Update the last filter run timestamp, shifting current to previous"""
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
-            
+
             now = datetime.now()
             cursor.execute("""
-                UPDATE users 
-                SET last_filter_run = %s, last_updated = %s
+                UPDATE users
+                SET previous_filter_run = last_filter_run,
+                    last_filter_run = %s,
+                    last_updated = %s
                 WHERE id = %s
             """, (now, now, user_id))
             
@@ -1312,11 +1315,11 @@ class PostgresCVManager:
             
             now = datetime.now()
             cursor.execute("""
-                UPDATE cv_profiles 
+                UPDATE cv_profiles
                 SET technical_skills = %s, soft_skills = %s, languages = %s,
                     education = %s, work_history = %s, achievements = %s,
                     total_years_experience = %s, expertise_summary = %s, career_level = %s,
-                    preferred_roles = %s, industries = %s, raw_analysis = %s, last_updated = %s
+                    preferred_roles = %s, industries = %s, raw_analysis = %s, projects = %s, last_updated = %s
                 WHERE cv_id = %s
             """, (
                 json.dumps(profile_data.get('technical_skills', [])),
@@ -1331,6 +1334,7 @@ class PostgresCVManager:
                 json.dumps(profile_data.get('preferred_roles', [])),
                 json.dumps(profile_data.get('industries', [])),
                 json.dumps({k: v for k, v in profile_data.items() if k != 'full_text'}),
+                json.dumps(profile_data.get('projects', [])),
                 now,
                 cv_id
             ))
