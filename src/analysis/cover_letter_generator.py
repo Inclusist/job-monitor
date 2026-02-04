@@ -122,7 +122,7 @@ class CoverLetterGenerator:
             if cover_letter is None:
                 response = self.client.messages.create(
                     model=self.model,
-                    max_tokens=2000,
+                    max_tokens=4000,
                     messages=[{
                         "role": "user",
                         "content": prompt
@@ -168,7 +168,7 @@ class CoverLetterGenerator:
         response = self.gemini_model.generate_content(
             prompt,
             generation_config=genai.GenerationConfig(
-                max_output_tokens=2000,
+                max_output_tokens=4000,
                 temperature=0.7,
                 top_p=0.9,
             )
