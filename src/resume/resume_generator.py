@@ -40,7 +40,8 @@ class ResumeGenerator:
 
     def generate_resume_html(self, user_profile: Dict, job: Dict,
                             claimed_data: Optional[Dict] = None,
-                            user_info: Optional[Dict] = None) -> str:
+                            user_info: Optional[Dict] = None,
+                            instructions: str = '') -> str:
         """
         Generate tailored resume HTML using Claude
 
@@ -49,11 +50,12 @@ class ResumeGenerator:
             job: Job details dict
             claimed_data: Dict with 'competencies' and 'skills' keys (optional)
             user_info: Dict with 'name', 'email', 'phone' keys for resume header (optional)
+            instructions: Optional user instructions to guide generation
 
         Returns:
             str: Professional HTML resume
         """
-        prompt = self._build_prompt(user_profile, job, claimed_data, user_info)
+        prompt = self._build_prompt(user_profile, job, claimed_data, user_info, instructions)
 
         html_content = None
         api_used = None
@@ -160,7 +162,8 @@ class ResumeGenerator:
 
     def _build_prompt(self, user_profile: Dict, job: Dict,
                      claimed_data: Optional[Dict] = None,
-                     user_info: Optional[Dict] = None) -> str:
+                     user_info: Optional[Dict] = None,
+                     instructions: str = '') -> str:
         """
         Build comprehensive Claude prompt
 
@@ -169,6 +172,7 @@ class ResumeGenerator:
             job: Job details
             claimed_data: User-claimed competencies/skills
             user_info: User contact information (name, email, phone)
+            instructions: Optional user instructions to guide generation
 
         Returns:
             str: Complete prompt for Claude
@@ -258,7 +262,7 @@ class ResumeGenerator:
 {self._format_list(job.get('ai_key_skills', []))}
 
 ---
-
+{"## USER INSTRUCTIONS" + chr(10) + chr(10) + instructions + chr(10) + chr(10) + "Follow these instructions carefully when writing the resume." + chr(10) + chr(10) + "---" + chr(10) if instructions else ""}
 ## YOUR TASK
 
 Generate a professional, ATS-optimized resume tailored specifically for this job opportunity.

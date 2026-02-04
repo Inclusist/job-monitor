@@ -1611,21 +1611,22 @@ def create_cover_letter(job_id):
     # Get parameters
     style = request.form.get('style', 'professional')
     language = request.form.get('language', 'english')
-    
+    instructions = request.form.get('instructions', '').strip()
+
     # Get job
     job = job_db.get_job(job_id)
 
     if not job:
         flash('Job not found', 'error')
         return redirect(url_for('jobs'))
-    
+
     # Get CV profile
     cv_profile = cv_manager.get_profile_by_user(user['id'])
-    
+
     if not cv_profile:
         flash('Please upload your CV first', 'warning')
         return redirect(url_for('upload_cv'))
-    
+
     try:
         # Generate cover letter
         api_key = os.getenv('ANTHROPIC_API_KEY')
@@ -1636,7 +1637,8 @@ def create_cover_letter(job_id):
             cv_profile=cv_profile,
             job=job,
             style=style,
-            language=language
+            language=language,
+            instructions=instructions
         )
         
         if 'error' in result:
@@ -3106,9 +3108,10 @@ def generate_resume(job_id):
     user_id = get_user_id()
 
     try:
-        # Get selections from request body
+        # Get selections and instructions from request body
         request_data = request.get_json() or {}
         selections = request_data.get('selections', [])
+        instructions = request_data.get('instructions', '').strip()
 
         # Save selections to database first (if provided)
         if selections:
@@ -3180,7 +3183,8 @@ def generate_resume(job_id):
             profile,
             job,
             claimed_data,
-            user_info
+            user_info,
+            instructions
         )
 
         print(f"Resume HTML generated successfully (not saved yet - waiting for user to edit and save)")

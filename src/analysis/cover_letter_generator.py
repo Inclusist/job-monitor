@@ -73,39 +73,36 @@ class CoverLetterGenerator:
         cv_profile: Dict,
         job: Dict,
         style: str = 'professional',
-        language: str = 'english'
+        language: str = 'english',
+        instructions: str = ''
     ) -> Dict[str, str]:
         """
         Generate a personalized cover letter
-        
+
         Args:
             cv_profile: User's parsed CV profile
             job: Job details dictionary
             style: Cover letter style (professional, technical, results, etc.)
             language: 'english' or 'german'
-            
+            instructions: Optional user instructions to guide generation
+
         Returns:
             Dictionary with cover_letter text and metadata
         """
-        
+
         if style not in self.STYLES:
             style = 'professional'
-        
+
         style_info = self.STYLES[style]
-        
-        # Build context from CV
-        expertise = cv_profile.get('expertise_summary', '')
-        skills = cv_profile.get('skills', {})
-        experience = cv_profile.get('work_experience', [])[:3]
-        education = cv_profile.get('education', [])[:2]
-        
+
         # Build prompt based on style and language
         prompt = self._build_prompt(
             cv_profile=cv_profile,
             job=job,
             style=style,
             style_info=style_info,
-            language=language
+            language=language,
+            instructions=instructions
         )
 
         api_used = None
@@ -189,7 +186,8 @@ class CoverLetterGenerator:
         job: Dict,
         style: str,
         style_info: Dict,
-        language: str
+        language: str,
+        instructions: str = ''
     ) -> str:
         """Build the prompt for Claude based on style and language"""
         
@@ -306,7 +304,7 @@ STYLE: {style_info['name']}
 LANGUAGE:
 {lang_instruction}
 
-REQUIREMENTS:
+{"USER INSTRUCTIONS:" + chr(10) + instructions + chr(10) + "Follow these instructions carefully when writing the cover letter." + chr(10) if instructions else ""}REQUIREMENTS:
 1. Address the specific requirements mentioned in the job description
 2. Highlight relevant experience and skills that match this role
 3. Keep it to 3-4 paragraphs (250-350 words)

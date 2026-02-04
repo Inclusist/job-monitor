@@ -69,14 +69,21 @@
 
 <!-- Quick Resume Generation -->
 <div class="card" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; border: none; padding: 1.5rem;">
-    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+    <div style="display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 1rem;">
         <div style="flex: 1; min-width: 300px;">
             <h3 style="color: white; margin-bottom: 0.5rem;">⚡ Quick Resume Generation</h3>
-            <p style="margin: 0; opacity: 0.95; font-size: 0.95rem;">
+            <p style="margin: 0 0 0.75rem; opacity: 0.95; font-size: 0.95rem;">
                 Generate a tailored resume using your existing profile without claiming new competencies or skills.
             </p>
+            <textarea id="resumeInstructions"
+                      placeholder="Optional: tell the AI what to emphasize, e.g. 'Highlight my inclusivity project work...'"
+                      style="width: 100%; padding: 0.6rem 0.75rem; border: none; border-radius: 6px; font-size: 0.88rem;
+                             font-family: inherit; resize: vertical; min-height: 60px; outline: none;
+                             background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.3);"
+                      onfocus="this.style.background='rgba(255,255,255,0.22)'" onblur="this.style.background='rgba(255,255,255,0.15)'"
+                      ></textarea>
         </div>
-        <button onclick="generateResumeWithoutChanges()" class="btn" style="background: white; color: #28a745; font-weight: 600; white-space: nowrap;">
+        <button onclick="generateResumeWithoutChanges()" class="btn" style="background: white; color: #28a745; font-weight: 600; white-space: nowrap; align-self: flex-end;">
             🚀 Generate Resume Now
         </button>
     </div>
@@ -979,22 +986,12 @@ let currentResumeHTML = '';
  * Generate resume without making any changes (Quick Generate)
  */
 async function generateResumeWithoutChanges() {
-    // Ask for confirmation
-    const confirmed = confirm(
-        '📄 Quick Resume Generation\n\n' +
-        'This will generate a tailored resume using your existing profile without claiming any new competencies or skills.\n\n' +
-        'Your current profile data will be used as-is.\n\n' +
-        'Do you want to proceed?'
-    );
-
-    if (!confirmed) {
-        return;
-    }
-
     // Show loading
     document.getElementById('loadingOverlay').style.display = 'flex';
 
     try {
+        const instructions = document.getElementById('resumeInstructions').value.trim();
+
         // Call API to generate resume with empty selections
         const response = await fetch(`/api/generate-resume/${jobId}`, {
             method: 'POST',
@@ -1002,7 +999,8 @@ async function generateResumeWithoutChanges() {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                selections: []  // Empty selections - use existing profile only
+                selections: [],  // Empty selections - use existing profile only
+                instructions: instructions
             })
         });
 
@@ -1058,7 +1056,8 @@ async function generateResume() {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                selections: evidenceData
+                selections: evidenceData,
+                instructions: document.getElementById('resumeInstructions').value.trim()
             })
         });
 
