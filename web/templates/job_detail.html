@@ -469,6 +469,15 @@
                 </div>
             </div>
         </div>
+        <!-- Instructions field — shown only on the last step alongside Generate -->
+        <div id="resumeInstructionsModal" style="display: none; padding: 0 1.5rem 1rem;">
+            <label style="font-size: 0.9rem; color: #666; font-weight: 600;">💬 Additional Instructions <span style="font-weight: 400;">(optional)</span></label>
+            <textarea id="resumeInstructionsModalInput"
+                      placeholder="e.g. Highlight my inclusivity project work..."
+                      style="width: 100%; margin-top: 0.4rem; padding: 0.6rem 0.75rem; border: 2px solid #e0e0e0; border-radius: 6px;
+                             font-size: 0.88rem; font-family: inherit; resize: vertical; min-height: 55px; outline: none;"
+                      onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e0e0e0'"></textarea>
+        </div>
         <div class="modal-footer" style="display: flex; justify-content: space-between;">
             <button id="prevButton" onclick="previousItem()" class="btn btn-secondary" style="display: none;">
                 ← Previous
@@ -905,7 +914,9 @@ function renderCurrentItem() {
     // Update button visibility
     document.getElementById('prevButton').style.display = currentItemIndex > 0 ? 'block' : 'none';
     document.getElementById('nextButton').style.display = currentItemIndex < total - 1 ? 'block' : 'none';
-    document.getElementById('generateButton').style.display = currentItemIndex === total - 1 ? 'block' : 'none';
+    const isLastStep = currentItemIndex === total - 1;
+    document.getElementById('generateButton').style.display = isLastStep ? 'block' : 'none';
+    document.getElementById('resumeInstructionsModal').style.display = isLastStep ? 'block' : 'none';
 }
 
 /**
@@ -1057,7 +1068,7 @@ async function generateResume() {
             },
             body: JSON.stringify({
                 selections: evidenceData,
-                instructions: document.getElementById('resumeInstructions').value.trim()
+                instructions: document.getElementById('resumeInstructionsModalInput').value.trim()
             })
         });
 
