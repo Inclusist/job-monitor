@@ -18,25 +18,42 @@
 </div>
 
 <div class="card">
-    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1.5rem;">
+    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
         <div>
             <h3 style="margin: 0;">{{ job.title }}</h3>
             <p style="color: #666; margin-top: 0.25rem;">{{ job.company }} • {{ job.location }}</p>
         </div>
     </div>
+
+    <!-- Edit mode indicator -->
+    <p id="editModeIndicator" style="font-size: 0.875rem; color: #ffc107; margin: 0.5rem 0; display: none;">
+        ✏️ <strong>Edit Mode:</strong> Click anywhere in the cover letter to edit. Save when done.
+    </p>
+
+    <!-- Cover letter body -->
+    <div id="coverLetterText"
+         style="white-space: pre-wrap; line-height: 1.8; font-size: 1.05rem; color: #333;
+                font-family: Georgia, serif; background: #f8f9fa; border: 1px solid #e0e0e0;
+                border-radius: 8px; padding: 1.5rem; margin-top: 1rem;">{{ result.cover_letter }}</div>
 </div>
 
-<div class="card" style="background: #f8f9fa;">
-    <div id="coverLetterText" style="white-space: pre-wrap; line-height: 1.8; font-size: 1.05rem; color: #333; font-family: Georgia, serif;">{{ result.cover_letter }}</div>
-</div>
-
+<!-- Action buttons -->
 <div class="card">
     <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-        <button onclick="copyToClipboard()" class="btn" style="background: #28a745;">
+        <button id="editBtn" onclick="toggleEditMode()" class="btn" style="background: #ffc107; color: #000;">
+            ✏️ Edit
+        </button>
+        <button id="saveBtn" onclick="saveCoverLetter()" class="btn" style="background: #28a745;">
+            💾 Save
+        </button>
+        <button id="cancelBtn" onclick="cancelEdit()" class="btn btn-secondary" style="display: none;">
+            Cancel Edits
+        </button>
+        <button onclick="copyToClipboard()" class="btn" style="background: #17a2b8;">
             📋 Copy to Clipboard
         </button>
-        <button onclick="downloadAsText()" class="btn" style="background: #17a2b8;">
-            💾 Download as .txt
+        <button onclick="downloadAsText()" class="btn" style="background: #007bff;">
+            📥 Download .txt
         </button>
         <button onclick="window.print()" class="btn" style="background: #6c757d;">
             🖨️ Print
@@ -50,26 +67,96 @@
     </div>
 </div>
 
+<!-- Save confirmation toast -->
+<div id="saveNotification" style="display: none; position: fixed; top: 20px; right: 20px; background: #28a745; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 1000;">
+    ✅ Cover letter saved! Find it in <strong>Resumes & Cover Letters</strong>.
+</div>
+
 <div id="copyNotification" style="display: none; position: fixed; top: 20px; right: 20px; background: #28a745; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 1000;">
     ✅ Copied to clipboard!
 </div>
 
 <script>
+const jobId = {{ job.id }};
+let isEditMode = false;
+let originalText = document.getElementById('coverLetterText').innerText;
+
+function toggleEditMode() {
+    isEditMode = !isEditMode;
+    const content = document.getElementById('coverLetterText');
+    const editBtn = document.getElementById('editBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    const indicator = document.getElementById('editModeIndicator');
+
+    if (isEditMode) {
+        content.contentEditable = 'true';
+        content.style.border = '2px solid #ffc107';
+        content.style.background = '#fffdf0';
+        editBtn.style.display = 'none';
+        cancelBtn.style.display = 'inline-block';
+        indicator.style.display = 'block';
+        content.focus();
+    } else {
+        content.contentEditable = 'false';
+        content.style.border = '1px solid #e0e0e0';
+        content.style.background = '#f8f9fa';
+        editBtn.style.display = 'inline-block';
+        cancelBtn.style.display = 'none';
+        indicator.style.display = 'none';
+    }
+}
+
+function cancelEdit() {
+    if (confirm('Discard all changes and restore original?')) {
+        document.getElementById('coverLetterText').innerText = originalText;
+        if (isEditMode) toggleEditMode();
+    }
+}
+
+async function saveCoverLetter() {
+    const text = document.getElementById('coverLetterText').innerText;
+
+    try {
+        const response = await fetch(`/api/save-cover-letter/${jobId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cover_letter_text: text })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            // Update original so Cancel won't revert to pre-save state
+            originalText = text;
+
+            // Exit edit mode if active
+            if (isEditMode) toggleEditMode();
+
+            // Show toast
+            const toast = document.getElementById('saveNotification');
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 3000);
+        } else {
+            alert('Failed to save: ' + (result.error || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('Error saving cover letter: ' + error.message);
+    }
+}
+
 function copyToClipboard() {
     const text = document.getElementById('coverLetterText').innerText;
     navigator.clipboard.writeText(text).then(function() {
-        showNotification();
+        showNotification('copyNotification');
     }, function(err) {
         alert('Failed to copy: ' + err);
     });
 }
 
-function showNotification() {
-    const notification = document.getElementById('copyNotification');
-    notification.style.display = 'block';
-    setTimeout(function() {
-        notification.style.display = 'none';
-    }, 2000);
+function showNotification(id) {
+    const el = document.getElementById(id);
+    el.style.display = 'block';
+    setTimeout(function() { el.style.display = 'none'; }, 2000);
 }
 
 function downloadAsText() {
@@ -112,6 +199,9 @@ window.onafterprint = function() {
         font-size: 12pt;
         line-height: 1.6;
         color: black;
+        border: none !important;
+        background: white !important;
+        padding: 0 !important;
     }
     .card {
         box-shadow: none;

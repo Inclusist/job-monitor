@@ -1654,6 +1654,166 @@ def create_cover_letter(job_id):
         return redirect(url_for('generate_cover_letter_page', job_id=job_id))
 
 
+@app.route('/api/save-cover-letter/<int:job_id>', methods=['POST'])
+@login_required
+def save_cover_letter(job_id):
+    """Save (or update) a cover letter for a job"""
+    user_id = get_user_id()
+
+    try:
+        data = request.get_json()
+        cover_letter_text = data.get('cover_letter_text', '').strip()
+        if not cover_letter_text:
+            return jsonify({'success': False, 'error': 'Cover letter text is empty'}), 400
+
+        job = job_db.get_job_by_id(job_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Job not found'}), 404
+
+        import psycopg2
+        conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+        cur = conn.cursor()
+
+        # Generate PDF bytes
+        pdf_data = None
+        try:
+            import io
+            from weasyprint import HTML as WeasyHTML
+            # Wrap plain text in a styled HTML shell for PDF rendering
+            html_for_pdf = (
+                '<html><head><style>'
+                'body { font-family: Georgia, serif; font-size: 11pt; line-height: 1.7; '
+                'color: #333; max-width: 700px; margin: 2rem auto; padding: 0 1.5rem; }'
+                'h2 { color: #667eea; margin-bottom: 0.25rem; }'
+                'p.meta { color: #666; font-size: 10pt; margin-top: 0; margin-bottom: 2rem; }'
+                '</style></head><body>'
+                f'<h2>{job.get("title", "")}</h2>'
+                f'<p class="meta">{job.get("company", "")} &bull; {job.get("location", "")}</p>'
+                '<hr style="border: none; border-top: 1px solid #ddd; margin-bottom: 1.5rem;">'
+                f'<div style="white-space: pre-wrap;">{cover_letter_text}</div>'
+                '</body></html>'
+            )
+            buf = io.BytesIO()
+            WeasyHTML(string=html_for_pdf).write_pdf(buf)
+            pdf_data = buf.getvalue()
+            print(f"Cover letter PDF generated ({len(pdf_data):,} bytes)")
+        except Exception as e:
+            print(f"Cover letter PDF generation failed: {e}")
+
+        # Upsert: update if one already exists for this user+job, else insert
+        cur.execute(
+            "SELECT id FROM cover_letters WHERE user_id = %s AND job_id = %s",
+            (user_id, job_id),
+        )
+        existing = cur.fetchone()
+
+        if existing:
+            cur.execute(
+                "UPDATE cover_letters SET cover_letter_html = %s, cover_letter_pdf_data = %s, created_at = NOW() WHERE id = %s",
+                (cover_letter_text, psycopg2.Binary(pdf_data) if pdf_data else None, existing[0]),
+            )
+            cover_letter_id = existing[0]
+        else:
+            cur.execute(
+                """INSERT INTO cover_letters (user_id, job_id, job_title, job_company, cover_letter_html, cover_letter_pdf_data)
+                   VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
+                (user_id, job_id, job.get('title', ''), job.get('company', ''),
+                 cover_letter_text, psycopg2.Binary(pdf_data) if pdf_data else None),
+            )
+            cover_letter_id = cur.fetchone()[0]
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify({'success': True, 'cover_letter_id': cover_letter_id})
+
+    except Exception as e:
+        print(f"Error saving cover letter: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/my-resumes/cover-letter/<int:cover_letter_id>/delete', methods=['POST'])
+@login_required
+def delete_cover_letter_route(cover_letter_id):
+    """Delete a saved cover letter"""
+    user_id = get_user_id()
+
+    try:
+        import psycopg2
+        conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM cover_letters WHERE id = %s AND user_id = %s",
+            (cover_letter_id, user_id),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Error deleting cover letter: {e}")
+        flash(f'Error deleting cover letter: {str(e)}', 'error')
+
+    return redirect(url_for('my_resumes'))
+
+
+@app.route('/download/cover-letter/<int:cover_letter_id>')
+@login_required
+def download_cover_letter(cover_letter_id):
+    """Download a saved cover letter as PDF or TXT"""
+    user_id = get_user_id()
+    download_format = request.args.get('format', 'pdf')
+
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            "SELECT job_id, job_title, job_company, cover_letter_html, cover_letter_pdf_data "
+            "FROM cover_letters WHERE id = %s AND user_id = %s",
+            (cover_letter_id, user_id),
+        )
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if not row:
+            flash('Cover letter not found', 'error')
+            return redirect(url_for('my_resumes'))
+
+        safe_company = (row['job_company'] or 'company').replace(' ', '_')
+        safe_title = (row['job_title'] or 'job').replace(' ', '_')[:40]
+
+        if download_format == 'txt':
+            from flask import make_response
+            response = make_response(row['cover_letter_html'])
+            response.headers['Content-Type'] = 'text/plain; charset=utf-8'
+            response.headers['Content-Disposition'] = f'attachment; filename="cover_letter_{safe_company}_{safe_title}.txt"'
+            return response
+
+        # PDF
+        pdf_data = bytes(row['cover_letter_pdf_data']) if row['cover_letter_pdf_data'] else None
+        if not pdf_data:
+            flash('PDF not available. Downloading as text instead.', 'info')
+            from flask import make_response
+            response = make_response(row['cover_letter_html'])
+            response.headers['Content-Type'] = 'text/plain; charset=utf-8'
+            response.headers['Content-Disposition'] = f'attachment; filename="cover_letter_{safe_company}_{safe_title}.txt"'
+            return response
+
+        from flask import make_response
+        response = make_response(pdf_data)
+        response.headers['Content-Type'] = 'application/pdf'
+        response.headers['Content-Disposition'] = f'attachment; filename="cover_letter_{safe_company}_{safe_title}.pdf"'
+        return response
+
+    except Exception as e:
+        print(f"Error downloading cover letter: {e}")
+        flash('Download failed', 'error')
+        return redirect(url_for('my_resumes'))
+
+
 @app.route('/jobs/<int:job_id>/status/<status>', methods=['GET', 'POST'])
 def update_job_status(job_id, status):
     """Update job status"""
@@ -2074,10 +2234,29 @@ def my_resumes():
             # PDF is available if we have the bytes in DB
             resume['pdf_exists'] = bool(resume.get('resume_pdf_data'))
 
+        # Fetch saved cover letters
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        cover_letters = []
+        try:
+            conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                "SELECT id, job_id, job_title, job_company, cover_letter_html, cover_letter_pdf_data, created_at "
+                "FROM cover_letters WHERE user_id = %s ORDER BY created_at DESC",
+                (user_id,),
+            )
+            cover_letters = cur.fetchall()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"Warning: could not load cover letters: {e}")
+
         return render_template('my_resumes.html',
                              user=user,
                              stats=stats,
-                             resumes=resumes)
+                             resumes=resumes,
+                             cover_letters=cover_letters)
 
     except Exception as e:
         print(f"Error loading resumes: {e}")
