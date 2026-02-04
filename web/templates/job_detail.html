@@ -169,23 +169,26 @@
 
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem;">
         {% for competency in job.ai_competencies %}
-        {# Use backend-calculated match status #}
         {% set matched = job.competency_match_map.get(competency, false) if job.competency_match_map else false %}
+        {% set claimed = (competency.lower() in claimed_competency_names) and not matched %}
 
-        <div class="competency-box {% if not matched %}selectable-box{% endif %}"
+        <div class="competency-box {% if not matched and not claimed %}selectable-box{% endif %}"
              data-name="{{ competency }}"
              data-type="competency"
-             {% if not matched %}onclick="toggleSelection(this)"{% endif %}
-             style="padding: 1rem; background: {% if matched %}#d4edda{% else %}#f8f9fa{% endif %};
-                        border-left: 3px solid {% if matched %}#28a745{% else %}#6c757d{% endif %};
+             {% if not matched and not claimed %}onclick="toggleSelection(this)"{% endif %}
+             style="padding: 1rem;
+                        background: {% if matched %}#d4edda{% elif claimed %}#cfe8ff{% else %}#f8f9fa{% endif %};
+                        border-left: 3px solid {% if matched %}#28a745{% elif claimed %}#007bff{% else %}#6c757d{% endif %};
                         border-radius: 6px; position: relative;
-                        {% if not matched %}cursor: pointer; transition: all 0.2s;{% endif %}">
+                        {% if not matched and not claimed %}cursor: pointer; transition: all 0.2s;{% endif %}">
             <div
-                style="font-weight: 600; color: {% if matched %}#155724{% else %}#333{% endif %}; margin-bottom: 0.5rem;">
+                style="font-weight: 600; color: {% if matched %}#155724{% elif claimed %}#004085{% else %}#333{% endif %}; margin-bottom: 0.5rem;">
                 {{ competency }}
             </div>
             {% if matched %}
             <span class="badge" style="background: #28a745; font-size: 0.75rem;">✓ Matched</span>
+            {% elif claimed %}
+            <span class="badge" style="background: #007bff; font-size: 0.75rem;">✓ Claimed</span>
             {% else %}
             <span class="badge item-status" style="background: #6c757d; font-size: 0.75rem;">Required</span>
             {% endif %}
@@ -194,7 +197,7 @@
     </div>
 
     <p style="margin-top: 1rem; font-size: 0.9rem; color: #666; font-style: italic;">
-        💡 Green highlights indicate competencies that explicitly align with your profile. Click gray boxes to claim missing competencies for your resume.
+        💡 Green = matched to your profile. Blue = previously claimed with evidence. Click gray boxes to claim missing competencies for your resume.
     </p>
 </div>
 {% endif %}
@@ -209,24 +212,25 @@
     <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
         {% for skill in job.ai_key_skills %}
         {% set s_matched = job.skill_match_map.get(skill, false) if job.skill_match_map else false %}
-        <span class="skill-box {% if not s_matched %}selectable-box{% endif %}"
+        {% set s_claimed = (skill.lower() in claimed_skill_names) and not s_matched %}
+        <span class="skill-box {% if not s_matched and not s_claimed %}selectable-box{% endif %}"
               data-name="{{ skill }}"
               data-type="skill"
-              {% if not s_matched %}onclick="toggleSelection(this)"{% endif %}
+              {% if not s_matched and not s_claimed %}onclick="toggleSelection(this)"{% endif %}
               style="padding: 0.5rem 1rem;
-                   background: {% if s_matched %}#d4edda{% else %}#f8f9fa{% endif %};
-                   border: 1px solid {% if s_matched %}#28a745{% else %}#dee2e6{% endif %};
+                   background: {% if s_matched %}#d4edda{% elif s_claimed %}#cfe8ff{% else %}#f8f9fa{% endif %};
+                   border: 1px solid {% if s_matched %}#28a745{% elif s_claimed %}#007bff{% else %}#dee2e6{% endif %};
                    border-radius: 20px; font-size: 0.875rem;
-                   color: {% if s_matched %}#155724{% else %}#555{% endif %};
-                   {% if s_matched %}font-weight: 500;{% endif %}
-                   {% if not s_matched %}cursor: pointer; transition: all 0.2s;{% endif %}">
-            {% if s_matched %}✓ {% endif %}{{ skill }}
+                   color: {% if s_matched %}#155724{% elif s_claimed %}#004085{% else %}#555{% endif %};
+                   {% if s_matched or s_claimed %}font-weight: 500;{% endif %}
+                   {% if not s_matched and not s_claimed %}cursor: pointer; transition: all 0.2s;{% endif %}">
+            {% if s_matched %}✓ {% elif s_claimed %}✓ {% endif %}{{ skill }}
         </span>
         {% endfor %}
     </div>
 
     <p style="margin-top: 1rem; font-size: 0.9rem; color: #666; font-style: italic;">
-        🔧 Skills are concrete tools and technologies extracted from the job requirements. Click unmatched items to claim them for your resume.
+        🔧 Skills extracted from job requirements. Green = matched. Blue = previously claimed. Click gray items to claim them for your resume.
     </p>
 </div>
 {% endif %}

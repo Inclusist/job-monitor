@@ -222,8 +222,10 @@ class ClaudeJobAnalyzer:
                         job['ai_competencies'] = extracted.get('competencies', [])
                         job['ai_key_skills'] = extracted.get('skills', [])
 
-                        # Note: Competencies are stored in memory for matching
-                        # Database caching not implemented yet
+                        # Normalize against canonical map before scoring/persistence
+                        from analysis.skill_normalizer import normalize_and_deduplicate
+                        job['ai_competencies'] = normalize_and_deduplicate(job['ai_competencies'])
+                        job['ai_key_skills'] = normalize_and_deduplicate(job['ai_key_skills'])
                 except Exception as e:
                     logger.warning(f"Failed to extract competencies/skills: {e}")
                     # Continue without competencies

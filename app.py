@@ -1305,6 +1305,9 @@ def job_detail(job_id):
         raw_comps = user_cv_profile.get('competencies', []) or []
         user_competencies = set(str(c).lower().strip() for c in raw_comps)
 
+    claimed_competency_names = set()
+    claimed_skill_names = set()
+
     # Calculate match status for UI visualization
     if job:
         # Debug: Check what we got from database
@@ -1312,6 +1315,13 @@ def job_detail(job_id):
         print(f"DEBUG job_detail: skill_mappings type={type(job.get('skill_mappings'))}, value={job.get('skill_mappings')}")
         print(f"DEBUG job_detail: ai_competencies exists? {job.get('ai_competencies') is not None}, count={len(job.get('ai_competencies') or [])}")
         print(f"DEBUG job_detail: ai_key_skills exists? {job.get('ai_key_skills') is not None}, count={len(job.get('ai_key_skills') or [])}")
+
+        # Normalize: deduplicate case/alias/German before matching and display
+        from analysis.skill_normalizer import normalize_and_deduplicate
+        if job.get('ai_competencies'):
+            job['ai_competencies'] = normalize_and_deduplicate(job['ai_competencies'])
+        if job.get('ai_key_skills'):
+            job['ai_key_skills'] = normalize_and_deduplicate(job['ai_key_skills'])
 
         # 1. Competencies Matching (HYBRID: Claude → Keyword → Semantic)
         if job.get('ai_competencies'):
@@ -1521,6 +1531,20 @@ def job_detail(job_id):
             
             job['skill_match_map'] = skill_matches
 
+        # Load previously claimed competencies/skills for UI
+        if resume_ops:
+            try:
+                from analysis.skill_normalizer import normalize_term
+                claimed_data = resume_ops.get_user_claimed_data(user_id)
+                # Normalize stored claim names so old claims (e.g. "Communication Skills")
+                # match the current normalized display name (e.g. "Communication")
+                for raw_name in (claimed_data.get('competencies') or {}):
+                    claimed_competency_names.add(normalize_term(raw_name).lower())
+                for raw_name in (claimed_data.get('skills') or {}):
+                    claimed_skill_names.add(normalize_term(raw_name).lower())
+            except Exception as e:
+                print(f"Warning: Could not load claimed data: {e}")
+
     # Normalize work_history to work_experience for frontend compatibility
     if user_cv_profile and 'work_history' in user_cv_profile:
         work_experiences = []
@@ -1541,7 +1565,9 @@ def job_detail(job_id):
             })
         user_cv_profile['work_experience'] = work_experiences
 
-    return render_template('job_detail.html', job=job, user_profile=user_cv_profile)
+    return render_template('job_detail.html', job=job, user_profile=user_cv_profile,
+                           claimed_competency_names=claimed_competency_names,
+                           claimed_skill_names=claimed_skill_names)
 
 
 @app.route('/jobs/<int:job_id>/generate-cover-letter')
@@ -2045,9 +2071,8 @@ def my_resumes():
                 resume['job_title'] = 'Job Not Found'
                 resume['job_company'] = ''
 
-            # Check if PDF exists
-            pdf_path = resume.get('resume_pdf_path')
-            resume['pdf_exists'] = pdf_path and os.path.exists(pdf_path)
+            # PDF is available as long as we have the HTML to generate from
+            resume['pdf_exists'] = bool(resume.get('resume_html'))
 
         return render_template('my_resumes.html',
                              user=user,

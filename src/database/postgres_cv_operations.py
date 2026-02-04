@@ -1333,7 +1333,8 @@ class PostgresCVManager:
                 profile_data.get('career_level'),
                 json.dumps(profile_data.get('preferred_roles', [])),
                 json.dumps(profile_data.get('industries', [])),
-                json.dumps({k: v for k, v in profile_data.items() if k != 'full_text'}),
+                json.dumps({k: v for k, v in profile_data.items()
+                           if k not in ('full_text', 'created_date', 'last_updated', 'cv_id', 'user_id', 'id', 'is_primary')}),
                 json.dumps(profile_data.get('projects', [])),
                 now,
                 cv_id

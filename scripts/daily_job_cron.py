@@ -156,6 +156,124 @@ def encode_new_jobs(db, limit=None):
     return len(job_list)
 
 
+def run_canonical_map_refresh():
+    """
+    Discover terms in jobs that are not yet in skill_canonical_map and
+    map them automatically.
+
+    For each new term:
+      - If cosine similarity to an existing canonical >= 0.75 → map to it
+        (source='auto', confidence=sim)
+      - Otherwise → promote to its own canonical (confidence=0.0, original
+        casing preserved)
+
+    Uses paraphrase-multilingual-MiniLM-L12-v2 (same as SemanticMatcher).
+    """
+    from sentence_transformers import SentenceTransformer
+    import numpy as np
+
+    conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+    conn.autocommit = False
+    cursor = conn.cursor()
+
+    try:
+        # 1. All unique terms currently in jobs
+        cursor.execute("""
+            SELECT term, COUNT(*) as freq
+            FROM (
+                SELECT unnest(ai_competencies) as term FROM jobs WHERE ai_competencies IS NOT NULL
+                UNION ALL
+                SELECT unnest(ai_key_skills)   as term FROM jobs WHERE ai_key_skills   IS NOT NULL
+            ) sub
+            WHERE term IS NOT NULL AND term != ''
+            GROUP BY term
+            ORDER BY freq DESC
+        """)
+        all_terms = cursor.fetchall()  # [(term, freq), ...]
+
+        # 2. Variants already mapped
+        cursor.execute("SELECT variant FROM skill_canonical_map")
+        mapped_variants = {row[0] for row in cursor.fetchall()}
+
+        # 3. Filter to genuinely new terms
+        new_terms = [(term, freq) for term, freq in all_terms
+                     if term.lower().strip() not in mapped_variants]
+
+        if not new_terms:
+            print("   No new terms to map")
+            return
+
+        print(f"   New terms to map: {len(new_terms)}")
+
+        # 4. Load existing canonicals (distinct)
+        cursor.execute("SELECT DISTINCT canonical FROM skill_canonical_map")
+        existing_canonicals = [row[0] for row in cursor.fetchall()]
+
+        # 5. Encode
+        print("   Loading paraphrase-multilingual-MiniLM-L12-v2...")
+        model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2', device='cpu')
+
+        new_terms_cased = [t[0] for t in new_terms]
+
+        print(f"   Encoding {len(new_terms_cased)} new terms + {len(existing_canonicals)} existing canonicals...")
+        new_embs = model.encode(new_terms_cased, show_progress_bar=False, convert_to_numpy=True)
+        canon_embs = model.encode(existing_canonicals, show_progress_bar=False, convert_to_numpy=True)
+
+        # Unit-normalize
+        def _unit(v):
+            norms = np.linalg.norm(v, axis=1, keepdims=True)
+            norms[norms == 0] = 1.0
+            return v / norms
+
+        new_normed  = _unit(new_embs.astype(np.float32))
+        canon_normed = _unit(canon_embs.astype(np.float32))
+
+        # 6. Similarity: (N_new, N_canon)
+        sims = new_normed @ canon_normed.T
+
+        # 7. Decide mapping for each new term
+        rows = []
+        mapped_count = 0
+        new_canonical_count = 0
+        threshold = 0.75
+
+        for i, term_cased in enumerate(new_terms_cased):
+            best_idx = int(np.argmax(sims[i]))
+            best_sim = float(sims[i, best_idx])
+
+            variant_lower = term_cased.lower().strip()
+
+            if best_sim >= threshold:
+                # Map to existing canonical
+                rows.append((variant_lower, existing_canonicals[best_idx], best_sim, 'auto'))
+                mapped_count += 1
+            else:
+                # Promote to new canonical (preserve original casing)
+                rows.append((variant_lower, term_cased.strip(), 0.0, 'auto'))
+                new_canonical_count += 1
+
+        print(f"   Mapped to existing: {mapped_count}  |  New canonicals: {new_canonical_count}")
+
+        # 8. INSERT
+        cursor.executemany(
+            """
+            INSERT INTO skill_canonical_map (variant, canonical, confidence, source)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (variant) DO NOTHING
+            """,
+            rows,
+        )
+        conn.commit()
+        print(f"   Committed {len(rows)} rows")
+
+    except Exception as e:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def collect_daily_jobs(db, api_key):
     """
     Collect jobs from the last 24 hours using Active Jobs DB daily endpoint
@@ -287,6 +405,14 @@ def run_daily_job():
                 import traceback
                 traceback.print_exc()
         # -------------------------------------------------
+
+        # --- Refresh canonical skill map (runs unconditionally) ---
+        print(f"\n📚 Refreshing canonical skill map...")
+        try:
+            run_canonical_map_refresh()
+        except Exception as e:
+            print(f"   ⚠️  Canonical map refresh failed: {e}")
+        # -----------------------------------------------------------
 
         db.close()
         return True
