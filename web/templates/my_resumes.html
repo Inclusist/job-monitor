@@ -6,147 +6,115 @@
 <div class="card">
     <h2 style="margin-bottom: 0.5rem;">📄 Resumes & Cover Letters</h2>
     <p style="color: #666; margin-bottom: 1.5rem;">
-        Your AI-generated, job-tailored documents — sorted by most recent.
+        Your saved documents, grouped by job.
     </p>
 
-    {% if items %}
+    {% if job_cards %}
     <div style="display: grid; gap: 1.5rem;">
-        {% for item in items %}
-        {% set is_resume = item.type == 'resume' %}
-        {% set border_color = '#667eea' if is_resume else '#764ba2' %}
-        <div class="card" style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%); border-left: 4px solid {{ border_color }};">
-            <!-- Header: title, company, date, badge -->
+        {% for card in job_cards %}
+        <div class="card" style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);">
+
+            <!-- Job header -->
             <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
-                <div style="flex: 1;">
-                    <h3 style="margin-bottom: 0.5rem; color: #333;">
-                        {{ item.job_title }}
-                    </h3>
-                    <p style="color: #666; font-size: 0.95rem; margin-bottom: 0.5rem;">
-                        🏢 {{ item.job_company }}
-                    </p>
-                    <p style="color: #999; font-size: 0.875rem;">
-                        🕐 {{ 'Generated' if is_resume else 'Saved' }} on {{ item.created_at.strftime('%b %d, %Y at %I:%M %p') if item.created_at else 'Unknown date' }}
-                    </p>
+                <div>
+                    <h3 style="margin-bottom: 0.25rem; color: #333;">{{ card.job_title }}</h3>
+                    <p style="color: #666; font-size: 0.95rem; margin: 0;">🏢 {{ card.job_company }}</p>
                 </div>
-
-                <div style="text-align: right;">
-                    <span class="badge" style="background: {{ border_color }}; font-size: 0.875rem;">
-                        {% if is_resume %}Resume{% else %}Cover Letter{% endif %}
-                    </span>
+                <div style="display: flex; gap: 0.5rem;">
+                    {% if card.resume %}
+                    <span class="badge" style="background: #667eea; font-size: 0.8rem;">Resume</span>
+                    {% endif %}
+                    {% if card.cover_letter %}
+                    <span class="badge" style="background: #764ba2; font-size: 0.8rem;">Cover Letter</span>
+                    {% endif %}
                 </div>
             </div>
 
-            <!-- Resume: claimed items summary -->
-            {% if is_resume and item.selections_used %}
-            <div style="background: white; padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
-                <p style="font-size: 0.875rem; color: #666; margin-bottom: 0.5rem;">
-                    <strong>User-Claimed Items:</strong>
-                </p>
-                <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-                    {% set competencies = item.selections_used.get('competencies', {}) %}
-                    {% set skills = item.selections_used.get('skills', {}) %}
-
-                    {% if competencies %}
-                    <span style="font-size: 0.875rem;">
-                        🎯 <strong>{{ competencies|length }}</strong> Competencies
+            <!-- Resume row -->
+            {% if card.resume %}
+            <div style="border-left: 3px solid #667eea; padding: 0.75rem 1rem; margin-bottom: 0.75rem; background: white; border-radius: 0 6px 6px 0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                    <span style="font-size: 0.9rem; color: #555;">
+                        📄 <strong>Resume</strong>
+                        <span style="color: #999; font-size: 0.8rem; margin-left: 0.5rem;">
+                            {{ card.resume.created_at.strftime('%b %d, %Y') if card.resume.created_at else '' }}
+                        </span>
                     </span>
-                    {% endif %}
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        {% if card.resume.pdf_exists %}
+                        <a href="{{ url_for('download_resume', resume_id=card.resume.id) }}?format=pdf"
+                           class="btn" style="background: #dc3545; padding: 0.35rem 0.7rem; font-size: 0.85rem;">
+                            📥 PDF
+                        </a>
+                        {% endif %}
+                        <a href="{{ url_for('download_resume', resume_id=card.resume.id) }}?format=html"
+                           class="btn" style="background: #007bff; padding: 0.35rem 0.7rem; font-size: 0.85rem;">
+                            📄 HTML
+                        </a>
+                        <form method="POST" action="{{ url_for('delete_resume_route', resume_id=card.resume.id) }}" style="display: inline;"
+                              onsubmit="return confirm('Delete this resume? This cannot be undone.');">
+                            <button type="submit" class="btn" style="background: #6c757d; padding: 0.35rem 0.7rem; font-size: 0.85rem;">🗑️</button>
+                        </form>
+                    </div>
+                </div>
 
-                    {% if skills %}
-                    <span style="font-size: 0.875rem;">
-                        💻 <strong>{{ skills|length }}</strong> Skills
-                    </span>
-                    {% endif %}
+                {% if card.resume.selections_used %}
+                {% set competencies = card.resume.selections_used.get('competencies', {}) %}
+                {% set skills = card.resume.selections_used.get('skills', {}) %}
+                {% if competencies or skills %}
+                <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #888;">
+                    {% if competencies %}🎯 {{ competencies|length }} Competencies{% endif %}
+                    {% if competencies and skills %} · {% endif %}
+                    {% if skills %}💻 {{ skills|length }} Skills{% endif %}
+                </div>
+                {% endif %}
+                {% endif %}
+            </div>
+            {% endif %}
 
-                    {% if not competencies and not skills %}
-                    <span style="font-size: 0.875rem; color: #999; font-style: italic;">
-                        No custom claims (auto-detected only)
+            <!-- Cover letter row -->
+            {% if card.cover_letter %}
+            <div style="border-left: 3px solid #764ba2; padding: 0.75rem 1rem; margin-bottom: 0.75rem; background: white; border-radius: 0 6px 6px 0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                    <span style="font-size: 0.9rem; color: #555;">
+                        ✍️ <strong>Cover Letter</strong>
+                        <span style="color: #999; font-size: 0.8rem; margin-left: 0.5rem;">
+                            {{ card.cover_letter.created_at.strftime('%b %d, %Y') if card.cover_letter.created_at else '' }}
+                        </span>
                     </span>
-                    {% endif %}
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        {% if card.cover_letter.cover_letter_pdf_data %}
+                        <a href="{{ url_for('download_cover_letter', cover_letter_id=card.cover_letter.id) }}?format=pdf"
+                           class="btn" style="background: #dc3545; padding: 0.35rem 0.7rem; font-size: 0.85rem;">
+                            📥 PDF
+                        </a>
+                        {% endif %}
+                        <a href="{{ url_for('download_cover_letter', cover_letter_id=card.cover_letter.id) }}?format=txt"
+                           class="btn" style="background: #007bff; padding: 0.35rem 0.7rem; font-size: 0.85rem;">
+                            📄 .txt
+                        </a>
+                        <form method="POST" action="{{ url_for('delete_cover_letter_route', cover_letter_id=card.cover_letter.id) }}" style="display: inline;"
+                              onsubmit="return confirm('Delete this cover letter? This cannot be undone.');">
+                            <button type="submit" class="btn" style="background: #6c757d; padding: 0.35rem 0.7rem; font-size: 0.85rem;">🗑️</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Preview snippet -->
+                <div style="margin-top: 0.5rem; font-family: Georgia, serif; font-size: 0.82rem; color: #777; line-height: 1.4;
+                            max-height: 48px; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
+                            mask-image: linear-gradient(to bottom, black 50%, transparent 100%);">
+                    {{ card.cover_letter.cover_letter_html[:150] }}
                 </div>
             </div>
             {% endif %}
 
-            <!-- Cover letter: text preview snippet -->
-            {% if not is_resume %}
-            <div style="background: white; padding: 1rem; border-radius: 6px; margin-bottom: 1rem;
-                        font-family: Georgia, serif; font-size: 0.9rem; color: #555; line-height: 1.5;
-                        max-height: 80px; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
-                        mask-image: linear-gradient(to bottom, black 60%, transparent 100%);">
-                {{ item.cover_letter_html[:200] }}
-            </div>
-            {% endif %}
-
-            <!-- Action Buttons -->
-            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-                <!-- PDF download -->
-                {% if is_resume %}
-                    {% if item.pdf_exists %}
-                    <a href="{{ url_for('download_resume', resume_id=item.id) }}?format=pdf"
-                       class="btn"
-                       style="background: #dc3545; display: inline-flex; align-items: center; gap: 0.5rem;">
-                        <span>📥</span>
-                        <span>Download PDF</span>
-                    </a>
-                    {% else %}
-                    <button class="btn btn-secondary" disabled title="PDF not available">
-                        <span>📥</span>
-                        <span>PDF Not Available</span>
-                    </button>
-                    {% endif %}
-                {% else %}
-                    {% if item.cover_letter_pdf_data %}
-                    <a href="{{ url_for('download_cover_letter', cover_letter_id=item.id) }}?format=pdf"
-                       class="btn"
-                       style="background: #dc3545; display: inline-flex; align-items: center; gap: 0.5rem;">
-                        <span>📥</span>
-                        <span>Download PDF</span>
-                    </a>
-                    {% else %}
-                    <button class="btn btn-secondary" disabled title="PDF not available">
-                        <span>📥</span>
-                        <span>PDF Not Available</span>
-                    </button>
-                    {% endif %}
-                {% endif %}
-
-                <!-- Secondary format download -->
-                {% if is_resume %}
-                <a href="{{ url_for('download_resume', resume_id=item.id) }}?format=html"
-                   class="btn"
-                   style="background: #007bff; display: inline-flex; align-items: center; gap: 0.5rem;">
-                    <span>📄</span>
-                    <span>Download HTML</span>
+            <!-- View Job button -->
+            <div style="margin-top: 0.25rem;">
+                <a href="{{ url_for('job_detail', job_id=card.job_id) }}"
+                   class="btn" style="background: #28a745; padding: 0.4rem 0.9rem; font-size: 0.88rem;">
+                    👁️ View Job
                 </a>
-                {% else %}
-                <a href="{{ url_for('download_cover_letter', cover_letter_id=item.id) }}?format=txt"
-                   class="btn"
-                   style="background: #007bff; display: inline-flex; align-items: center; gap: 0.5rem;">
-                    <span>📄</span>
-                    <span>Download .txt</span>
-                </a>
-                {% endif %}
-
-                <!-- View Job -->
-                <a href="{{ url_for('job_detail', job_id=item.job_id) }}"
-                   class="btn"
-                   style="background: #28a745; display: inline-flex; align-items: center; gap: 0.5rem;">
-                    <span>👁️</span>
-                    <span>View Job</span>
-                </a>
-
-                <!-- Delete -->
-                <form method="POST"
-                      action="{% if is_resume %}{{ url_for('delete_resume_route', resume_id=item.id) }}{% else %}{{ url_for('delete_cover_letter_route', cover_letter_id=item.id) }}{% endif %}"
-                      style="display: inline;"
-                      onsubmit="return confirm('Delete this {{ 'resume' if is_resume else 'cover letter' }}? This cannot be undone.');">
-                    <button type="submit"
-                            class="btn"
-                            style="background: #6c757d; display: inline-flex; align-items: center; gap: 0.5rem;">
-                        <span>🗑️</span>
-                        <span>Delete</span>
-                    </button>
-                </form>
             </div>
         </div>
         {% endfor %}

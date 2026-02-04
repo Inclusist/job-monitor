@@ -2252,26 +2252,52 @@ def my_resumes():
         except Exception as e:
             print(f"Warning: could not load cover letters: {e}")
 
-        # Merge into a single chronological list
+        # Group by job — one card per job, resume + cover letter together
         from datetime import datetime
-        resume_count = len(resumes)
-        cover_letter_count = len(cover_letters)
+        jobs_map = {}  # job_id → card data; insertion order = most-recent-first
 
+        # Resumes first (already sorted created_at DESC)
         for r in resumes:
-            r['type'] = 'resume'
-        for cl in cover_letters:
-            cl['type'] = 'cover_letter'
+            jid = r['job_id']
+            if jid not in jobs_map:
+                jobs_map[jid] = {
+                    'job_id': jid,
+                    'job_title': r['job_title'],
+                    'job_company': r['job_company'],
+                    'latest_date': r.get('created_at'),
+                    'resume': None,
+                    'cover_letter': None,
+                }
+            jobs_map[jid]['resume'] = r
 
-        items = sorted(resumes + list(cover_letters),
-                       key=lambda x: x.get('created_at') or datetime.min,
-                       reverse=True)
+        # Cover letters — may introduce new jobs or attach to existing
+        for cl in cover_letters:
+            jid = cl['job_id']
+            if jid not in jobs_map:
+                jobs_map[jid] = {
+                    'job_id': jid,
+                    'job_title': cl['job_title'],
+                    'job_company': cl['job_company'],
+                    'latest_date': cl.get('created_at'),
+                    'resume': None,
+                    'cover_letter': None,
+                }
+            jobs_map[jid]['cover_letter'] = dict(cl)
+            # Keep latest_date as the most recent of the two
+            if cl.get('created_at') and (not jobs_map[jid]['latest_date'] or cl['created_at'] > jobs_map[jid]['latest_date']):
+                jobs_map[jid]['latest_date'] = cl['created_at']
+
+        # Sort cards by latest_date desc
+        job_cards = sorted(jobs_map.values(),
+                           key=lambda c: c['latest_date'] or datetime.min,
+                           reverse=True)
 
         return render_template('my_resumes.html',
                              user=user,
                              stats=stats,
-                             items=items,
-                             resume_count=resume_count,
-                             cover_letter_count=cover_letter_count)
+                             job_cards=job_cards,
+                             resume_count=len(resumes),
+                             cover_letter_count=len(cover_letters))
 
     except Exception as e:
         print(f"Error loading resumes: {e}")
