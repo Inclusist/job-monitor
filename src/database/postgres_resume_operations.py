@@ -332,7 +332,8 @@ class PostgresResumeOperations:
 
     def save_generated_resume(self, user_id: int, job_id: int, resume_html: str,
                              resume_pdf_path: Optional[str],
-                             selections_used: Dict[str, Any]) -> int:
+                             selections_used: Dict[str, Any],
+                             pdf_data: Optional[bytes] = None) -> int:
         """
         Save generated resume to database
 
@@ -340,12 +341,14 @@ class PostgresResumeOperations:
             user_id: User ID
             job_id: Job ID
             resume_html: Generated HTML content
-            resume_pdf_path: Path to generated PDF file (optional)
+            resume_pdf_path: Path to generated PDF file (legacy, kept for compat)
             selections_used: Dict of claimed competencies/skills used in this resume
+            pdf_data: Raw PDF bytes to persist (preferred over pdf_path)
 
         Returns:
             int: Resume ID
         """
+        import psycopg2
         conn = self.pool.getconn()
         try:
             cursor = conn.cursor()
@@ -359,24 +362,27 @@ class PostgresResumeOperations:
             existing = cursor.fetchone()
 
             if existing:
-                # Update existing resume
                 cursor.execute("""
                     UPDATE user_generated_resumes
                     SET resume_html = %s,
                         resume_pdf_path = %s,
+                        resume_pdf_data = %s,
                         selections_used = %s,
                         updated_at = NOW()
                     WHERE id = %s
                     RETURNING id
-                """, (resume_html, resume_pdf_path, json.dumps(selections_used), existing[0]))
+                """, (resume_html, resume_pdf_path,
+                      psycopg2.Binary(pdf_data) if pdf_data else None,
+                      json.dumps(selections_used), existing[0]))
             else:
-                # Insert new resume
                 cursor.execute("""
                     INSERT INTO user_generated_resumes
-                        (user_id, job_id, resume_html, resume_pdf_path, selections_used)
-                    VALUES (%s, %s, %s, %s, %s)
+                        (user_id, job_id, resume_html, resume_pdf_path, resume_pdf_data, selections_used)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING id
-                """, (user_id, job_id, resume_html, resume_pdf_path, json.dumps(selections_used)))
+                """, (user_id, job_id, resume_html, resume_pdf_path,
+                      psycopg2.Binary(pdf_data) if pdf_data else None,
+                      json.dumps(selections_used)))
 
             resume_id = cursor.fetchone()[0]
             conn.commit()
@@ -408,7 +414,7 @@ class PostgresResumeOperations:
             if job_id:
                 cursor.execute("""
                     SELECT id, user_id, job_id, resume_html, resume_pdf_path,
-                           selections_used, created_at, updated_at
+                           selections_used, created_at, updated_at, resume_pdf_data
                     FROM user_generated_resumes
                     WHERE user_id = %s AND job_id = %s
                     ORDER BY created_at DESC
@@ -416,7 +422,7 @@ class PostgresResumeOperations:
             else:
                 cursor.execute("""
                     SELECT id, user_id, job_id, resume_html, resume_pdf_path,
-                           selections_used, created_at, updated_at
+                           selections_used, created_at, updated_at, resume_pdf_data
                     FROM user_generated_resumes
                     WHERE user_id = %s
                     ORDER BY created_at DESC
@@ -434,7 +440,8 @@ class PostgresResumeOperations:
                     'resume_pdf_path': row[4],
                     'selections_used': row[5] or {},
                     'created_at': row[6],
-                    'updated_at': row[7]
+                    'updated_at': row[7],
+                    'resume_pdf_data': bytes(row[8]) if row[8] else None,
                 })
 
             return resumes
@@ -460,7 +467,7 @@ class PostgresResumeOperations:
 
             cursor.execute("""
                 SELECT id, user_id, job_id, resume_html, resume_pdf_path,
-                       selections_used, created_at, updated_at
+                       selections_used, created_at, updated_at, resume_pdf_data
                 FROM user_generated_resumes
                 WHERE id = %s AND user_id = %s
             """, (resume_id, user_id))
@@ -477,7 +484,8 @@ class PostgresResumeOperations:
                 'resume_pdf_path': row[4],
                 'selections_used': row[5] or {},
                 'created_at': row[6],
-                'updated_at': row[7]
+                'updated_at': row[7],
+                'resume_pdf_data': bytes(row[8]) if row[8] else None,
             }
 
         finally:

@@ -2071,8 +2071,8 @@ def my_resumes():
                 resume['job_title'] = 'Job Not Found'
                 resume['job_company'] = ''
 
-            # PDF is available as long as we have the HTML to generate from
-            resume['pdf_exists'] = bool(resume.get('resume_html'))
+            # PDF is available if we have the bytes in DB
+            resume['pdf_exists'] = bool(resume.get('resume_pdf_data'))
 
         return render_template('my_resumes.html',
                              user=user,
@@ -3031,30 +3031,26 @@ def save_resume_route(job_id):
         # Get user's claimed competencies/skills
         claimed_data = resume_ops.get_user_claimed_data(user_id)
 
-        # Create resumes directory if it doesn't exist
-        resumes_dir = os.path.join('static', 'resumes')
-        os.makedirs(resumes_dir, exist_ok=True)
-
-        # Generate PDF from edited HTML
-        pdf_filename = f"resume_user{user_id}_job{job_id}_{int(time.time())}.pdf"
-        pdf_path = os.path.join(resumes_dir, pdf_filename)
-
+        # Generate PDF bytes in memory
+        pdf_data = None
         try:
-            print(f"Generating PDF from edited resume at {pdf_path}...")
-            resume_generator.html_to_pdf(resume_html, pdf_path)
-            print(f"✅ PDF generated successfully")
+            import io
+            from weasyprint import HTML as WeasyHTML
+            buf = io.BytesIO()
+            WeasyHTML(string=resume_html).write_pdf(buf)
+            pdf_data = buf.getvalue()
+            print(f"✅ PDF generated ({len(pdf_data):,} bytes)")
         except Exception as pdf_error:
             print(f"⚠️  PDF generation failed: {pdf_error}")
-            print("Continuing without PDF...")
-            pdf_path = None
 
-        # Save to database
+        # Save to database (pdf_data persisted as BYTEA)
         resume_id = resume_ops.save_generated_resume(
             user_id,
             job_id,
             resume_html,
-            pdf_path,
-            claimed_data
+            None,           # pdf_path no longer used
+            claimed_data,
+            pdf_data=pdf_data,
         )
 
         print(f"Edited resume saved successfully: ID {resume_id}")
@@ -3062,7 +3058,7 @@ def save_resume_route(job_id):
         return jsonify({
             'success': True,
             'resume_id': resume_id,
-            'pdf_url': f'/download/resume/{resume_id}' if pdf_path else None,
+            'pdf_url': f'/download/resume/{resume_id}' if pdf_data else None,
             'job_title': job.get('title'),
             'company': job.get('company')
         })
@@ -3324,26 +3320,22 @@ def download_resume(resume_id):
             return response
 
         elif download_format == 'pdf':
-            # Download as PDF (if generated)
-            pdf_path = resume.get('resume_pdf_path')
+            pdf_data = resume.get('resume_pdf_data')
 
-            if not pdf_path or not os.path.exists(pdf_path):
-                # PDF not generated yet - offer HTML as fallback
+            if not pdf_data:
                 flash('PDF not available. Downloading HTML version instead.', 'info')
                 from flask import make_response
-
                 response = make_response(resume['resume_html'])
                 response.headers['Content-Type'] = 'text/html; charset=utf-8'
                 response.headers['Content-Disposition'] = f'attachment; filename="resume_job_{job_id}.html"'
                 return response
 
-            # Send PDF file
-            return send_file(
-                pdf_path,
-                mimetype='application/pdf',
-                as_attachment=True,
-                download_name=f"resume_job_{job_id}.pdf"
-            )
+            # Serve PDF bytes directly from DB
+            from flask import make_response
+            response = make_response(pdf_data)
+            response.headers['Content-Type'] = 'application/pdf'
+            response.headers['Content-Disposition'] = f'attachment; filename="resume_job_{job_id}.pdf"'
+            return response
 
         else:
             flash('Invalid format. Use "html" or "pdf"', 'error')
