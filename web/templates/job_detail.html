@@ -499,7 +499,7 @@
             <button id="editResumeBtn" onclick="toggleEditMode()" class="btn" style="background: #ffc107; color: #000;">
                 ✏️ Edit Resume
             </button>
-            <button id="saveResumeBtn" onclick="saveResume()" class="btn" style="background: #28a745; display: none;">
+            <button id="saveResumeBtn" onclick="saveResume()" class="btn" style="background: #28a745;">
                 💾 Save Resume
             </button>
             <button id="cancelEditBtn" onclick="cancelEdit()" class="btn btn-secondary" style="display: none;">
@@ -1096,7 +1096,6 @@ function toggleEditMode() {
     isEditMode = !isEditMode;
     const contentDiv = document.getElementById('resumePreviewContent');
     const editBtn = document.getElementById('editResumeBtn');
-    const saveBtn = document.getElementById('saveResumeBtn');
     const cancelBtn = document.getElementById('cancelEditBtn');
     const indicator = document.getElementById('editModeIndicator');
 
@@ -1105,7 +1104,6 @@ function toggleEditMode() {
         contentDiv.contentEditable = 'true';
         contentDiv.style.border = '2px solid #ffc107';
         editBtn.style.display = 'none';
-        saveBtn.style.display = 'inline-block';
         cancelBtn.style.display = 'inline-block';
         indicator.style.display = 'block';
         contentDiv.focus();
@@ -1114,7 +1112,6 @@ function toggleEditMode() {
         contentDiv.contentEditable = 'false';
         contentDiv.style.border = '1px solid #e0e0e0';
         editBtn.style.display = 'inline-block';
-        saveBtn.style.display = 'none';
         cancelBtn.style.display = 'none';
         indicator.style.display = 'none';
     }
@@ -1162,9 +1159,10 @@ async function saveResume() {
 
             alert('✅ Resume saved successfully!\\n\\nYou can find it in "My Resumes" section.');
 
-            // Turn off edit mode
-            isEditMode = false;
-            toggleEditMode();
+            // Exit edit mode if active
+            if (isEditMode) {
+                toggleEditMode();
+            }
 
             // Update the original HTML to the saved version
             originalResumeHTML = editedHTML;
