@@ -3,48 +3,48 @@
 {% block title %}Resumes & Cover Letters - Job Monitor{% endblock %}
 
 {% block content %}
-<!-- ============================================================
-     RESUMES SECTION
-     ============================================================ -->
 <div class="card">
-    <h2 style="margin-bottom: 0.5rem;">📄 Resumes</h2>
+    <h2 style="margin-bottom: 0.5rem;">📄 Resumes & Cover Letters</h2>
     <p style="color: #666; margin-bottom: 1.5rem;">
-        Your AI-generated, job-tailored resumes.
+        Your AI-generated, job-tailored documents — sorted by most recent.
     </p>
 
-    {% if resumes %}
+    {% if items %}
     <div style="display: grid; gap: 1.5rem;">
-        {% for resume in resumes %}
-        <div class="card" style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%); border-left: 4px solid #667eea;">
+        {% for item in items %}
+        {% set is_resume = item.type == 'resume' %}
+        {% set border_color = '#667eea' if is_resume else '#764ba2' %}
+        <div class="card" style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%); border-left: 4px solid {{ border_color }};">
+            <!-- Header: title, company, date, badge -->
             <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
                 <div style="flex: 1;">
                     <h3 style="margin-bottom: 0.5rem; color: #333;">
-                        {{ resume.job_title }}
+                        {{ item.job_title }}
                     </h3>
                     <p style="color: #666; font-size: 0.95rem; margin-bottom: 0.5rem;">
-                        🏢 {{ resume.job_company }}
+                        🏢 {{ item.job_company }}
                     </p>
                     <p style="color: #999; font-size: 0.875rem;">
-                        🕐 Generated on {{ resume.created_at.strftime('%b %d, %Y at %I:%M %p') if resume.created_at else 'Unknown date' }}
+                        🕐 {{ 'Generated' if is_resume else 'Saved' }} on {{ item.created_at.strftime('%b %d, %Y at %I:%M %p') if item.created_at else 'Unknown date' }}
                     </p>
                 </div>
 
                 <div style="text-align: right;">
-                    <span class="badge" style="background: #667eea; font-size: 0.875rem;">
-                        Resume #{{ resume.id }}
+                    <span class="badge" style="background: {{ border_color }}; font-size: 0.875rem;">
+                        {% if is_resume %}Resume{% else %}Cover Letter{% endif %}
                     </span>
                 </div>
             </div>
 
-            <!-- Selections Summary -->
-            {% if resume.selections_used %}
+            <!-- Resume: claimed items summary -->
+            {% if is_resume and item.selections_used %}
             <div style="background: white; padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
                 <p style="font-size: 0.875rem; color: #666; margin-bottom: 0.5rem;">
                     <strong>User-Claimed Items:</strong>
                 </p>
                 <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-                    {% set competencies = resume.selections_used.get('competencies', {}) %}
-                    {% set skills = resume.selections_used.get('skills', {}) %}
+                    {% set competencies = item.selections_used.get('competencies', {}) %}
+                    {% set skills = item.selections_used.get('skills', {}) %}
 
                     {% if competencies %}
                     <span style="font-size: 0.875rem;">
@@ -67,133 +67,79 @@
             </div>
             {% endif %}
 
+            <!-- Cover letter: text preview snippet -->
+            {% if not is_resume %}
+            <div style="background: white; padding: 1rem; border-radius: 6px; margin-bottom: 1rem;
+                        font-family: Georgia, serif; font-size: 0.9rem; color: #555; line-height: 1.5;
+                        max-height: 80px; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+                        mask-image: linear-gradient(to bottom, black 60%, transparent 100%);">
+                {{ item.cover_letter_html[:200] }}
+            </div>
+            {% endif %}
+
             <!-- Action Buttons -->
             <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-                {% if resume.pdf_exists %}
-                <a href="{{ url_for('download_resume', resume_id=resume.id) }}?format=pdf"
-                   class="btn"
-                   style="background: #dc3545; display: inline-flex; align-items: center; gap: 0.5rem;">
-                    <span>📥</span>
-                    <span>Download PDF</span>
-                </a>
+                <!-- PDF download -->
+                {% if is_resume %}
+                    {% if item.pdf_exists %}
+                    <a href="{{ url_for('download_resume', resume_id=item.id) }}?format=pdf"
+                       class="btn"
+                       style="background: #dc3545; display: inline-flex; align-items: center; gap: 0.5rem;">
+                        <span>📥</span>
+                        <span>Download PDF</span>
+                    </a>
+                    {% else %}
+                    <button class="btn btn-secondary" disabled title="PDF not available">
+                        <span>📥</span>
+                        <span>PDF Not Available</span>
+                    </button>
+                    {% endif %}
                 {% else %}
-                <button class="btn btn-secondary" disabled title="PDF not available">
-                    <span>📥</span>
-                    <span>PDF Not Available</span>
-                </button>
+                    {% if item.cover_letter_pdf_data %}
+                    <a href="{{ url_for('download_cover_letter', cover_letter_id=item.id) }}?format=pdf"
+                       class="btn"
+                       style="background: #dc3545; display: inline-flex; align-items: center; gap: 0.5rem;">
+                        <span>📥</span>
+                        <span>Download PDF</span>
+                    </a>
+                    {% else %}
+                    <button class="btn btn-secondary" disabled title="PDF not available">
+                        <span>📥</span>
+                        <span>PDF Not Available</span>
+                    </button>
+                    {% endif %}
                 {% endif %}
 
-                <a href="{{ url_for('download_resume', resume_id=resume.id) }}?format=html"
+                <!-- Secondary format download -->
+                {% if is_resume %}
+                <a href="{{ url_for('download_resume', resume_id=item.id) }}?format=html"
                    class="btn"
                    style="background: #007bff; display: inline-flex; align-items: center; gap: 0.5rem;">
                     <span>📄</span>
                     <span>Download HTML</span>
                 </a>
-
-                <a href="{{ url_for('job_detail', job_id=resume.job_id) }}"
-                   class="btn"
-                   style="background: #28a745; display: inline-flex; align-items: center; gap: 0.5rem;">
-                    <span>👁️</span>
-                    <span>View Job</span>
-                </a>
-
-                <form method="POST"
-                      action="{{ url_for('delete_resume_route', resume_id=resume.id) }}"
-                      style="display: inline;"
-                      onsubmit="return confirm('Are you sure you want to delete this resume? This cannot be undone.');">
-                    <button type="submit"
-                            class="btn"
-                            style="background: #6c757d; display: inline-flex; align-items: center; gap: 0.5rem;">
-                        <span>🗑️</span>
-                        <span>Delete</span>
-                    </button>
-                </form>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-    {% else %}
-    <div style="text-align: center; padding: 2rem 1rem; background: #f8f9fa; border-radius: 8px;">
-        <p style="color: #999; margin: 0;">No resumes yet. Visit a job page and click "Generate Resume" to create one.</p>
-    </div>
-    {% endif %}
-</div>
-
-<!-- ============================================================
-     COVER LETTERS SECTION
-     ============================================================ -->
-<div class="card" style="margin-top: 1.5rem;">
-    <h2 style="margin-bottom: 0.5rem;">✍️ Cover Letters</h2>
-    <p style="color: #666; margin-bottom: 1.5rem;">
-        Your saved, job-tailored cover letters.
-    </p>
-
-    {% if cover_letters %}
-    <div style="display: grid; gap: 1.5rem;">
-        {% for cl in cover_letters %}
-        <div class="card" style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%); border-left: 4px solid #764ba2;">
-            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
-                <div style="flex: 1;">
-                    <h3 style="margin-bottom: 0.5rem; color: #333;">
-                        {{ cl.job_title }}
-                    </h3>
-                    <p style="color: #666; font-size: 0.95rem; margin-bottom: 0.5rem;">
-                        🏢 {{ cl.job_company }}
-                    </p>
-                    <p style="color: #999; font-size: 0.875rem;">
-                        🕐 Saved on {{ cl.created_at.strftime('%b %d, %Y at %I:%M %p') if cl.created_at else 'Unknown date' }}
-                    </p>
-                </div>
-
-                <div style="text-align: right;">
-                    <span class="badge" style="background: #764ba2; font-size: 0.875rem;">
-                        Cover Letter
-                    </span>
-                </div>
-            </div>
-
-            <!-- Preview snippet -->
-            <div style="background: white; padding: 1rem; border-radius: 6px; margin-bottom: 1rem;
-                        font-family: Georgia, serif; font-size: 0.9rem; color: #555; line-height: 1.5;
-                        max-height: 80px; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
-                        mask-image: linear-gradient(to bottom, black 60%, transparent 100%);">
-                {{ cl.cover_letter_html[:200] }}
-            </div>
-
-            <!-- Action Buttons -->
-            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-                {% if cl.cover_letter_pdf_data %}
-                <a href="{{ url_for('download_cover_letter', cover_letter_id=cl.id) }}?format=pdf"
-                   class="btn"
-                   style="background: #dc3545; display: inline-flex; align-items: center; gap: 0.5rem;">
-                    <span>📥</span>
-                    <span>Download PDF</span>
-                </a>
                 {% else %}
-                <button class="btn btn-secondary" disabled title="PDF not available">
-                    <span>📥</span>
-                    <span>PDF Not Available</span>
-                </button>
-                {% endif %}
-
-                <a href="{{ url_for('download_cover_letter', cover_letter_id=cl.id) }}?format=txt"
+                <a href="{{ url_for('download_cover_letter', cover_letter_id=item.id) }}?format=txt"
                    class="btn"
                    style="background: #007bff; display: inline-flex; align-items: center; gap: 0.5rem;">
                     <span>📄</span>
                     <span>Download .txt</span>
                 </a>
+                {% endif %}
 
-                <a href="{{ url_for('job_detail', job_id=cl.job_id) }}"
+                <!-- View Job -->
+                <a href="{{ url_for('job_detail', job_id=item.job_id) }}"
                    class="btn"
                    style="background: #28a745; display: inline-flex; align-items: center; gap: 0.5rem;">
                     <span>👁️</span>
                     <span>View Job</span>
                 </a>
 
+                <!-- Delete -->
                 <form method="POST"
-                      action="{{ url_for('delete_cover_letter_route', cover_letter_id=cl.id) }}"
+                      action="{% if is_resume %}{{ url_for('delete_resume_route', resume_id=item.id) }}{% else %}{{ url_for('delete_cover_letter_route', cover_letter_id=item.id) }}{% endif %}"
                       style="display: inline;"
-                      onsubmit="return confirm('Delete this cover letter? This cannot be undone.');">
+                      onsubmit="return confirm('Delete this {{ 'resume' if is_resume else 'cover letter' }}? This cannot be undone.');">
                     <button type="submit"
                             class="btn"
                             style="background: #6c757d; display: inline-flex; align-items: center; gap: 0.5rem;">
@@ -207,19 +153,17 @@
     </div>
     {% else %}
     <div style="text-align: center; padding: 2rem 1rem; background: #f8f9fa; border-radius: 8px;">
-        <p style="color: #999; margin: 0;">No cover letters yet. Visit a job page and click "Generate Cover Letter" to create one.</p>
+        <p style="color: #999; margin: 0;">Nothing here yet. Visit a job page to generate a resume or cover letter.</p>
     </div>
     {% endif %}
 </div>
 
-<!-- ============================================================
-     SUMMARY STATS
-     ============================================================ -->
+<!-- Summary Stats -->
 <div style="margin-top: 2rem; padding: 1.5rem; background: #f8f9fa; border-radius: 8px; text-align: center;">
     <p style="font-size: 1.1rem; color: #666; margin: 0;">
-        📊 <strong style="color: #667eea;">{{ resumes|length }}</strong> Resume{{ 's' if resumes|length != 1 }}
+        📊 <strong style="color: #667eea;">{{ resume_count }}</strong> Resume{{ 's' if resume_count != 1 }}
         &nbsp;|&nbsp;
-        <strong style="color: #764ba2;">{{ cover_letters|length }}</strong> Cover Letter{{ 's' if cover_letters|length != 1 }}
+        <strong style="color: #764ba2;">{{ cover_letter_count }}</strong> Cover Letter{{ 's' if cover_letter_count != 1 }}
     </p>
 </div>
 

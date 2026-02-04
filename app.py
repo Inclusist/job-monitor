@@ -2252,11 +2252,26 @@ def my_resumes():
         except Exception as e:
             print(f"Warning: could not load cover letters: {e}")
 
+        # Merge into a single chronological list
+        from datetime import datetime
+        resume_count = len(resumes)
+        cover_letter_count = len(cover_letters)
+
+        for r in resumes:
+            r['type'] = 'resume'
+        for cl in cover_letters:
+            cl['type'] = 'cover_letter'
+
+        items = sorted(resumes + list(cover_letters),
+                       key=lambda x: x.get('created_at') or datetime.min,
+                       reverse=True)
+
         return render_template('my_resumes.html',
                              user=user,
                              stats=stats,
-                             resumes=resumes,
-                             cover_letters=cover_letters)
+                             items=items,
+                             resume_count=resume_count,
+                             cover_letter_count=cover_letter_count)
 
     except Exception as e:
         print(f"Error loading resumes: {e}")
