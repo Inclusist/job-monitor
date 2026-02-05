@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Add Job Manually - Job Monitor{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>➕ Add Job Manually</h2>
+    <p style="color: #666; margin-top: 0.5rem;">
+        Add a job posting by URL or by pasting the text. We'll extract the details and match it against your profile.
+    </p>
+</div>
+
+<form method="POST" action="{{ url_for('add_job_submit') }}">
+    <div class="card">
+        <h3>🔗 Option 1: Job URL</h3>
+        <p style="color: #666; font-size: 0.95rem; margin-bottom: 1rem;">
+            Paste the URL of a job posting (LinkedIn, Indeed, company career page, etc.)
+        </p>
+        <input type="url"
+               name="job_url"
+               id="job_url"
+               placeholder="https://example.com/jobs/senior-developer"
+               value="{{ prefill_url or '' }}"
+               style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;
+                      font-size: 0.95rem; font-family: inherit; outline: none;"
+               onfocus="this.style.borderColor='#667eea'"
+               onblur="this.style.borderColor='#e0e0e0'"
+               oninput="toggleTextarea(this.value)">
+    </div>
+
+    <div style="text-align: center; padding: 1rem; color: #999;">
+        <strong>— OR —</strong>
+    </div>
+
+    <div class="card">
+        <h3>📋 Option 2: Paste Job Text</h3>
+        <p style="color: #666; font-size: 0.95rem; margin-bottom: 1rem;">
+            Copy and paste the full job description text
+        </p>
+        <textarea name="job_text"
+                  id="job_text"
+                  rows="12"
+                  placeholder="Paste the job posting text here...&#10;&#10;Example:&#10;Job Title: Senior Software Engineer&#10;Company: Acme Corp&#10;Location: Berlin, Germany&#10;&#10;We're looking for an experienced developer to join our team..."
+                  style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px;
+                         font-size: 0.95rem; font-family: monospace; resize: vertical; outline: none;"
+                  onfocus="this.style.borderColor='#667eea'"
+                  onblur="this.style.borderColor='#e0e0e0'"
+                  oninput="toggleUrl(this.value)"></textarea>
+    </div>
+
+    <div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div>
+                <h3 style="margin: 0; color: white;">Ready to add?</h3>
+                <p style="margin-top: 0.5rem; opacity: 0.9; font-size: 0.95rem;">
+                    We'll extract the job details, match against your profile, and enable resume/cover letter generation.
+                </p>
+            </div>
+            <button type="submit" class="btn" style="background: white; color: #667eea; font-size: 1.1rem; padding: 0.8rem 2rem; font-weight: 600;">
+                ✨ Add Job
+            </button>
+        </div>
+    </div>
+</form>
+
+<div class="card">
+    <a href="{{ url_for('jobs') }}" class="btn btn-secondary">← Back to Jobs</a>
+</div>
+
+<script>
+// Disable textarea when URL is filled, and vice versa
+function toggleTextarea(urlValue) {
+    const textarea = document.getElementById('job_text');
+    if (urlValue.trim()) {
+        textarea.disabled = true;
+        textarea.style.background = '#f5f5f5';
+        textarea.style.color = '#999';
+    } else {
+        textarea.disabled = false;
+        textarea.style.background = 'white';
+        textarea.style.color = '#333';
+    }
+}
+
+function toggleUrl(textValue) {
+    const urlInput = document.getElementById('job_url');
+    if (textValue.trim()) {
+        urlInput.disabled = true;
+        urlInput.style.background = '#f5f5f5';
+        urlInput.style.color = '#999';
+    } else {
+        urlInput.disabled = false;
+        urlInput.style.background = 'white';
+        urlInput.style.color = '#333';
+    }
+}
+
+// Initialize state
+toggleTextarea(document.getElementById('job_url').value);
+toggleUrl(document.getElementById('job_text').value);
+</script>
+{% endblock %}

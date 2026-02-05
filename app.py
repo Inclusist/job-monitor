@@ -30,6 +30,7 @@ from cv.cv_handler import CVHandler
 from collectors.adzuna import AdzunaCollector
 from collectors.activejobs import ActiveJobsCollector
 from utils.job_loader import trigger_new_user_job_load, trigger_preferences_update_job_load, get_default_preferences
+from utils.job_extractor import fetch_url_content, extract_text_from_html, extract_job_data
 
 # Load environment variables
 load_dotenv()
@@ -739,10 +740,186 @@ def set_primary_cv(cv_id):
         
         flash('✓ Primary CV updated', 'success')
         return redirect(url_for('view_profile'))
-        
+
     except Exception as e:
         flash(f'Error setting primary CV: {str(e)}', 'error')
         return redirect(url_for('view_profile'))
+
+
+@app.route('/jobs/add', methods=['GET'])
+@login_required
+def add_job_page():
+    """Display the manual job entry form"""
+    user, stats = get_user_context()
+    return render_template('add_job.html', user=user, stats=stats)
+
+
+@app.route('/jobs/add', methods=['POST'])
+@login_required
+def add_job_submit():
+    """
+    Process manual job entry (URL or text).
+
+    Flow:
+    1. Get URL or text from form
+    2. Fetch/extract job data
+    3. Extract competencies with Claude
+    4. Insert job into DB
+    5. Compute match scores
+    6. Redirect to job detail page
+    """
+    user, stats = get_user_context()
+    user_id = user['id']
+
+    # Get form data
+    job_url = request.form.get('job_url', '').strip()
+    job_text = request.form.get('job_text', '').strip()
+
+    # Validate: must have URL or text
+    if not job_url and not job_text:
+        flash('Please provide a job URL or paste the job text', 'error')
+        return redirect(url_for('add_job_page'))
+
+    try:
+        # Path 1: URL provided
+        if job_url:
+            html, error = fetch_url_content(job_url)
+            if error:
+                flash(f'Failed to fetch URL: {error}. Please paste the job text below instead.', 'error')
+                return render_template('add_job.html',
+                                     user=user, stats=stats,
+                                     prefill_url=job_url)
+
+            text = extract_text_from_html(html)
+            if len(text) < 200:
+                flash('Could not extract enough content from the URL. Please paste the job text below instead.', 'error')
+                return render_template('add_job.html',
+                                     user=user, stats=stats,
+                                     prefill_url=job_url)
+
+        # Path 2: Text provided
+        else:
+            text = job_text
+            job_url = None  # No URL for text paste
+
+        # Extract structured data with Claude
+        job_data = extract_job_data(text, api_key=anthropic_key)
+        if job_url:
+            job_data['url'] = job_url  # Override with actual URL if from URL path
+
+        # Validate extracted data
+        if not job_data.get('title') or not job_data.get('company'):
+            flash('Could not extract job title or company. Please check the input.', 'error')
+            return redirect(url_for('add_job_page'))
+
+        # Extract competencies + skills with Claude
+        from analysis.claude_analyzer import ClaudeJobAnalyzer
+        claude_analyzer = ClaudeJobAnalyzer(anthropic_key, db=job_db, user_email=user.get('email', 'default@localhost'))
+
+        competency_result = claude_analyzer.extract_competencies_batch([job_data])
+        extracted = competency_result.get('job_1', {})
+        job_data['ai_competencies'] = extracted.get('competencies', [])
+        job_data['ai_key_skills'] = extracted.get('skills', [])
+
+        # Normalize competencies/skills
+        from analysis.skill_normalizer import normalize_and_deduplicate
+        job_data['ai_competencies'] = normalize_and_deduplicate(job_data['ai_competencies'])
+        job_data['ai_key_skills'] = normalize_and_deduplicate(job_data['ai_key_skills'])
+
+        # Set metadata
+        job_data['source'] = 'manual'
+        job_data['external_id'] = f"manual_{user_id}_{int(time.time())}"
+        from datetime import datetime
+        job_data['discovered_date'] = datetime.now()
+
+        # Insert into database
+        job_id = job_db.add_job(job_data)
+
+        # Save competencies and skills (add_job doesn't save these)
+        job_db.update_jobs_competencies_batch([{
+            'job_id': job_id,
+            'ai_competencies': job_data['ai_competencies'],
+            'ai_key_skills': job_data['ai_key_skills']
+        }])
+
+        # Encode title for semantic search
+        model = get_semantic_model('TechWolf/JobBERT-v3')
+        title_embedding = model.encode(job_data['title']).tolist()
+
+        # Store embedding in database
+        import json
+        conn = job_db._get_connection()
+        cursor = conn.cursor()
+        embedding_json = json.dumps(title_embedding)
+
+        cursor.execute("""
+            UPDATE jobs
+            SET embedding_jobbert_title = %s::jsonb,
+                embedding_date = NOW()
+            WHERE id = %s
+        """, (embedding_json, job_id))
+        conn.commit()
+        cursor.close()
+        if not hasattr(job_db, 'connection_pool'):
+            conn.close()
+
+        # Add embedding to job_data for scoring
+        job_data['embedding_jobbert_title'] = title_embedding
+
+        # Compute match scores
+        user_profile = cv_manager.get_primary_profile(user_id)
+
+        if user_profile:
+            # 1. Semantic score using filter_jobs functions
+            cv_text = filter_module.build_cv_text(user_profile)
+            cv_embedding = model.encode(cv_text)
+
+            # Get job embedding (we just encoded the title, need full job text)
+            job_text = filter_module.build_job_text(job_data)
+            job_embedding = model.encode(job_text)
+
+            # Calculate similarity and apply keyword boosts
+            base_similarity = filter_module.calculate_similarity(cv_embedding, job_embedding)
+            user_obj = cv_manager.get_user_by_id(user_id)
+            config_keywords = user_obj.get('preferences', {}).get('search_keywords', [])
+            final_score, matched_keywords = filter_module.apply_keyword_boosts(
+                base_similarity, job_data, config_keywords
+            )
+            semantic_score = int(final_score * 100)  # Convert to 0-100 scale
+
+            # 2. Claude score - set profile and analyze
+            claude_analyzer.set_profile_from_cv(user_profile)
+            claude_analysis = claude_analyzer.analyze_batch([job_data])
+            claude_result = claude_analysis[0] if claude_analysis else {}
+            claude_score = claude_result.get('match_score', 0)
+
+            # Store match data
+            match_reasoning = claude_result.get('reasoning', '')
+            if matched_keywords:
+                match_reasoning = f"Matched keywords: {', '.join(matched_keywords[:5])}. " + match_reasoning
+
+            job_db.add_user_job_match(
+                user_id=user_id,
+                job_id=job_id,
+                semantic_score=semantic_score,
+                claude_score=claude_score,
+                priority=claude_result.get('priority', 'medium'),
+                match_reasoning=match_reasoning,
+                key_alignments=claude_result.get('key_alignments', []),
+                potential_gaps=claude_result.get('potential_gaps', []),
+                competency_mappings=claude_result.get('competency_mappings', []),
+                skill_mappings=claude_result.get('skill_mappings', [])
+            )
+
+        flash('Job added successfully!', 'success')
+        return redirect(url_for('job_detail', job_id=job_id))
+
+    except Exception as e:
+        print(f"Error adding manual job: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f'Error processing job: {str(e)}', 'error')
+        return redirect(url_for('add_job_page'))
 
 
 @app.route('/jobs')
