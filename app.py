@@ -3285,10 +3285,11 @@ def generate_resume(job_id):
     user_id = get_user_id()
 
     try:
-        # Get selections and instructions from request body
+        # Get selections, instructions, and language from request body
         request_data = request.get_json() or {}
         selections = request_data.get('selections', [])
         instructions = request_data.get('instructions', '').strip()
+        language = request_data.get('language', 'english').lower()  # 'english' or 'german'
 
         # Save selections to database first (if provided)
         if selections:
@@ -3355,13 +3356,14 @@ def generate_resume(job_id):
             cv_manager.connection_pool.putconn(conn)
 
         # Generate resume HTML
-        print(f"Generating resume for user {user_id}, job {job_id}...")
+        print(f"Generating resume for user {user_id}, job {job_id} in {language}...")
         resume_html = resume_generator.generate_resume_html(
             profile,
             job,
             claimed_data,
             user_info,
-            instructions
+            instructions,
+            language
         )
 
         print(f"Resume HTML generated successfully (not saved yet - waiting for user to edit and save)")

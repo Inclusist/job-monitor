@@ -41,7 +41,8 @@ class ResumeGenerator:
     def generate_resume_html(self, user_profile: Dict, job: Dict,
                             claimed_data: Optional[Dict] = None,
                             user_info: Optional[Dict] = None,
-                            instructions: str = '') -> str:
+                            instructions: str = '',
+                            language: str = 'english') -> str:
         """
         Generate tailored resume HTML using Claude
 
@@ -51,11 +52,12 @@ class ResumeGenerator:
             claimed_data: Dict with 'competencies' and 'skills' keys (optional)
             user_info: Dict with 'name', 'email', 'phone' keys for resume header (optional)
             instructions: Optional user instructions to guide generation
+            language: 'english' or 'german' (default: 'english')
 
         Returns:
             str: Professional HTML resume
         """
-        prompt = self._build_prompt(user_profile, job, claimed_data, user_info, instructions)
+        prompt = self._build_prompt(user_profile, job, claimed_data, user_info, instructions, language)
 
         html_content = None
         api_used = None
@@ -163,7 +165,8 @@ class ResumeGenerator:
     def _build_prompt(self, user_profile: Dict, job: Dict,
                      claimed_data: Optional[Dict] = None,
                      user_info: Optional[Dict] = None,
-                     instructions: str = '') -> str:
+                     instructions: str = '',
+                     language: str = 'english') -> str:
         """
         Build comprehensive Claude prompt
 
@@ -173,6 +176,7 @@ class ResumeGenerator:
             claimed_data: User-claimed competencies/skills
             user_info: User contact information (name, email, phone)
             instructions: Optional user instructions to guide generation
+            language: 'english' or 'german'
 
         Returns:
             str: Complete prompt for Claude
@@ -268,6 +272,10 @@ class ResumeGenerator:
 Generate a professional, ATS-optimized resume tailored specifically for this job opportunity.
 
 **IMPORTANT:** Do NOT ask clarifying questions. Generate the resume immediately using the information provided. If any information is missing, use reasonable placeholders or omit those sections. The user needs a complete HTML resume document right now.
+
+## LANGUAGE
+
+{self._get_language_instructions(language)}
 
 ## REQUIREMENTS
 
@@ -450,6 +458,39 @@ Additional requirements:
 **BEGIN YOUR RESPONSE NOW WITH `<!DOCTYPE html>` AND NOTHING ELSE:**"""
 
         return prompt
+
+    def _get_language_instructions(self, language: str) -> str:
+        """Get language-specific instructions for resume generation"""
+        if language == 'german':
+            return """**Write the resume in GERMAN (Deutsch).**
+
+Language Requirements:
+- ALL content must be in German - section headers, descriptions, bullet points, everything
+- Use professional German business language (formal, standard German)
+- Section headers in German:
+  - "Berufserfahrung" for Professional Experience
+  - "Ausbildung" for Education
+  - "Kernkompetenzen" for Core Competencies
+  - "Berufliches Profil" or "Zusammenfassung" for Professional Summary
+  - "Projekte" for Projects
+  - "Zertifizierungen" for Certifications
+  - "Sprachen" for Languages
+  - "Technische Fähigkeiten" for Technical Skills
+- Use German action verbs in experience bullets: "Leitete", "Entwickelte", "Implementierte", "Verwaltete", etc.
+- German date formats: e.g., "Januar 2020 - Dezember 2023" or "2020 - 2023"
+- Maintain professional German CV conventions (European CV format acceptable)
+- Phone numbers in German format: e.g., "+49 xxx xxxx" or "0xxx xxxx"
+- Keep technical terms in English if they're industry standard (e.g., "Machine Learning", "API", "DevOps")
+- Translate job descriptions and achievements to natural, professional German"""
+        else:  # Default to English
+            return """**Write the resume in ENGLISH.**
+
+Language Requirements:
+- ALL content must be in professional business English
+- Use standard American/British English conventions
+- Action verbs: "Led", "Developed", "Implemented", "Managed", etc.
+- Date formats: "January 2020 - December 2023" or "2020 - 2023"
+- Standard English section headers as specified above"""
 
     def _format_claimed_evidence(self, claimed_competencies: Dict,
                                  claimed_skills: Dict,

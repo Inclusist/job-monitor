@@ -75,6 +75,19 @@
             <p style="margin: 0 0 0.75rem; opacity: 0.95; font-size: 0.95rem;">
                 Generate a tailored resume using your existing profile without claiming new competencies or skills.
             </p>
+            <div style="margin-bottom: 0.75rem;">
+                <div style="font-size: 0.85rem; margin-bottom: 0.4rem; opacity: 0.9;">Language:</div>
+                <div style="display: flex; gap: 0.75rem;">
+                    <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+                        <input type="radio" name="quickResumeLanguage" value="english" checked style="width: 16px; height: 16px;">
+                        <span style="font-size: 0.9rem;">🇬🇧 English</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+                        <input type="radio" name="quickResumeLanguage" value="german" style="width: 16px; height: 16px;">
+                        <span style="font-size: 0.9rem;">🇩🇪 German</span>
+                    </label>
+                </div>
+            </div>
             <textarea id="resumeInstructions"
                       placeholder="Optional: tell the AI what to emphasize, e.g. 'Highlight my inclusivity project work...'"
                       style="width: 100%; padding: 0.6rem 0.75rem; border: none; border-radius: 6px; font-size: 0.88rem;
@@ -469,6 +482,27 @@
                 </div>
             </div>
         </div>
+        <!-- Language selection — shown only on the last step -->
+        <div id="resumeLanguageModal" style="display: none; padding: 0 1.5rem 1rem;">
+            <label style="font-size: 0.9rem; color: #666; font-weight: 600; display: block; margin-bottom: 0.5rem;">🌍 Resume Language</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <label style="padding: 0.75rem; border: 2px solid #667eea; background: #f0f4ff; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                    <input type="radio" name="resumeLanguage" value="english" checked style="width: 18px; height: 18px;">
+                    <div>
+                        <div style="font-weight: 600; font-size: 0.95rem;">🇬🇧 English</div>
+                        <div style="font-size: 0.8rem; color: #666;">Professional business English</div>
+                    </div>
+                </label>
+                <label style="padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                    <input type="radio" name="resumeLanguage" value="german" style="width: 18px; height: 18px;">
+                    <div>
+                        <div style="font-weight: 600; font-size: 0.95rem;">🇩🇪 German</div>
+                        <div style="font-size: 0.8rem; color: #666;">Professional German (Deutsch)</div>
+                    </div>
+                </label>
+            </div>
+        </div>
+
         <!-- Instructions field — shown only on the last step alongside Generate -->
         <div id="resumeInstructionsModal" style="display: none; padding: 0 1.5rem 1rem;">
             <label style="font-size: 0.9rem; color: #666; font-weight: 600;">💬 Additional Instructions <span style="font-weight: 400;">(optional)</span></label>
@@ -916,6 +950,7 @@ function renderCurrentItem() {
     document.getElementById('nextButton').style.display = currentItemIndex < total - 1 ? 'block' : 'none';
     const isLastStep = currentItemIndex === total - 1;
     document.getElementById('generateButton').style.display = isLastStep ? 'block' : 'none';
+    document.getElementById('resumeLanguageModal').style.display = isLastStep ? 'block' : 'none';
     document.getElementById('resumeInstructionsModal').style.display = isLastStep ? 'block' : 'none';
 }
 
@@ -1002,6 +1037,7 @@ async function generateResumeWithoutChanges() {
 
     try {
         const instructions = document.getElementById('resumeInstructions').value.trim();
+        const language = document.querySelector('input[name="quickResumeLanguage"]:checked').value;
 
         // Call API to generate resume with empty selections
         const response = await fetch(`/api/generate-resume/${jobId}`, {
@@ -1011,7 +1047,8 @@ async function generateResumeWithoutChanges() {
             },
             body: JSON.stringify({
                 selections: [],  // Empty selections - use existing profile only
-                instructions: instructions
+                instructions: instructions,
+                language: language
             })
         });
 
@@ -1068,7 +1105,8 @@ async function generateResume() {
             },
             body: JSON.stringify({
                 selections: evidenceData,
-                instructions: document.getElementById('resumeInstructionsModalInput').value.trim()
+                instructions: document.getElementById('resumeInstructionsModalInput').value.trim(),
+                language: document.querySelector('input[name="resumeLanguage"]:checked').value
             })
         });
 
@@ -1257,5 +1295,26 @@ ${resumeHTML}
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 }
+
+// Handle language selection radio button styling in evidence modal
+document.addEventListener('DOMContentLoaded', function() {
+    const languageRadios = document.querySelectorAll('input[name="resumeLanguage"]');
+    languageRadios.forEach(radio => {
+        radio.addEventListener('change', function() {
+            // Reset all labels
+            languageRadios.forEach(r => {
+                const label = r.closest('label');
+                label.style.borderColor = '#e0e0e0';
+                label.style.background = 'white';
+            });
+            // Highlight selected
+            if (this.checked) {
+                const label = this.closest('label');
+                label.style.borderColor = '#667eea';
+                label.style.background = '#f0f4ff';
+            }
+        });
+    });
+});
 </script>
 {% endblock %}
