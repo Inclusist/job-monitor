@@ -196,6 +196,7 @@ class CoverLetterGenerator:
         skills = cv_profile.get('skills', {})
         experience = cv_profile.get('work_experience', [])[:3]
         education = cv_profile.get('education', [])[:2]
+        projects = cv_profile.get('projects', [])
         name = cv_profile.get('name', 'Applicant')
         
         job_title = job.get('title', '')
@@ -287,7 +288,23 @@ Education:
 """
         for edu in education:
             prompt += f"- {edu.get('degree', '')} in {edu.get('field', '')} from {edu.get('institution', '')}\n"
-        
+
+        # Add projects section if available
+        if projects:
+            prompt += f"""
+Projects:
+"""
+            for proj in projects:
+                proj_name = proj.get('name', '')
+                proj_desc = proj.get('description', '')
+                proj_url = proj.get('url', '')
+                prompt += f"- {proj_name}"
+                if proj_url:
+                    prompt += f" ({proj_url})"
+                if proj_desc:
+                    prompt += f": {proj_desc}"
+                prompt += "\n"
+
         prompt += f"""
 
 JOB DETAILS:
