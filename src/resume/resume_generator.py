@@ -213,6 +213,10 @@ class ResumeGenerator:
         # Build the prompt
         prompt = f"""You are an expert resume writer specializing in creating ATS-optimized, professional resumes tailored to specific job opportunities.
 
+## LANGUAGE REQUIREMENT - READ THIS FIRST
+
+{self._get_language_instructions(language)}
+
 ## USER'S PROFILE
 
 **Name:** {contact_name}
@@ -273,9 +277,7 @@ Generate a professional, ATS-optimized resume tailored specifically for this job
 
 **IMPORTANT:** Do NOT ask clarifying questions. Generate the resume immediately using the information provided. If any information is missing, use reasonable placeholders or omit those sections. The user needs a complete HTML resume document right now.
 
-## LANGUAGE
-
-{self._get_language_instructions(language)}
+**REMINDER:** Remember to write the resume in {"GERMAN (Deutsch)" if language == "german" else "ENGLISH"} as specified at the top of this prompt!
 
 ## REQUIREMENTS
 
@@ -455,6 +457,8 @@ Additional requirements:
 - Make it visually clean and professional with ALL TEXT IN BLACK COLOR (no blue, red, or colored text)
 - Optimize for both human readers and ATS systems
 
+**FINAL LANGUAGE REMINDER:** Write the entire resume in {"GERMAN (Deutsch) - use German section headers, German action verbs, German descriptions" if language == "german" else "ENGLISH"}!
+
 **BEGIN YOUR RESPONSE NOW WITH `<!DOCTYPE html>` AND NOTHING ELSE:**"""
 
         return prompt
@@ -462,26 +466,47 @@ Additional requirements:
     def _get_language_instructions(self, language: str) -> str:
         """Get language-specific instructions for resume generation"""
         if language == 'german':
-            return """**Write the resume in GERMAN (Deutsch).**
+            return """**CRITICAL: WRITE THE ENTIRE RESUME IN GERMAN (Deutsch).**
 
-Language Requirements:
-- ALL content must be in German - section headers, descriptions, bullet points, everything
-- Use professional German business language (formal, standard German)
-- Section headers in German:
-  - "Berufserfahrung" for Professional Experience
-  - "Ausbildung" for Education
-  - "Kernkompetenzen" for Core Competencies
-  - "Berufliches Profil" or "Zusammenfassung" for Professional Summary
-  - "Projekte" for Projects
-  - "Zertifizierungen" for Certifications
-  - "Sprachen" for Languages
-  - "Technische Fähigkeiten" for Technical Skills
-- Use German action verbs in experience bullets: "Leitete", "Entwickelte", "Implementierte", "Verwaltete", etc.
-- German date formats: e.g., "Januar 2020 - Dezember 2023" or "2020 - 2023"
-- Maintain professional German CV conventions (European CV format acceptable)
-- Phone numbers in German format: e.g., "+49 xxx xxxx" or "0xxx xxxx"
-- Keep technical terms in English if they're industry standard (e.g., "Machine Learning", "API", "DevOps")
-- Translate job descriptions and achievements to natural, professional German"""
+*** ABSOLUTELY MANDATORY - THIS IS THE #1 REQUIREMENT ***
+*** ALL CONTENT MUST BE IN GERMAN - NOT ENGLISH ***
+
+YOU MUST:
+- Write EVERYTHING in German (Deutsch) - no English except technical terms
+- ALL section headers MUST be in German
+- ALL job descriptions MUST be in German
+- ALL bullet points MUST be in German
+- ALL summaries MUST be in German
+
+REQUIRED GERMAN SECTION HEADERS:
+- "BERUFSERFAHRUNG" (not "Professional Experience")
+- "AUSBILDUNG" (not "Education")
+- "KERNKOMPETENZEN" (not "Core Competencies")
+- "BERUFLICHES PROFIL" or "ZUSAMMENFASSUNG" (not "Professional Summary")
+- "PROJEKTE" (not "Projects")
+- "ZERTIFIZIERUNGEN" (not "Certifications")
+- "SPRACHEN" (not "Languages")
+- "TECHNISCHE FÄHIGKEITEN" (not "Technical Skills")
+
+GERMAN ACTION VERBS (start every bullet point with these):
+- "Leitete" (not "Led")
+- "Entwickelte" (not "Developed")
+- "Implementierte" (not "Implemented")
+- "Verwaltete" (not "Managed")
+- "Koordinierte" (not "Coordinated")
+- "Optimierte" (not "Optimized")
+- "Analysierte" (not "Analyzed")
+
+GERMAN DATE FORMATS:
+- "Januar 2020 - Dezember 2023" (NOT "January 2020 - December 2023")
+- Months: Januar, Februar, März, April, Mai, Juni, Juli, August, September, Oktober, November, Dezember
+
+EXCEPTIONS (keep in English):
+- Technical terms: "Machine Learning", "API", "DevOps", "Python", "JavaScript"
+- Company names and brand names
+- Software/tool names
+
+**REMEMBER: IF YOU WRITE ANYTHING IN ENGLISH (except technical terms), YOU HAVE FAILED THE TASK.**"""
         else:  # Default to English
             return """**Write the resume in ENGLISH.**
 

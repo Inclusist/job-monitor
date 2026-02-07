@@ -3290,6 +3290,7 @@ def generate_resume(job_id):
         selections = request_data.get('selections', [])
         instructions = request_data.get('instructions', '').strip()
         language = request_data.get('language', 'english').lower()  # 'english' or 'german'
+        print(f"Resume generation language selected: {language}")
 
         # Save selections to database first (if provided)
         if selections:
