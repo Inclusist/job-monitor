@@ -46,6 +46,12 @@ filter_spec.loader.exec_module(filter_module)
 app = Flask(__name__, template_folder='web/templates', static_folder='web/static')
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
 
+# Cookie config for cross-origin deployment (backend and frontend on different domains)
+if os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('FLASK_ENV') == 'production':
+    app.config['SESSION_COOKIE_SECURE'] = True       # only send over HTTPS
+    app.config['SESSION_COOKIE_SAMESITE'] = 'None'   # allow cross-origin cookie sends
+    app.config['SESSION_COOKIE_HTTPONLY'] = True      # not accessible via JS
+
 # CORS for React frontend
 frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:5173')
 CORS(app, resources={r"/api/*": {"origins": frontend_url}}, supports_credentials=True)
@@ -4148,6 +4154,103 @@ def api_delete_cover_letter(cover_letter_id):
             return jsonify({'success': False, 'error': 'Cover letter not found or access denied'}), 404
     except Exception as e:
         print(f"Error deleting cover letter: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/dashboard')
+@login_required
+def api_dashboard():
+    """Return dashboard jobs (shortlisted + all application statuses) as JSON"""
+    user = get_user()
+    user_id = user['id']
+    try:
+        conn = job_db._get_connection()
+        try:
+            from psycopg2.extras import RealDictCursor
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("""
+                SELECT j.id, j.title, j.company, j.location, j.url, j.posted_date, j.discovered_date,
+                       ujm.status as status,
+                       ujm.claude_score,
+                       ujm.semantic_score,
+                       ujm.priority,
+                       ujm.match_reasoning,
+                       ujm.key_alignments,
+                       ujm.potential_gaps,
+                       COALESCE(ujm.claude_score, ujm.semantic_score) as match_score
+                FROM jobs j
+                INNER JOIN user_job_matches ujm ON j.id = ujm.job_id
+                WHERE ujm.user_id = %s
+                AND ujm.status IN ('shortlisted', 'applying', 'applied', 'interviewing', 'offered', 'rejected')
+                ORDER BY match_score DESC NULLS LAST,
+                         j.discovered_date DESC
+            """, (user_id,))
+            jobs = [dict(row) for row in cursor.fetchall()]
+        finally:
+            cursor.close()
+            job_db._return_connection(conn)
+
+        # Parse JSON fields
+        for job in jobs:
+            for field in ('key_alignments', 'potential_gaps'):
+                val = job.get(field)
+                if val and isinstance(val, str):
+                    try:
+                        job[field] = json.loads(val)
+                    except Exception:
+                        job[field] = []
+                elif not val:
+                    job[field] = []
+            # Serialize dates
+            for date_field in ('posted_date', 'discovered_date'):
+                if job.get(date_field) and hasattr(job[date_field], 'isoformat'):
+                    job[date_field] = job[date_field].isoformat()
+
+        return jsonify({'jobs': jobs, 'count': len(jobs)})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'jobs': [], 'count': 0, 'error': str(e)})
+
+
+@app.route('/api/jobs/<int:job_id>/shortlist', methods=['POST'])
+@login_required
+def api_shortlist_job(job_id):
+    """Add job to dashboard (set status to shortlisted)"""
+    user_id = get_user_id()
+    try:
+        job_db.update_user_job_status(user_id, job_id, 'shortlisted')
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/jobs/<int:job_id>/remove-shortlist', methods=['POST'])
+@login_required
+def api_remove_shortlist(job_id):
+    """Remove job from dashboard (set status back to viewed)"""
+    user_id = get_user_id()
+    try:
+        job_db.update_user_job_status(user_id, job_id, 'viewed')
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/jobs/<int:job_id>/update-status', methods=['POST'])
+@login_required
+def api_update_job_status(job_id):
+    """Update job application status"""
+    user_id = get_user_id()
+    data = request.get_json()
+    status = data.get('status') if data else None
+    allowed = ('shortlisted', 'applying', 'applied', 'interviewing', 'offered', 'rejected')
+    if status not in allowed:
+        return jsonify({'success': False, 'error': f'Invalid status. Must be one of: {", ".join(allowed)}'}), 400
+    try:
+        job_db.update_user_job_status(user_id, job_id, status)
+        return jsonify({'success': True})
+    except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

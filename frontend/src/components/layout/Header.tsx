@@ -30,10 +30,16 @@ export default function Header() {
                 Jobs
               </Link>
               <Link
+                to="/dashboard"
+                className="text-slate-600 hover:text-cyan-600 transition-colors text-sm font-medium"
+              >
+                Dashboard
+              </Link>
+              <Link
                 to="/documents"
                 className="text-slate-600 hover:text-cyan-600 transition-colors text-sm font-medium"
               >
-                Documents
+                My Documents
               </Link>
               <div className="flex items-center space-x-3">
                 {user?.avatar_url ? (

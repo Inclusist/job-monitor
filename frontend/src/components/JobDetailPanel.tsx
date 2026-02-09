@@ -16,14 +16,15 @@ import {
   Check,
   FileText,
   Mail,
+  LayoutDashboard,
 } from 'lucide-react';
 import Badge from './ui/Badge';
 import ScoreDisplay from './ui/ScoreDisplay';
 import ResumeModal from './ResumeModal';
 import CoverLetterModal from './CoverLetterModal';
 import { useJobDetail } from '../hooks/useJobDetail';
-import { claimItems } from '../services/jobs';
-import { useQueryClient } from '@tanstack/react-query';
+import { claimItems, shortlistJob, removeShortlist } from '../services/jobs';
+import { useQueryClient, useMutation } from '@tanstack/react-query';
 
 interface JobDetailPanelProps {
   jobId: number;
@@ -38,6 +39,21 @@ export default function JobDetailPanel({ jobId }: JobDetailPanelProps) {
   const [claimingItem, setClaimingItem] = useState<string | null>(null);
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
+
+  const DASHBOARD_STATUSES = ['shortlisted', 'applying', 'applied', 'interviewing', 'offered'];
+  const isOnDashboard = job ? DASHBOARD_STATUSES.includes(job.status ?? '') : false;
+
+  const dashboardMutation = useMutation({
+    mutationFn: () => {
+      if (!job) return Promise.resolve({ success: true });
+      return isOnDashboard ? removeShortlist(job.id) : shortlistJob(job.id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobDetail', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
 
   const handleClaim = useCallback(async (name: string, type: 'competency' | 'skill') => {
     const key = `${type}:${name}`;
@@ -158,6 +174,24 @@ export default function JobDetailPanel({ jobId }: JobDetailPanelProps) {
           Generate Cover Letter
         </button>
       </div>
+
+      {/* Add to Dashboard */}
+      <button
+        onClick={() => dashboardMutation.mutate()}
+        disabled={dashboardMutation.isPending}
+        className={`w-full px-4 py-2.5 text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 ${
+          isOnDashboard
+            ? 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
+            : 'bg-slate-100 text-slate-700 border border-slate-200 hover:bg-cyan-50 hover:text-cyan-700 hover:border-cyan-200'
+        } disabled:opacity-50`}
+      >
+        {dashboardMutation.isPending ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : (
+          <LayoutDashboard className="w-4 h-4" />
+        )}
+        {isOnDashboard ? 'On Dashboard' : 'Add to Dashboard'}
+      </button>
 
       {/* Metadata pills */}
       {(job.ai_experience_level || job.ai_work_arrangement || job.ai_employment_type || job.salary) && (

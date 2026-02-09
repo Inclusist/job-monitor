@@ -14,6 +14,10 @@ const statusColors: Record<string, string> = {
   reviewed: 'bg-cyan-100 text-cyan-800',
   shortlisted: 'bg-amber-100 text-amber-800',
   applying: 'bg-emerald-100 text-emerald-800',
+  applied: 'bg-blue-100 text-blue-800',
+  interviewing: 'bg-purple-100 text-purple-800',
+  offered: 'bg-emerald-100 text-emerald-800',
+  rejected: 'bg-rose-100 text-rose-800',
 };
 
 export default function Badge({ type, value }: BadgeProps) {

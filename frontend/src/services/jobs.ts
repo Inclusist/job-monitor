@@ -1,5 +1,5 @@
 import api from './api';
-import type { JobsResponse, JobDetail, MatchingStatus, SearchResult, ResumeGenerateRequest, CoverLetterGenerateRequest, DocumentCard } from '../types';
+import type { JobsResponse, JobDetail, MatchingStatus, SearchResult, ResumeGenerateRequest, CoverLetterGenerateRequest, DocumentCard, DashboardResponse, DashboardStatus } from '../types';
 
 interface JobsParams {
   priority?: string;
@@ -75,5 +75,25 @@ export async function deleteResume(resumeId: number): Promise<{ success: boolean
 
 export async function deleteCoverLetter(clId: number): Promise<{ success: boolean; error?: string }> {
   const { data } = await api.delete(`/api/cover-letters/${clId}`);
+  return data;
+}
+
+export async function getDashboard(): Promise<DashboardResponse> {
+  const { data } = await api.get<DashboardResponse>('/api/dashboard');
+  return data;
+}
+
+export async function shortlistJob(jobId: number): Promise<{ success: boolean }> {
+  const { data } = await api.post(`/api/jobs/${jobId}/shortlist`);
+  return data;
+}
+
+export async function removeShortlist(jobId: number): Promise<{ success: boolean }> {
+  const { data } = await api.post(`/api/jobs/${jobId}/remove-shortlist`);
+  return data;
+}
+
+export async function updateJobStatus(jobId: number, status: DashboardStatus): Promise<{ success: boolean }> {
+  const { data } = await api.post(`/api/jobs/${jobId}/update-status`, { status });
   return data;
 }

@@ -30,7 +30,7 @@ export interface Job {
   claude_score?: number;
   semantic_score?: number;
   priority?: 'high' | 'medium' | 'low';
-  status?: 'new' | 'reviewed' | 'shortlisted' | 'applying' | 'deleted';
+  status?: 'new' | 'reviewed' | 'shortlisted' | 'applying' | 'applied' | 'interviewing' | 'offered' | 'rejected' | 'deleted';
   match_reasoning?: string;
   key_alignments?: string[];
   potential_gaps?: string[];
@@ -153,4 +153,27 @@ export interface JobDetail {
   skill_match_map: Record<string, boolean>;
   claimed_competency_names: string[];
   claimed_skill_names: string[];
+}
+
+export type DashboardStatus = 'shortlisted' | 'applying' | 'applied' | 'interviewing' | 'offered' | 'rejected';
+
+export interface DashboardJob {
+  id: number;
+  title: string;
+  company?: string;
+  location?: string;
+  url?: string;
+  posted_date?: string;
+  discovered_date?: string;
+  match_score?: number;
+  priority?: string;
+  status: DashboardStatus;
+  match_reasoning?: string;
+  key_alignments: string[];
+  potential_gaps: string[];
+}
+
+export interface DashboardResponse {
+  jobs: DashboardJob[];
+  count: number;
 }
