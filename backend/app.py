@@ -9,6 +9,7 @@ import sys
 from flask import Flask, render_template, request, redirect, url_for, flash, session, Response, jsonify, send_file
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from authlib.integrations.flask_client import OAuth
+from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 import json
@@ -45,6 +46,10 @@ filter_spec.loader.exec_module(filter_module)
 app = Flask(__name__, template_folder='web/templates', static_folder='web/static')
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
 
+# CORS for React frontend
+frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+CORS(app, resources={r"/api/*": {"origins": frontend_url}}, supports_credentials=True)
+
 # Fix for HTTPS behind proxy (Railway, etc.)
 # This ensures OAuth redirect URIs use HTTPS instead of HTTP
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -55,6 +60,12 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'Please log in to access this page.'
+
+@login_manager.unauthorized_handler
+def unauthorized():
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'Authentication required'}), 401
+    return redirect(url_for('login'))
 
 # Configuration
 UPLOAD_FOLDER = 'temp_uploads'
@@ -239,10 +250,15 @@ def get_user_id():
     return user['id']
 
 
+def get_user():
+    """Get user dict only (lightweight — single DB query)"""
+    email = get_user_email()
+    return cv_manager.get_or_create_user(email=email)
+
+
 def get_user_context():
     """Get user and CV statistics"""
-    email = get_user_email()
-    user = cv_manager.get_or_create_user(email=email)
+    user = get_user()
 
     # Get statistics
     user_stats = cv_manager.get_user_statistics(user['id'])
@@ -424,15 +440,13 @@ def authorize_google():
             else:
                 flash(f'Welcome back, {name}!', 'success')
             
-            # Redirect to next page or index
-            next_page = request.args.get('next')
-            if next_page and next_page.startswith('/'):
-                return redirect(next_page)
-            return redirect(url_for('index'))
+            # Redirect to React frontend jobs page
+            frontend = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+            return redirect(f'{frontend}/jobs')
         else:
             flash('Failed to create user account', 'error')
             return redirect(url_for('login'))
-            
+
     except Exception as e:
         import traceback
         print(f"Google OAuth error: {e}")
@@ -541,15 +555,13 @@ def authorize_linkedin():
             else:
                 flash(f'Welcome back, {name}!', 'success')
             
-            # Redirect to next page or index
-            next_page = request.args.get('next')
-            if next_page and next_page.startswith('/'):
-                return redirect(next_page)
-            return redirect(url_for('index'))
+            # Redirect to React frontend jobs page
+            frontend = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+            return redirect(f'{frontend}/jobs')
         else:
             flash('Failed to create user account', 'error')
             return redirect(url_for('login'))
-            
+
     except Exception as e:
         import traceback
         print(f"LinkedIn OAuth error: {e}")
@@ -1089,6 +1101,200 @@ def semantic_search():
     return render_template('semantic_search.html', user=user, stats=stats, job_count=job_count)
 
 
+def _do_semantic_search(query, locations=None, include_remote=True, threshold=0.5,
+                        match_mode='title_only', limit=20, model_name='TechWolf/JobBERT-v3'):
+    """Core semantic search logic. Returns (results_dict, status_code)."""
+    if not query:
+        return {'error': 'Query is required'}, 400
+
+    # Load model
+    model = get_semantic_model(model_name)
+    if model is None:
+        return {'error': f'Failed to load model: {model_name}'}, 500
+
+    if locations is None:
+        locations = []
+
+    # Get jobs with optional location filtering
+    start_time = time.time()
+    conn = job_db._get_connection()
+
+    # Use RealDictCursor for PostgreSQL
+    try:
+        from psycopg2.extras import RealDictCursor
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+    except ImportError:
+        # SQLite fallback
+        cursor = conn.cursor()
+        cursor.row_factory = lambda c, r: dict(zip([col[0] for col in c.description], r))
+
+    # Build query with optional location filter (include pre-computed embeddings)
+    query_sql = """
+        SELECT id, title, company, location, description,
+               discovered_date, url, ai_work_arrangement,
+               cities_derived, locations_derived, embedding_jobbert_title
+        FROM jobs
+    """
+    params = []
+
+    # Apply location filter if specified
+    if locations or include_remote:
+        conditions = []
+
+        if include_remote:
+            # Use parameter to avoid % escaping issues
+            conditions.append("ai_work_arrangement ILIKE %s")
+            params.append('%remote%')
+
+        if locations and len(locations) > 0:
+            # Build ILIKE patterns for each location
+            location_patterns = [f'%{loc}%' for loc in locations]
+            conditions.append("""
+                (EXISTS (
+                    SELECT 1 FROM unnest(cities_derived) AS city
+                    WHERE city ILIKE ANY(%s)
+                )
+                OR
+                EXISTS (
+                    SELECT 1 FROM unnest(locations_derived) AS loc
+                    WHERE loc ILIKE ANY(%s)
+                ))
+            """)
+            params.extend([location_patterns, location_patterns])
+
+        if len(conditions) > 0:
+            query_sql += " WHERE (" + " OR ".join(conditions) + ")"
+
+    query_sql += " ORDER BY discovered_date DESC"
+
+    cursor.execute(query_sql, params)
+    jobs = [dict(row) for row in cursor.fetchall()]
+    cursor.close()
+    if hasattr(job_db, '_return_connection'):
+        job_db._return_connection(conn)
+    else:
+        conn.close()
+
+    fetch_time = time.time() - start_time
+
+    # Encode query
+    encode_start = time.time()
+    query_embedding = model.encode(query, show_progress_bar=False)
+    query_encode_time = time.time() - encode_start
+
+    # Load pre-computed embeddings (80-100x faster!)
+    load_start = time.time()
+    job_embeddings = {}
+    jobs_needing_encoding = []
+
+    for job in jobs:
+        # For title_only mode, use pre-computed embeddings
+        if match_mode == 'title_only' and job.get('embedding_jobbert_title'):
+            try:
+                import json
+                embedding_json = job['embedding_jobbert_title']
+                if isinstance(embedding_json, str):
+                    embedding_data = json.loads(embedding_json)
+                else:
+                    embedding_data = embedding_json
+                job_embeddings[job['id']] = np.array(embedding_data)
+            except Exception as e:
+                print(f"⚠️  Failed to load embedding for job {job['id']}: {e}")
+                jobs_needing_encoding.append(job)
+        else:
+            # Need to encode (full_text mode or missing embedding)
+            jobs_needing_encoding.append(job)
+
+    load_time = time.time() - load_start
+
+    # Encode jobs that don't have pre-computed embeddings (fallback)
+    encode_start = time.time()
+    for job in jobs_needing_encoding:
+        # Build job text based on mode
+        if match_mode == 'title_only':
+            job_text = job.get('title', '')
+        else:  # full_text
+            parts = []
+            if job.get('title'):
+                parts.append(job['title'])
+                parts.append(job['title'])  # Add title twice for emphasis
+            if job.get('company'):
+                parts.append(f"Company: {job['company']}")
+            if job.get('location'):
+                parts.append(f"Location: {job['location']}")
+            if job.get('description'):
+                desc = job['description'][:3000]
+                parts.append(desc)
+            job_text = " ".join(parts)
+
+        # Encode job on-the-fly
+        job_embedding = model.encode(job_text, show_progress_bar=False)
+        job_embeddings[job['id']] = job_embedding
+
+    encode_time = time.time() - encode_start
+
+    # Calculate similarity for all jobs
+    results = []
+    for job in jobs:
+        job_embedding = job_embeddings.get(job['id'])
+        if job_embedding is None:
+            continue
+
+        # Calculate cosine similarity
+        similarity = float(np.dot(query_embedding, job_embedding) /
+                         (np.linalg.norm(query_embedding) * np.linalg.norm(job_embedding)))
+
+        if similarity >= threshold:
+            results.append({
+                'job_id': job['id'],
+                'title': job['title'],
+                'company': job['company'],
+                'location': job['location'],
+                'url': job['url'],
+                'discovered_date': job['discovered_date'].isoformat() if hasattr(job['discovered_date'], 'isoformat') else str(job['discovered_date']),
+                'similarity': round(similarity, 4),
+                'match_score': int(similarity * 100)
+            })
+
+    # Sort by similarity
+    results.sort(key=lambda x: x['similarity'], reverse=True)
+
+    # Limit results
+    results = results[:limit]
+
+    total_time = time.time() - start_time
+
+    # Calculate speedup stats
+    precomputed_count = len(job_embeddings) - len(jobs_needing_encoding)
+    onthefly_count = len(jobs_needing_encoding)
+
+    return {
+        'results': results,
+        'stats': {
+            'total_jobs': len(jobs),
+            'matches_found': len(results),
+            'threshold': threshold,
+            'match_mode': match_mode,
+            'model': model_name,
+            'query': query,
+            'locations': locations,
+            'include_remote': include_remote,
+            'embeddings': {
+                'precomputed': precomputed_count,
+                'encoded_onthefly': onthefly_count,
+                'coverage': round(precomputed_count / len(jobs) * 100, 1) if len(jobs) > 0 else 0
+            },
+            'timings': {
+                'fetch_jobs': round(fetch_time, 3),
+                'encode_query': round(query_encode_time, 3),
+                'load_embeddings': round(load_time, 3),
+                'encode_jobs': round(encode_time, 3),
+                'total': round(total_time, 3)
+            }
+        }
+    }, 200
+
+
 @app.route('/run-semantic-search', methods=['POST'])
 @login_required
 def run_semantic_search():
@@ -1096,201 +1302,20 @@ def run_semantic_search():
     user, stats = get_user_context()
 
     try:
-        # Get parameters
         query = request.json.get('query', '').strip()
         threshold = float(request.json.get('threshold', 0.5))
-        match_mode = request.json.get('match_mode', 'title_only')  # title_only or full_text
+        match_mode = request.json.get('match_mode', 'title_only')
         limit = int(request.json.get('limit', 20))
         locations = request.json.get('locations', [])
         include_remote = request.json.get('include_remote', True)
         model_name = request.json.get('model', 'TechWolf/JobBERT-v3')
 
-        if not query:
-            return jsonify({'error': 'Query is required'}), 400
-
-        # Load model
-        model = get_semantic_model(model_name)
-        if model is None:
-            return jsonify({'error': f'Failed to load model: {model_name}'}), 500
-
-        # Get jobs with optional location filtering
-        start_time = time.time()
-        conn = job_db._get_connection()
-
-        # Use RealDictCursor for PostgreSQL
-        try:
-            from psycopg2.extras import RealDictCursor
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-        except ImportError:
-            # SQLite fallback
-            cursor = conn.cursor()
-            cursor.row_factory = lambda c, r: dict(zip([col[0] for col in c.description], r))
-
-        # Build query with optional location filter (include pre-computed embeddings)
-        query_sql = """
-            SELECT id, title, company, location, description,
-                   discovered_date, url, ai_work_arrangement,
-                   cities_derived, locations_derived, embedding_jobbert_title
-            FROM jobs
-        """
-        params = []
-
-        # Apply location filter if specified
-        if locations or include_remote:
-            conditions = []
-
-            if include_remote:
-                # Use parameter to avoid % escaping issues
-                conditions.append("ai_work_arrangement ILIKE %s")
-                params.append('%remote%')
-
-            if locations and len(locations) > 0:
-                # Build ILIKE patterns for each location
-                location_patterns = [f'%{loc}%' for loc in locations]
-                conditions.append("""
-                    (EXISTS (
-                        SELECT 1 FROM unnest(cities_derived) AS city
-                        WHERE city ILIKE ANY(%s)
-                    )
-                    OR
-                    EXISTS (
-                        SELECT 1 FROM unnest(locations_derived) AS loc
-                        WHERE loc ILIKE ANY(%s)
-                    ))
-                """)
-                params.extend([location_patterns, location_patterns])
-
-            if len(conditions) > 0:
-                query_sql += " WHERE (" + " OR ".join(conditions) + ")"
-
-        query_sql += " ORDER BY discovered_date DESC"
-
-        cursor.execute(query_sql, params)
-        jobs = [dict(row) for row in cursor.fetchall()]
-        cursor.close()
-        if hasattr(job_db, '_return_connection'):
-            job_db._return_connection(conn)
-        else:
-            conn.close()
-
-        fetch_time = time.time() - start_time
-
-        # Encode query
-        encode_start = time.time()
-        query_embedding = model.encode(query, show_progress_bar=False)
-        query_encode_time = time.time() - encode_start
-
-        # Load pre-computed embeddings (80-100x faster!)
-        load_start = time.time()
-        job_embeddings = {}
-        jobs_needing_encoding = []
-
-        for job in jobs:
-            # For title_only mode, use pre-computed embeddings
-            if match_mode == 'title_only' and job.get('embedding_jobbert_title'):
-                try:
-                    import json
-                    embedding_json = job['embedding_jobbert_title']
-                    if isinstance(embedding_json, str):
-                        embedding_data = json.loads(embedding_json)
-                    else:
-                        embedding_data = embedding_json
-                    job_embeddings[job['id']] = np.array(embedding_data)
-                except Exception as e:
-                    print(f"⚠️  Failed to load embedding for job {job['id']}: {e}")
-                    jobs_needing_encoding.append(job)
-            else:
-                # Need to encode (full_text mode or missing embedding)
-                jobs_needing_encoding.append(job)
-
-        load_time = time.time() - load_start
-
-        # Encode jobs that don't have pre-computed embeddings (fallback)
-        encode_start = time.time()
-        for job in jobs_needing_encoding:
-            # Build job text based on mode
-            if match_mode == 'title_only':
-                job_text = job.get('title', '')
-            else:  # full_text
-                parts = []
-                if job.get('title'):
-                    parts.append(job['title'])
-                    parts.append(job['title'])  # Add title twice for emphasis
-                if job.get('company'):
-                    parts.append(f"Company: {job['company']}")
-                if job.get('location'):
-                    parts.append(f"Location: {job['location']}")
-                if job.get('description'):
-                    desc = job['description'][:3000]
-                    parts.append(desc)
-                job_text = " ".join(parts)
-
-            # Encode job on-the-fly
-            job_embedding = model.encode(job_text, show_progress_bar=False)
-            job_embeddings[job['id']] = job_embedding
-
-        encode_time = time.time() - encode_start
-
-        # Calculate similarity for all jobs
-        results = []
-        for job in jobs:
-            job_embedding = job_embeddings.get(job['id'])
-            if job_embedding is None:
-                continue
-
-            # Calculate cosine similarity
-            similarity = float(np.dot(query_embedding, job_embedding) /
-                             (np.linalg.norm(query_embedding) * np.linalg.norm(job_embedding)))
-
-            if similarity >= threshold:
-                results.append({
-                    'job_id': job['id'],
-                    'title': job['title'],
-                    'company': job['company'],
-                    'location': job['location'],
-                    'url': job['url'],
-                    'discovered_date': job['discovered_date'].isoformat() if hasattr(job['discovered_date'], 'isoformat') else str(job['discovered_date']),
-                    'similarity': round(similarity, 4),
-                    'match_score': int(similarity * 100)
-                })
-
-        # Sort by similarity
-        results.sort(key=lambda x: x['similarity'], reverse=True)
-
-        # Limit results
-        results = results[:limit]
-
-        total_time = time.time() - start_time
-
-        # Calculate speedup stats
-        precomputed_count = len(job_embeddings) - len(jobs_needing_encoding)
-        onthefly_count = len(jobs_needing_encoding)
-
-        return jsonify({
-            'results': results,
-            'stats': {
-                'total_jobs': len(jobs),
-                'matches_found': len(results),
-                'threshold': threshold,
-                'match_mode': match_mode,
-                'model': model_name,
-                'query': query,
-                'locations': locations,
-                'include_remote': include_remote,
-                'embeddings': {
-                    'precomputed': precomputed_count,
-                    'encoded_onthefly': onthefly_count,
-                    'coverage': round(precomputed_count / len(jobs) * 100, 1) if len(jobs) > 0 else 0
-                },
-                'timings': {
-                    'fetch_jobs': round(fetch_time, 3),
-                    'encode_query': round(query_encode_time, 3),
-                    'load_embeddings': round(load_time, 3),
-                    'encode_jobs': round(encode_time, 3),
-                    'total': round(total_time, 3)
-                }
-            }
-        }), 200
+        result, status_code = _do_semantic_search(
+            query=query, locations=locations, include_remote=include_remote,
+            threshold=threshold, match_mode=match_mode, limit=limit,
+            model_name=model_name
+        )
+        return jsonify(result), status_code
 
     except Exception as e:
         import traceback
@@ -1450,288 +1475,218 @@ def run_custom_search():
         return redirect(url_for('suggest_search'))
 
 
-@app.route('/jobs/<int:job_id>')
-@login_required
-def job_detail(job_id):
-    """Job detail page with user-specific match data"""
-    # Get current user
-    user, stats = get_user_context()
-    user_id = user['id']
+def _get_processed_job_detail(job_id, user_id):
+    """Shared helper: fetch job, run hybrid matching pipeline, return processed data.
 
-    # Get job with user-specific data merged (priority, match_reasoning, etc.)
+    Returns (job_dict, claimed_competency_names, claimed_skill_names) or None if not found.
+    """
     job = job_db.get_job_with_user_data(job_id, user_id)
-
     if not job:
-        flash('Job not found', 'error')
-        return redirect(url_for('jobs'))
+        return None
 
-    # Note: match_score, priority, match_reasoning, key_alignments, and potential_gaps
-    # are already set and parsed by get_job_with_user_data()
-
-    # Fetch User Profile for accurate matching
     user_cv_profile = cv_manager.get_primary_profile(user_id)
-    
+
     user_skills = set()
     user_competencies = set()
-    
+
     if user_cv_profile:
-        # Normalize for matching
         raw_skills = user_cv_profile.get('technical_skills', []) or []
         user_skills = set(str(s).lower().strip() for s in raw_skills)
-        
         raw_comps = user_cv_profile.get('competencies', []) or []
         user_competencies = set(str(c).lower().strip() for c in raw_comps)
 
     claimed_competency_names = set()
     claimed_skill_names = set()
 
-    # Calculate match status for UI visualization
-    if job:
-        # Debug: Check what we got from database
-        print(f"DEBUG job_detail: competency_mappings type={type(job.get('competency_mappings'))}, value={job.get('competency_mappings')}")
-        print(f"DEBUG job_detail: skill_mappings type={type(job.get('skill_mappings'))}, value={job.get('skill_mappings')}")
-        print(f"DEBUG job_detail: ai_competencies exists? {job.get('ai_competencies') is not None}, count={len(job.get('ai_competencies') or [])}")
-        print(f"DEBUG job_detail: ai_key_skills exists? {job.get('ai_key_skills') is not None}, count={len(job.get('ai_key_skills') or [])}")
+    from analysis.skill_normalizer import normalize_and_deduplicate
+    if job.get('ai_competencies'):
+        job['ai_competencies'] = normalize_and_deduplicate(job['ai_competencies'])
+    if job.get('ai_key_skills'):
+        job['ai_key_skills'] = normalize_and_deduplicate(job['ai_key_skills'])
 
-        # Normalize: deduplicate case/alias/German before matching and display
-        from analysis.skill_normalizer import normalize_and_deduplicate
-        if job.get('ai_competencies'):
-            job['ai_competencies'] = normalize_and_deduplicate(job['ai_competencies'])
-        if job.get('ai_key_skills'):
-            job['ai_key_skills'] = normalize_and_deduplicate(job['ai_key_skills'])
+    # 1. Competencies Matching (HYBRID: Claude -> Keyword -> Semantic)
+    if job.get('ai_competencies'):
+        matches = {}
+        claude_comp_mappings = job.get('competency_mappings')
+        if claude_comp_mappings and isinstance(claude_comp_mappings, list):
+            mapped_comps = set()
+            for mapping in claude_comp_mappings:
+                if isinstance(mapping, dict):
+                    job_req = mapping.get('job_requirement', '')
+                    if job_req:
+                        matches[job_req] = True
+                        mapped_comps.add(job_req.lower())
+            for comp in job['ai_competencies']:
+                if comp.lower() not in mapped_comps:
+                    matches[comp] = False
+        else:
+            align_texts = []
+            if job.get('key_alignments'):
+                for a in job['key_alignments']:
+                    if isinstance(a, str):
+                        align_texts.append(a.lower())
+                    elif isinstance(a, dict):
+                        align_texts.append(str(a.get('text', '')).lower())
 
-        # 1. Competencies Matching (HYBRID: Claude → Keyword → Semantic)
-        if job.get('ai_competencies'):
-            matches = {}
-
-            # Option 1: Try using Claude's structured mappings first (NEW JOBS)
-            claude_comp_mappings = job.get('competency_mappings')
-            if claude_comp_mappings and isinstance(claude_comp_mappings, list):
-                # Use Claude's expert mappings
-                print(f"✨ Using Claude competency mappings ({len(claude_comp_mappings)} mappings)")
-                mapped_comps = set()
-                for mapping in claude_comp_mappings:
-                    if isinstance(mapping, dict):
-                        job_req = mapping.get('job_requirement', '')
-                        if job_req:
-                            matches[job_req] = True
-                            mapped_comps.add(job_req.lower())
-                
-                # Mark unmapped competencies as unmatched
-                for comp in job['ai_competencies']:
-                    if comp.lower() not in mapped_comps:
-                        matches[comp] = False
-            else:
-                # Option 2: Fallback to keyword/semantic matching (EXISTING JOBS)
-                print(f"🔄 Using fallback matching for competencies")
-                
-                # Prepare alignment texts (from Claude's reasoning)
-                align_texts = []
-                if job.get('key_alignments'):
-                    for a in job['key_alignments']:
-                        if isinstance(a, str):
-                            align_texts.append(a.lower())
-                        elif isinstance(a, dict):
-                            align_texts.append(str(a.get('text', '')).lower())
-                
-                for comp in job['ai_competencies']:
-                    is_matched = False
-                    comp_lower = comp.lower().strip()
-                    
-                    # A. Check User Profile directly (Strongest evidence)
-                    if comp_lower in user_competencies or comp_lower in user_skills:
-                        is_matched = True
-                    
-                    # Fuzzy profile match
-                    if not is_matched and (user_competencies or user_skills):
-                         all_user_terms = user_competencies.union(user_skills)
-                         for term in all_user_terms:
-                             if term and (comp_lower in term or term in comp_lower):
-                                 if len(term) > 3 and len(comp_lower) > 3:
-                                     is_matched = True
-                                     break
-
-                    # B. Check against Key Alignments
-                    if not is_matched and align_texts:
-                        for align in align_texts:
-                            if comp_lower in align:
+            for comp in job['ai_competencies']:
+                is_matched = False
+                comp_lower = comp.lower().strip()
+                if comp_lower in user_competencies or comp_lower in user_skills:
+                    is_matched = True
+                if not is_matched and (user_competencies or user_skills):
+                    all_user_terms = user_competencies.union(user_skills)
+                    for term in all_user_terms:
+                        if term and (comp_lower in term or term in comp_lower):
+                            if len(term) > 3 and len(comp_lower) > 3:
                                 is_matched = True
                                 break
-                        
-                        if not is_matched:
-                            comp_words = set(w for w in comp_lower.split() if len(w) > 3)
-                            if comp_words:
-                                for align in align_texts:
-                                    align_words = set(w for w in align.split() if len(w) > 3)
-                                    overlap = comp_words.intersection(align_words)
-                                    if len(overlap) / len(comp_words) >= 0.5:
-                                        is_matched = True
-                                        break
-                                
-                    matches[comp] = is_matched
-                
-                # C. Semantic matching fallback for unmatched competencies
-                unmatched_comps = [comp for comp, matched in matches.items() if not matched]
-                if unmatched_comps and user_cv_profile:
-                    try:
-                        from src.analysis.semantic_matcher import get_semantic_matcher
-                        semantic_matcher = get_semantic_matcher()
-                        
-                        user_comp_list = user_cv_profile.get('competencies', []) or []
-                        user_skill_list = user_cv_profile.get('technical_skills', []) or []
-                        
-                        # Parse JSON if needed
-                        import json
-                        if isinstance(user_comp_list, str):
-                            try:
-                                user_comp_list = json.loads(user_comp_list)
-                            except:
-                                user_comp_list = []
-                        if isinstance(user_skill_list, str):
-                            try:
-                                user_skill_list = json.loads(user_skill_list)
-                            except:
-                                user_skill_list = []
-                        
-                        # Extract 'name' from competency dicts
-                        comp_names = []
-                        for comp in user_comp_list:
-                            if isinstance(comp, dict):
-                                comp_names.append(comp.get('name', str(comp)))
-                            else:
-                                comp_names.append(str(comp))
-                        
-                        skill_names = [str(s) for s in user_skill_list]
-                        
-                        semantic_matches = semantic_matcher.match_competencies(
-                            unmatched_comps,
-                            comp_names,
-                            skill_names,
-                            threshold=0.45
-                        )
-                        
-                        # Update matches with semantic results
-                        for comp, sem_matched in semantic_matches.items():
-                            if sem_matched:
-                                matches[comp] = True
-                                print(f"✓ Semantic match: {comp}")
-                                
-                    except Exception as e:
-                        import logging
-                        logging.getLogger(__name__).warning(f"Semantic matching failed: {e}")
-            
-            job['competency_match_map'] = matches
-
-        # 2. Skills Matching (HYBRID: Claude → Keyword → Semantic)
-        if job.get('ai_key_skills'):
-            skill_matches = {}
-            
-            # Option 1: Try using Claude's structured skill mappings first (NEW JOBS)
-            claude_skill_mappings = job.get('skill_mappings')
-            if claude_skill_mappings and isinstance(claude_skill_mappings, list):
-                # Use Claude's expert mappings
-                print(f"✨ Using Claude skill mappings ({len(claude_skill_mappings)} mappings)")
-                mapped_skills = set()
-                for mapping in claude_skill_mappings:
-                    if isinstance(mapping, dict):
-                        job_skill = mapping.get('job_skill', '')
-                        if job_skill:
-                            skill_matches[job_skill] = True
-                            mapped_skills.add(job_skill.lower())
-                
-                # Mark unmapped skills as unmatched
-                for skill in job['ai_key_skills']:
-                    if skill.lower() not in mapped_skills:
-                        skill_matches[skill] = False
-            else:
-                # Option 2: Fallback to keyword/semantic matching (EXISTING JOBS)
-                print(f"🔄 Using fallback matching for skills")
-                
-                for skill in job['ai_key_skills']:
-                    s_lower = str(skill).lower().strip()
-                    is_matched = False
-                    
-                    # Check direct match
-                    if s_lower in user_skills:
-                        is_matched = True
-                    
-                    # Check fuzzy match
+                if not is_matched and align_texts:
+                    for align in align_texts:
+                        if comp_lower in align:
+                            is_matched = True
+                            break
                     if not is_matched:
-                         for us in user_skills:
-                             if len(us) > 2 and len(s_lower) > 2:
-                                 if s_lower in us or us in s_lower:
-                                     is_matched = True
-                                     break
-                    
-                    skill_matches[skill] = is_matched
-                
-                # C. Semantic matching fallback for unmatched skills
-                unmatched_skills = [skill for skill, matched in skill_matches.items() if not matched]
-                if unmatched_skills and user_cv_profile:
-                    try:
-                        from src.analysis.semantic_matcher import get_semantic_matcher
-                        semantic_matcher = get_semantic_matcher()
-                        
-                        user_skill_list = user_cv_profile.get('technical_skills', []) or []
-                        
-                        # Parse JSON if needed
-                        import json
-                        if isinstance(user_skill_list, str):
-                            try:
-                                user_skill_list = json.loads(user_skill_list)
-                            except:
-                                user_skill_list = []
-                        
-                        # Extract names if dict format
-                        skill_names = []
-                        for s in user_skill_list:
-                            if isinstance(s, dict):
-                                skill_names.append(s.get('name', str(s)))
-                            else:
-                                skill_names.append(str(s))
-                        
-                        semantic_matches = semantic_matcher.match_skills(
-                            unmatched_skills,
-                            skill_names,
-                            threshold=0.45
-                        )
-                        
-                        # Update matches with semantic results
-                        for skill, sem_matched in semantic_matches.items():
-                            if sem_matched:
-                                skill_matches[skill] = True
-                                print(f"✓ Semantic skill match: {skill}")
-                                
-                    except Exception as e:
-                        import logging
-                        logging.getLogger(__name__).warning(f"Semantic skill matching failed: {e}")
-            
-            job['skill_match_map'] = skill_matches
+                        comp_words = set(w for w in comp_lower.split() if len(w) > 3)
+                        if comp_words:
+                            for align in align_texts:
+                                align_words = set(w for w in align.split() if len(w) > 3)
+                                overlap = comp_words.intersection(align_words)
+                                if len(overlap) / len(comp_words) >= 0.5:
+                                    is_matched = True
+                                    break
+                matches[comp] = is_matched
 
-        # Load previously claimed competencies/skills for UI
-        if resume_ops:
-            try:
-                from analysis.skill_normalizer import normalize_term
-                claimed_data = resume_ops.get_user_claimed_data(user_id)
-                # Normalize stored claim names so old claims (e.g. "Communication Skills")
-                # match the current normalized display name (e.g. "Communication")
-                for raw_name in (claimed_data.get('competencies') or {}):
-                    claimed_competency_names.add(normalize_term(raw_name).lower())
-                for raw_name in (claimed_data.get('skills') or {}):
-                    claimed_skill_names.add(normalize_term(raw_name).lower())
-            except Exception as e:
-                print(f"Warning: Could not load claimed data: {e}")
+            unmatched_comps = [comp for comp, matched in matches.items() if not matched]
+            if unmatched_comps and user_cv_profile:
+                try:
+                    from src.analysis.semantic_matcher import get_semantic_matcher
+                    semantic_matcher = get_semantic_matcher()
+                    user_comp_list = user_cv_profile.get('competencies', []) or []
+                    user_skill_list = user_cv_profile.get('technical_skills', []) or []
+                    if isinstance(user_comp_list, str):
+                        try:
+                            user_comp_list = json.loads(user_comp_list)
+                        except:
+                            user_comp_list = []
+                    if isinstance(user_skill_list, str):
+                        try:
+                            user_skill_list = json.loads(user_skill_list)
+                        except:
+                            user_skill_list = []
+                    comp_names = []
+                    for comp in user_comp_list:
+                        if isinstance(comp, dict):
+                            comp_names.append(comp.get('name', str(comp)))
+                        else:
+                            comp_names.append(str(comp))
+                    skill_names = [str(s) for s in user_skill_list]
+                    semantic_matches = semantic_matcher.match_competencies(
+                        unmatched_comps, comp_names, skill_names, threshold=0.45
+                    )
+                    for comp, sem_matched in semantic_matches.items():
+                        if sem_matched:
+                            matches[comp] = True
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Semantic matching failed: {e}")
+
+        job['competency_match_map'] = matches
+
+    # 2. Skills Matching (HYBRID: Claude -> Keyword -> Semantic)
+    if job.get('ai_key_skills'):
+        skill_matches = {}
+        claude_skill_mappings = job.get('skill_mappings')
+        if claude_skill_mappings and isinstance(claude_skill_mappings, list):
+            mapped_skills = set()
+            for mapping in claude_skill_mappings:
+                if isinstance(mapping, dict):
+                    job_skill = mapping.get('job_skill', '')
+                    if job_skill:
+                        skill_matches[job_skill] = True
+                        mapped_skills.add(job_skill.lower())
+            for skill in job['ai_key_skills']:
+                if skill.lower() not in mapped_skills:
+                    skill_matches[skill] = False
+        else:
+            for skill in job['ai_key_skills']:
+                s_lower = str(skill).lower().strip()
+                is_matched = False
+                if s_lower in user_skills:
+                    is_matched = True
+                if not is_matched:
+                    for us in user_skills:
+                        if len(us) > 2 and len(s_lower) > 2:
+                            if s_lower in us or us in s_lower:
+                                is_matched = True
+                                break
+                skill_matches[skill] = is_matched
+
+            unmatched_skills = [skill for skill, matched in skill_matches.items() if not matched]
+            if unmatched_skills and user_cv_profile:
+                try:
+                    from src.analysis.semantic_matcher import get_semantic_matcher
+                    semantic_matcher = get_semantic_matcher()
+                    user_skill_list = user_cv_profile.get('technical_skills', []) or []
+                    if isinstance(user_skill_list, str):
+                        try:
+                            user_skill_list = json.loads(user_skill_list)
+                        except:
+                            user_skill_list = []
+                    skill_names = []
+                    for s in user_skill_list:
+                        if isinstance(s, dict):
+                            skill_names.append(s.get('name', str(s)))
+                        else:
+                            skill_names.append(str(s))
+                    semantic_matches = semantic_matcher.match_skills(
+                        unmatched_skills, skill_names, threshold=0.45
+                    )
+                    for skill, sem_matched in semantic_matches.items():
+                        if sem_matched:
+                            skill_matches[skill] = True
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Semantic skill matching failed: {e}")
+
+        job['skill_match_map'] = skill_matches
+
+    # Load previously claimed competencies/skills for UI
+    if resume_ops:
+        try:
+            from analysis.skill_normalizer import normalize_term
+            claimed_data = resume_ops.get_user_claimed_data(user_id)
+            for raw_name in (claimed_data.get('competencies') or {}):
+                claimed_competency_names.add(normalize_term(raw_name).lower())
+            for raw_name in (claimed_data.get('skills') or {}):
+                claimed_skill_names.add(normalize_term(raw_name).lower())
+        except Exception as e:
+            print(f"Warning: Could not load claimed data: {e}")
+
+    return (job, user_cv_profile, claimed_competency_names, claimed_skill_names)
+
+
+@app.route('/jobs/<int:job_id>')
+@login_required
+def job_detail(job_id):
+    """Job detail page with user-specific match data"""
+    user, stats = get_user_context()
+    user_id = user['id']
+
+    result = _get_processed_job_detail(job_id, user_id)
+    if not result:
+        flash('Job not found', 'error')
+        return redirect(url_for('jobs'))
+
+    job, user_cv_profile, claimed_competency_names, claimed_skill_names = result
 
     # Normalize work_history to work_experience for frontend compatibility
     if user_cv_profile and 'work_history' in user_cv_profile:
         work_experiences = []
         for wh in user_cv_profile.get('work_history', []):
-            # Parse duration string (e.g., "Jul 2021 - Present")
             duration = wh.get('duration', '')
             parts = duration.split(' - ')
             start_date = parts[0] if parts else ''
             end_date = parts[1] if len(parts) > 1 else 'Present'
-
             work_experiences.append({
                 'title': wh.get('title', ''),
                 'company': wh.get('company', ''),
@@ -2849,6 +2804,258 @@ def matching_status_endpoint():
         'message': 'Not running'
     })
     return jsonify(status)
+
+
+# ============ React Frontend API Endpoints ============
+
+@app.route('/api/me')
+@login_required
+def api_me():
+    """Return current user info and stats for React frontend"""
+    user = get_user()
+    user_stats = cv_manager.get_user_statistics(user['id'])
+    stats = {
+        'total_cvs': user_stats.get('cv_count', 0),
+        'primary_cv_name': user_stats.get('primary_cv_name'),
+    }
+    return jsonify({
+        'authenticated': True,
+        'user': {
+            'id': user['id'],
+            'email': user.get('email'),
+            'name': user.get('name'),
+            'provider': user.get('provider', 'email'),
+            'avatar_url': user.get('avatar_url'),
+        },
+        'stats': stats
+    })
+
+
+@app.route('/api/jobs')
+@login_required
+def api_jobs():
+    """Return matched jobs as JSON for React frontend"""
+    from datetime import datetime
+    user = get_user()
+
+    priority = request.args.get('priority', '')
+    status_filter = request.args.get('status', '')
+    min_score = request.args.get('min_score', type=int, default=0)
+
+    try:
+        matches = job_db.get_user_job_matches_summary(
+            user_id=user['id'],
+            min_semantic_score=min_score if min_score else 0,
+            limit=1000
+        )
+
+        if priority:
+            matches = [m for m in matches if m.get('priority') == priority]
+        if status_filter:
+            matches = [m for m in matches if m.get('status') == status_filter]
+
+        previous_filter_run = user.get('previous_filter_run')
+        new_jobs = []
+        previous_jobs = []
+
+        for match in matches:
+            if match.get('claude_score'):
+                match['match_score'] = match['claude_score']
+            elif match.get('semantic_score'):
+                match['match_score'] = match['semantic_score']
+            else:
+                match['match_score'] = None
+
+            match_created = match.get('created_date')
+            is_new = False
+            if previous_filter_run is None:
+                is_new = True
+            elif match_created:
+                mc_dt = match_created
+                if isinstance(mc_dt, str):
+                    try:
+                        mc_dt = datetime.fromisoformat(mc_dt.replace('Z', '+00:00')).replace(tzinfo=None)
+                    except (ValueError, AttributeError):
+                        mc_dt = None
+                pfr_dt = previous_filter_run
+                if isinstance(pfr_dt, str):
+                    try:
+                        pfr_dt = datetime.fromisoformat(pfr_dt.replace('Z', '+00:00')).replace(tzinfo=None)
+                    except (ValueError, AttributeError):
+                        pfr_dt = None
+                if mc_dt and pfr_dt and mc_dt > pfr_dt:
+                    is_new = True
+
+            if 'job_location' in match:
+                match['location'] = match['job_location']
+
+            if match.get('key_alignments') and isinstance(match['key_alignments'], str):
+                try:
+                    match['key_alignments'] = json.loads(match['key_alignments'])
+                except Exception:
+                    match['key_alignments'] = []
+            if match.get('potential_gaps') and isinstance(match['potential_gaps'], str):
+                try:
+                    match['potential_gaps'] = json.loads(match['potential_gaps'])
+                except Exception:
+                    match['potential_gaps'] = []
+
+            # Serialize datetime fields to ISO strings
+            for key in ('created_date', 'discovered_date', 'posted_date'):
+                val = match.get(key)
+                if val and hasattr(val, 'isoformat'):
+                    match[key] = val.isoformat()
+
+            if is_new:
+                new_jobs.append(match)
+            else:
+                previous_jobs.append(match)
+
+        user_cvs = cv_manager.get_user_cvs(user['id'])
+        has_cv = bool(user_cvs)
+
+        return jsonify({
+            'new_jobs': new_jobs,
+            'previous_jobs': previous_jobs,
+            'total': len(new_jobs) + len(previous_jobs),
+            'filters': {'priority': priority, 'status': status_filter, 'min_score': min_score},
+            'has_cv': has_cv
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'new_jobs': [], 'previous_jobs': [], 'total': 0, 'filters': {}, 'has_cv': False, 'error': str(e)})
+
+
+@app.route('/api/jobs/<int:job_id>/hide', methods=['POST'])
+@login_required
+def api_hide_job(job_id):
+    """Hide a job (set status to deleted)"""
+    user_id = get_user_id()
+    try:
+        job_db.update_user_job_status(user_id, job_id, 'deleted')
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/jobs/<int:job_id>')
+@login_required
+def api_job_detail(job_id):
+    """Return full job detail with match data as JSON"""
+    user_id = get_user_id()
+    try:
+        result = _get_processed_job_detail(job_id, user_id)
+        if not result:
+            return jsonify({'error': 'Job not found'}), 404
+
+        job, _user_cv_profile, claimed_competency_names, claimed_skill_names = result
+
+        # Serialize datetime fields to ISO strings
+        for key in ('created_date', 'discovered_date', 'posted_date'):
+            val = job.get(key)
+            if val and hasattr(val, 'isoformat'):
+                job[key] = val.isoformat()
+
+        # Ensure list fields default to empty lists
+        for key in ('ai_competencies', 'ai_key_skills', 'key_alignments', 'potential_gaps',
+                     'competency_mappings', 'skill_mappings'):
+            if not job.get(key):
+                job[key] = []
+
+        # Ensure map fields default to empty dicts
+        for key in ('competency_match_map', 'skill_match_map'):
+            if not job.get(key):
+                job[key] = {}
+
+        # Compute match_score the same way as the list endpoint
+        if job.get('claude_score'):
+            job['match_score'] = job['claude_score']
+        elif job.get('semantic_score'):
+            job['match_score'] = job['semantic_score']
+        else:
+            job.setdefault('match_score', None)
+
+        # Normalize location field
+        if 'job_location' in job and 'location' not in job:
+            job['location'] = job['job_location']
+
+        # Add claimed names as lists
+        job['claimed_competency_names'] = sorted(claimed_competency_names)
+        job['claimed_skill_names'] = sorted(claimed_skill_names)
+
+        return jsonify(job)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/run-matching', methods=['POST'])
+@login_required
+def api_run_matching():
+    """Trigger job matching (JSON API version)"""
+    user_id = get_user_id()
+    try:
+        user_cvs = cv_manager.get_user_cvs(user_id)
+        if not user_cvs:
+            return jsonify({'success': False, 'error': 'Please upload your CV first'}), 400
+
+        if user_id in matching_status and matching_status[user_id].get('status') == 'running':
+            return jsonify({'success': False, 'error': 'Matching already in progress'}), 409
+
+        should_filter, reason = cv_manager.should_refilter(user_id)
+        if not should_filter:
+            return jsonify({'success': False, 'error': f'Matching is up to date. {reason}'}), 200
+
+        threading.Thread(
+            target=run_background_filtering,
+            args=(user_id,),
+            daemon=True
+        ).start()
+
+        return jsonify({'success': True, 'message': 'Matching started'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/matching-status')
+@login_required
+def api_matching_status():
+    """Get matching status (JSON API alias)"""
+    user_id = get_user_id()
+    status = matching_status.get(user_id, {
+        'status': 'idle',
+        'progress': 0,
+        'message': 'Not running'
+    })
+    return jsonify(status)
+
+
+@app.route('/api/search-jobs', methods=['POST'])
+@login_required
+def api_search_jobs():
+    """Semantic search across all jobs using user's saved location preferences"""
+    try:
+        query = request.json.get('query', '').strip()
+        if not query:
+            return jsonify({'error': 'Query is required'}), 400
+
+        # Get user's saved locations as default filter
+        user_id = get_user_id()
+        user_prefs = cv_manager.get_user_search_preferences(user_id)
+        locations = user_prefs.get('locations', [])
+
+        result, status_code = _do_semantic_search(
+            query=query, locations=locations, include_remote=True,
+            threshold=0.4, match_mode='title_only', limit=30
+        )
+        return jsonify(result), status_code
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 
 @app.errorhandler(500)

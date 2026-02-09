@@ -169,8 +169,8 @@ class PostgresResumeOperations:
             # Process each selection
             for selection in selections:
                 item_data = {
-                    'work_experience_ids': selection['work_experience_ids'],
-                    'evidence': selection['evidence'],
+                    'work_experience_ids': selection.get('work_experience_ids', []),
+                    'evidence': selection.get('evidence', ''),
                     'added_at': datetime.now().isoformat()
                 }
 

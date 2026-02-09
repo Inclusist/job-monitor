@@ -41,6 +41,7 @@ flask-login==0.6.3
 bcrypt>=4.0.1  # Password hashing for user authentication
 gunicorn==21.2.0  # Production WSGI server
 authlib==1.3.0  # OAuth 2.0 for Google and LinkedIn login
+flask-cors>=4.0.0  # CORS support for React frontend
 
 # Resume Generation
 weasyprint==67.0

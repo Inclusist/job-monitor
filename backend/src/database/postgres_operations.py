@@ -1031,7 +1031,7 @@ class PostgresDatabase:
                             min_claude_score: int = None, limit: int = 200,
                             status: str = None, exclude_deleted: bool = True) -> List[Dict]:
         """
-        Get job matches for a user
+        Get job matches for a user (full data including description and mappings)
 
         Args:
             user_id: User ID to get matches for
@@ -1081,15 +1081,64 @@ class PostgresDatabase:
             if status:
                 query += " AND ujm.status = %s"
                 params.append(status)
-            
+
             query += " ORDER BY COALESCE(ujm.claude_score, ujm.semantic_score) DESC, ujm.claude_date DESC, ujm.semantic_date DESC"
             query += " LIMIT %s"
             params.append(limit)
-            
+
             cursor.execute(query, params)
             matches = cursor.fetchall()
             return [dict(match) for match in matches]
-            
+
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+
+    def get_user_job_matches_summary(self, user_id: int, min_semantic_score: int = None,
+                                     limit: int = 200, exclude_deleted: bool = True) -> List[Dict]:
+        """
+        Lightweight job matches for list view — excludes large text fields
+        (description, match_reasoning, competency/skill mappings).
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+            query = """
+                SELECT
+                    ujm.id, ujm.user_id, ujm.job_id,
+                    ujm.semantic_score, ujm.claude_score,
+                    ujm.priority, ujm.status,
+                    ujm.key_alignments, ujm.potential_gaps,
+                    ujm.created_date,
+                    j.id as job_table_id,
+                    j.title,
+                    j.company,
+                    j.location as job_location,
+                    j.url,
+                    j.posted_date,
+                    j.discovered_date,
+                    COALESCE(ujm.claude_score, ujm.semantic_score) as match_score
+                FROM user_job_matches ujm
+                JOIN jobs j ON ujm.job_id = j.id
+                WHERE ujm.user_id = %s
+            """
+            params: list = [user_id]
+
+            if exclude_deleted:
+                query += " AND ujm.status != 'deleted'"
+
+            if min_semantic_score is not None and min_semantic_score > 0:
+                query += " AND COALESCE(ujm.claude_score, ujm.semantic_score) >= %s"
+                params.append(min_semantic_score)
+
+            query += " ORDER BY COALESCE(ujm.claude_score, ujm.semantic_score) DESC, ujm.claude_date DESC, ujm.semantic_date DESC"
+            query += " LIMIT %s"
+            params.append(limit)
+
+            cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+
         finally:
             cursor.close()
             self._return_connection(conn)
