@@ -75,6 +75,34 @@ export interface AuthState {
   isLoading: boolean;
 }
 
+export interface ResumeGenerateRequest {
+  selections?: { name: string; type: 'competency' | 'skill'; evidence?: string; work_experience_ids?: number[] }[];
+  instructions?: string;
+  language: 'english' | 'german';
+}
+
+export interface CoverLetterGenerateRequest {
+  language: 'english' | 'german';
+  style: string;
+  instructions?: string;
+}
+
+export interface CoverLetterStyle {
+  key: string;
+  name: string;
+  description: string;
+  best_for: string;
+}
+
+export interface DocumentCard {
+  job_id: number;
+  job_title: string;
+  job_company: string;
+  latest_date: string;
+  resume?: { id: number; created_at: string; pdf_exists: boolean };
+  cover_letter?: { id: number; created_at: string; pdf_exists: boolean };
+}
+
 export interface CompetencyMapping {
   job_requirement: string;
   user_strength: string;

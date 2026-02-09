@@ -1,5 +1,5 @@
 import api from './api';
-import type { JobsResponse, JobDetail, MatchingStatus, SearchResult } from '../types';
+import type { JobsResponse, JobDetail, MatchingStatus, SearchResult, ResumeGenerateRequest, CoverLetterGenerateRequest, DocumentCard } from '../types';
 
 interface JobsParams {
   priority?: string;
@@ -40,5 +40,40 @@ export async function claimItems(
 
 export async function searchJobs(query: string): Promise<{ results: SearchResult[]; stats: Record<string, unknown> }> {
   const { data } = await api.post('/api/search-jobs', { query });
+  return data;
+}
+
+export async function generateResume(jobId: number, reqData: ResumeGenerateRequest): Promise<{ success: boolean; resume_html?: string; job_title?: string; company?: string; error?: string }> {
+  const { data } = await api.post(`/api/generate-resume/${jobId}`, reqData);
+  return data;
+}
+
+export async function saveResume(jobId: number, resumeHtml: string): Promise<{ success: boolean; resume_id?: number; pdf_url?: string; error?: string }> {
+  const { data } = await api.post(`/api/save-resume/${jobId}`, { resume_html: resumeHtml });
+  return data;
+}
+
+export async function generateCoverLetter(jobId: number, reqData: CoverLetterGenerateRequest): Promise<{ success: boolean; cover_letter_text?: string; style_name?: string; job_title?: string; company?: string; error?: string }> {
+  const { data } = await api.post(`/api/generate-cover-letter/${jobId}`, reqData);
+  return data;
+}
+
+export async function saveCoverLetter(jobId: number, text: string): Promise<{ success: boolean; cover_letter_id?: number; error?: string }> {
+  const { data } = await api.post(`/api/save-cover-letter/${jobId}`, { cover_letter_text: text });
+  return data;
+}
+
+export async function getDocuments(): Promise<{ documents: DocumentCard[] }> {
+  const { data } = await api.get('/api/documents');
+  return data;
+}
+
+export async function deleteResume(resumeId: number): Promise<{ success: boolean; error?: string }> {
+  const { data } = await api.delete(`/api/resumes/${resumeId}`);
+  return data;
+}
+
+export async function deleteCoverLetter(clId: number): Promise<{ success: boolean; error?: string }> {
+  const { data } = await api.delete(`/api/cover-letters/${clId}`);
   return data;
 }

@@ -1,7 +1,14 @@
 import axios from 'axios';
 
+function resolveBaseUrl(): string {
+  const raw = import.meta.env.VITE_API_URL || '';
+  if (!raw) return '';
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+  return `https://${raw}`;
+}
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '',
+  baseURL: resolveBaseUrl(),
   withCredentials: true,
 });
 

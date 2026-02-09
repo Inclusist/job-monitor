@@ -3960,6 +3960,197 @@ def download_resume(resume_id):
         return redirect(url_for('jobs'))
 
 
+@app.route('/api/generate-cover-letter/<int:job_id>', methods=['POST'])
+@login_required
+def generate_cover_letter_api(job_id):
+    """Generate cover letter — JSON API version"""
+    user = get_user()
+
+    data = request.get_json() or {}
+    style = data.get('style', 'professional')
+    language = data.get('language', 'english')
+    instructions = data.get('instructions', '').strip()
+
+    job = job_db.get_job(job_id)
+    if not job:
+        return jsonify({'success': False, 'error': 'Job not found'}), 404
+
+    cv_profile = cv_manager.get_profile_by_user(user['id'])
+    if not cv_profile:
+        return jsonify({'success': False, 'error': 'Please upload your CV first'}), 400
+
+    try:
+        api_key = os.getenv('ANTHROPIC_API_KEY')
+        gemini_key = os.getenv('GOOGLE_GEMINI_API_KEY') if os.getenv('ENABLE_GEMINI') == 'true' else None
+        generator = CoverLetterGenerator(api_key, gemini_api_key=gemini_key)
+
+        result = generator.generate_cover_letter(
+            cv_profile=cv_profile,
+            job=job,
+            style=style,
+            language=language,
+            instructions=instructions
+        )
+
+        if 'error' in result:
+            return jsonify({'success': False, 'error': result['error']}), 500
+
+        return jsonify({
+            'success': True,
+            'cover_letter_text': result.get('cover_letter', ''),
+            'style_name': result.get('style_name', style),
+            'job_title': job.get('title', ''),
+            'company': job.get('company', '')
+        })
+
+    except Exception as e:
+        print(f"Error generating cover letter: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/documents')
+@login_required
+def api_documents():
+    """Return all saved resumes and cover letters for current user"""
+    user_id = get_user_id()
+
+    try:
+        resumes = resume_ops.get_user_resumes(user_id) if resume_ops else []
+
+        for resume in resumes:
+            job = job_db.get_job_by_id(resume['job_id'])
+            if job:
+                resume['job_title'] = job.get('title', 'Unknown Job')
+                resume['job_company'] = job.get('company', 'Unknown Company')
+            else:
+                resume['job_title'] = 'Job Not Found'
+                resume['job_company'] = ''
+            resume['pdf_exists'] = bool(resume.get('resume_pdf_data'))
+
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        cover_letters = []
+        try:
+            conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                "SELECT id, job_id, job_title, job_company, cover_letter_pdf_data, created_at "
+                "FROM cover_letters WHERE user_id = %s ORDER BY created_at DESC",
+                (user_id,),
+            )
+            cover_letters = cur.fetchall()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"Warning: could not load cover letters: {e}")
+
+        from datetime import datetime
+        jobs_map = {}
+
+        for r in resumes:
+            jid = r['job_id']
+            if jid not in jobs_map:
+                jobs_map[jid] = {
+                    'job_id': jid,
+                    'job_title': r['job_title'],
+                    'job_company': r['job_company'],
+                    'latest_date': r.get('created_at'),
+                    'resume': None,
+                    'cover_letter': None,
+                }
+            created = r.get('created_at')
+            jobs_map[jid]['resume'] = {
+                'id': r['id'],
+                'created_at': created.isoformat() if hasattr(created, 'isoformat') else str(created) if created else None,
+                'pdf_exists': r['pdf_exists'],
+            }
+
+        for cl in cover_letters:
+            jid = cl['job_id']
+            if jid not in jobs_map:
+                jobs_map[jid] = {
+                    'job_id': jid,
+                    'job_title': cl['job_title'],
+                    'job_company': cl['job_company'],
+                    'latest_date': cl.get('created_at'),
+                    'resume': None,
+                    'cover_letter': None,
+                }
+            created = cl.get('created_at')
+            jobs_map[jid]['cover_letter'] = {
+                'id': cl['id'],
+                'created_at': created.isoformat() if hasattr(created, 'isoformat') else str(created) if created else None,
+                'pdf_exists': bool(cl.get('cover_letter_pdf_data')),
+            }
+            if cl.get('created_at') and (not jobs_map[jid]['latest_date'] or cl['created_at'] > jobs_map[jid]['latest_date']):
+                jobs_map[jid]['latest_date'] = cl['created_at']
+
+        job_cards = sorted(jobs_map.values(),
+                           key=lambda c: c['latest_date'] or datetime.min,
+                           reverse=True)
+
+        # Serialize latest_date
+        for card in job_cards:
+            ld = card.get('latest_date')
+            card['latest_date'] = ld.isoformat() if hasattr(ld, 'isoformat') else str(ld) if ld else None
+
+        return jsonify({'documents': job_cards})
+
+    except Exception as e:
+        import traceback
+        print(f"Error loading documents: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/resumes/<int:resume_id>', methods=['DELETE'])
+@login_required
+def api_delete_resume(resume_id):
+    """Delete a saved resume"""
+    user_id = get_user_id()
+
+    if not resume_ops:
+        return jsonify({'success': False, 'error': 'Resume feature not available'}), 503
+
+    try:
+        deleted = resume_ops.delete_resume(resume_id, user_id)
+        if deleted:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': 'Resume not found or access denied'}), 404
+    except Exception as e:
+        print(f"Error deleting resume: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/cover-letters/<int:cover_letter_id>', methods=['DELETE'])
+@login_required
+def api_delete_cover_letter(cover_letter_id):
+    """Delete a saved cover letter"""
+    user_id = get_user_id()
+
+    try:
+        import psycopg2
+        conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM cover_letters WHERE id = %s AND user_id = %s RETURNING id",
+            (cover_letter_id, user_id),
+        )
+        deleted = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        if deleted:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': 'Cover letter not found or access denied'}), 404
+    except Exception as e:
+        print(f"Error deleting cover letter: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     print("="*60)
     print("🤖 Job Monitor Web UI")

@@ -14,9 +14,13 @@ import {
   Loader2,
   AlertCircle,
   Check,
+  FileText,
+  Mail,
 } from 'lucide-react';
 import Badge from './ui/Badge';
 import ScoreDisplay from './ui/ScoreDisplay';
+import ResumeModal from './ResumeModal';
+import CoverLetterModal from './CoverLetterModal';
 import { useJobDetail } from '../hooks/useJobDetail';
 import { claimItems } from '../services/jobs';
 import { useQueryClient } from '@tanstack/react-query';
@@ -32,6 +36,8 @@ export default function JobDetailPanel({ jobId }: JobDetailPanelProps) {
   // Track items the user has just claimed in this session (optimistic UI)
   const [newlyClaimed, setNewlyClaimed] = useState<Set<string>>(new Set());
   const [claimingItem, setClaimingItem] = useState<string | null>(null);
+  const [showResumeModal, setShowResumeModal] = useState(false);
+  const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
 
   const handleClaim = useCallback(async (name: string, type: 'competency' | 'skill') => {
     const key = `${type}:${name}`;
@@ -134,6 +140,24 @@ export default function JobDetailPanel({ jobId }: JobDetailPanelProps) {
           {job.semantic_score != null && <ScoreDisplay score={job.semantic_score} label="Semantic" />}
         </div>
       )}
+
+      {/* Generate Resume / Cover Letter */}
+      <div className="flex gap-3">
+        <button
+          onClick={() => setShowResumeModal(true)}
+          className="flex-1 px-4 py-2.5 bg-cyan-600 text-white text-sm font-semibold rounded-xl hover:bg-cyan-500 transition-colors flex items-center justify-center gap-2"
+        >
+          <FileText className="w-4 h-4" />
+          Generate Resume
+        </button>
+        <button
+          onClick={() => setShowCoverLetterModal(true)}
+          className="flex-1 px-4 py-2.5 border border-cyan-200 text-cyan-600 text-sm font-semibold rounded-xl hover:bg-cyan-50 transition-colors flex items-center justify-center gap-2"
+        >
+          <Mail className="w-4 h-4" />
+          Generate Cover Letter
+        </button>
+      </div>
 
       {/* Metadata pills */}
       {(job.ai_experience_level || job.ai_work_arrangement || job.ai_employment_type || job.salary) && (
@@ -299,6 +323,24 @@ export default function JobDetailPanel({ jobId }: JobDetailPanelProps) {
             {job.description}
           </div>
         </Section>
+      )}
+
+      {showResumeModal && (
+        <ResumeModal
+          jobId={jobId}
+          jobTitle={job.title}
+          company={job.company}
+          onClose={() => setShowResumeModal(false)}
+        />
+      )}
+
+      {showCoverLetterModal && (
+        <CoverLetterModal
+          jobId={jobId}
+          jobTitle={job.title}
+          company={job.company}
+          onClose={() => setShowCoverLetterModal(false)}
+        />
       )}
     </div>
   );

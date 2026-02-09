@@ -1,7 +1,15 @@
 import api from './api';
 import type { User, UserStats } from '../types';
 
-const backendUrl = import.meta.env.VITE_API_URL || '';
+function resolveBackendUrl(): string {
+  const raw = import.meta.env.VITE_API_URL || '';
+  if (!raw) return '';
+  // Ensure the URL has a protocol so the browser treats it as absolute
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+  return `https://${raw}`;
+}
+
+const backendUrl = resolveBackendUrl();
 
 interface MeResponse {
   authenticated: boolean;
