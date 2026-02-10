@@ -48,6 +48,7 @@ export interface JobsResponse {
   total: number;
   filters: JobsFilters;
   has_cv: boolean;
+  last_run_date?: string | null;
   error?: string;
 }
 
@@ -63,9 +64,13 @@ export interface SearchResult {
 }
 
 export interface MatchingStatus {
-  status: 'idle' | 'running';
+  status: 'idle' | 'running' | 'completed' | 'error';
+  stage?: string;
   progress: number;
   message: string;
+  matches_found?: number;
+  jobs_analyzed?: number;
+  total_jobs?: number;
 }
 
 export interface AuthState {

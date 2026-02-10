@@ -1,9 +1,8 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
   Sparkles,
   Clock,
-  Play,
   EyeOff,
   ExternalLink,
   MapPin,
@@ -17,7 +16,6 @@ import {
 } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Footer from '../components/layout/Footer';
-import FilterBar from '../components/ui/FilterBar';
 import Badge from '../components/ui/Badge';
 import ScoreDisplay from '../components/ui/ScoreDisplay';
 import MatchingProgress from '../components/ui/MatchingProgress';
@@ -31,12 +29,12 @@ import type { Job, SearchResult } from '../types';
 
 export default function JobsPage() {
   const { user } = useAuth();
-  const [filters, setFilters] = useState({ priority: '', status: '', min_score: 0 });
-  const { data, isLoading, error } = useJobs(filters);
+  const { data, isLoading, error } = useJobs();
   const hideJob = useHideJob();
   const runMatching = useRunMatching();
   const { data: matchingStatus } = useMatchingStatus(true);
   const [matchingError, setMatchingError] = useState('');
+  const [progressDismissed, setProgressDismissed] = useState(false);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -48,6 +46,7 @@ export default function JobsPage() {
 
   const handleRunMatching = () => {
     setMatchingError('');
+    setProgressDismissed(false);
     runMatching.mutate(undefined, {
       onError: (err) => {
         const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to start matching';
@@ -55,6 +54,10 @@ export default function JobsPage() {
       },
     });
   };
+
+  const handleDismissProgress = useCallback(() => {
+    setProgressDismissed(true);
+  }, []);
 
   const handleSearch = async () => {
     const query = searchQuery.trim();
@@ -88,7 +91,6 @@ export default function JobsPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-cyan-50/30">
       <Header />
-      {matchingStatus && <MatchingProgress status={matchingStatus} />}
 
       <main className="pt-28 pb-16 px-6">
         <div className="max-w-6xl mx-auto">
@@ -103,11 +105,17 @@ export default function JobsPage() {
               <div>
                 <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
                   <Briefcase className="w-6 h-6 text-cyan-600" strokeWidth={1.5} />
-                  Matched Jobs
+                  Your Job Matches
                 </h1>
                 <p className="text-slate-500 text-sm mt-1">
-                  {data ? `${data.total} matches found` : 'Loading...'}
-                  {user && <span className="ml-2 text-slate-400">for {user.name}</span>}
+                  {data ? (
+                    <>
+                      <span className="font-medium text-slate-700">{data.total} matches</span>
+                      {data.last_run_date && (
+                        <span> — last matched on {new Date(data.last_run_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                      )}
+                    </>
+                  ) : 'Loading...'}
                 </p>
               </div>
 
@@ -123,8 +131,8 @@ export default function JobsPage() {
                   disabled={runMatching.isPending || matchingStatus?.status === 'running'}
                   className="px-5 py-2.5 bg-cyan-600 text-white text-sm font-semibold rounded-xl hover:bg-cyan-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
-                  <Play className="w-4 h-4" />
-                  Run Matching
+                  <Sparkles className="w-4 h-4" />
+                  Find New Matches
                 </button>
               </div>
             </div>
@@ -143,6 +151,15 @@ export default function JobsPage() {
               </div>
             )}
           </motion.div>
+
+          {/* Matching progress (inline) */}
+          {matchingStatus && !progressDismissed && (
+            <MatchingProgress
+              status={matchingStatus}
+              onDismiss={handleDismissProgress}
+              onRetry={handleRunMatching}
+            />
+          )}
 
           {/* Search bar */}
           <motion.div
@@ -224,16 +241,6 @@ export default function JobsPage() {
           {/* Normal matched jobs mode (hidden during search) */}
           {!isSearchActive && (
             <>
-              {/* Filters */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 0.1 }}
-                className="mb-8"
-              >
-                <FilterBar onApply={setFilters} initialFilters={filters} />
-              </motion.div>
-
               {/* Loading state */}
               {isLoading && <LoadingSkeleton />}
 
@@ -448,12 +455,9 @@ function JobRow({
           </div>
         </div>
 
-        {/* Scores */}
+        {/* Score */}
         <div className="flex items-center gap-4">
-          <ScoreDisplay score={job.match_score} label="Match" />
-          {job.semantic_score != null && job.claude_score != null && (
-            <ScoreDisplay score={job.semantic_score} label="Semantic" />
-          )}
+          <ScoreDisplay score={job.claude_score ?? job.match_score} label="AI Match" />
         </div>
 
         {/* Badges */}

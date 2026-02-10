@@ -3103,12 +3103,17 @@ def api_jobs():
         user_cvs = cv_manager.get_user_cvs(user['id'])
         has_cv = bool(user_cvs)
 
+        last_run = user.get('last_filter_run')
+        if last_run and hasattr(last_run, 'isoformat'):
+            last_run = last_run.isoformat()
+
         return jsonify({
             'new_jobs': new_jobs,
             'previous_jobs': previous_jobs,
             'total': len(new_jobs) + len(previous_jobs),
             'filters': {'priority': priority, 'status': status_filter, 'min_score': min_score},
-            'has_cv': has_cv
+            'has_cv': has_cv,
+            'last_run_date': last_run,
         })
     except Exception as e:
         import traceback

@@ -29,9 +29,9 @@ class PostgresDatabase:
         
         # Create connection pool for better performance
         try:
-            self.connection_pool = psycopg2.pool.SimpleConnectionPool(
-                minconn=1,
-                maxconn=10,
+            self.connection_pool = psycopg2.pool.ThreadedConnectionPool(
+                minconn=2,
+                maxconn=20,
                 dsn=database_url
             )
             logger.info("PostgreSQL connection pool created successfully")

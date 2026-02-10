@@ -193,7 +193,8 @@ class CoverLetterGenerator:
         
         # Extract key info
         expertise = cv_profile.get('expertise_summary', '')
-        skills = cv_profile.get('skills', {})
+        technical_skills = cv_profile.get('technical_skills', [])
+        soft_skills = cv_profile.get('soft_skills', [])
         experience = cv_profile.get('work_experience', [])[:3]
         education = cv_profile.get('education', [])[:2]
         projects = cv_profile.get('projects', [])
@@ -274,20 +275,26 @@ CANDIDATE PROFILE:
 Name: {name}
 Expertise: {expertise}
 
-Key Technical Skills: {', '.join(skills.get('technical', [])[:8])}
-Key Soft Skills: {', '.join(skills.get('soft', [])[:5])}
+Key Technical Skills: {', '.join(technical_skills[:8])}
+Key Soft Skills: {', '.join(soft_skills[:5])}
 
 Recent Experience:
 """
         
         for exp in experience:
-            prompt += f"- {exp.get('title', '')} at {exp.get('company', '')} ({exp.get('duration', '')})\n"
+            if isinstance(exp, dict):
+                prompt += f"- {exp.get('title', '')} at {exp.get('company', '')} ({exp.get('duration', '')})\n"
+            else:
+                prompt += f"- {exp}\n"
         
         prompt += f"""
 Education:
 """
         for edu in education:
-            prompt += f"- {edu.get('degree', '')} in {edu.get('field', '')} from {edu.get('institution', '')}\n"
+            if isinstance(edu, dict):
+                prompt += f"- {edu.get('degree', '')} in {edu.get('field', '')} from {edu.get('institution', '')}\n"
+            else:
+                prompt += f"- {edu}\n"
 
         # Add projects section if available
         if projects:
@@ -295,15 +302,18 @@ Education:
 Projects:
 """
             for proj in projects:
-                proj_name = proj.get('name', '')
-                proj_desc = proj.get('description', '')
-                proj_url = proj.get('url', '')
-                prompt += f"- {proj_name}"
-                if proj_url:
-                    prompt += f" ({proj_url})"
-                if proj_desc:
-                    prompt += f": {proj_desc}"
-                prompt += "\n"
+                if isinstance(proj, dict):
+                    proj_name = proj.get('name', '')
+                    proj_desc = proj.get('description', '')
+                    proj_url = proj.get('url', '')
+                    prompt += f"- {proj_name}"
+                    if proj_url:
+                        prompt += f" ({proj_url})"
+                    if proj_desc:
+                        prompt += f": {proj_desc}"
+                    prompt += "\n"
+                else:
+                    prompt += f"- {proj}\n"
 
         prompt += f"""
 
