@@ -1,0 +1,8 @@
+[phases.setup]
+aptPkgs = ["caddy"]
+
+[phases.build]
+cmds = ["npm install", "npm run build"]
+
+[start]
+cmd = "caddy run --config /app/Caddyfile --adapter caddyfile"

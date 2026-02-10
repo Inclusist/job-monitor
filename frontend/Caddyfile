@@ -1,0 +1,23 @@
+:{$PORT}
+
+handle /api/* {
+    reverse_proxy {$BACKEND_URL}
+}
+handle /login/* {
+    reverse_proxy {$BACKEND_URL}
+}
+handle /authorize/* {
+    reverse_proxy {$BACKEND_URL}
+}
+handle /logout {
+    reverse_proxy {$BACKEND_URL}
+}
+handle /download/* {
+    reverse_proxy {$BACKEND_URL}
+}
+
+handle {
+    root * /app/dist
+    try_files {path} /index.html
+    file_server
+}
