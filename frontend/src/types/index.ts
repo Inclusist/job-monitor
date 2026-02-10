@@ -171,6 +171,8 @@ export interface DashboardJob {
   match_reasoning?: string;
   key_alignments: string[];
   potential_gaps: string[];
+  resume_id?: number | null;
+  cover_letter_id?: number | null;
 }
 
 export interface DashboardResponse {

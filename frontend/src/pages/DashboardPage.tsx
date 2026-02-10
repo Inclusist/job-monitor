@@ -11,6 +11,9 @@ import {
   Loader2,
   AlertCircle,
   Briefcase,
+  FileText,
+  Eye,
+  Pencil,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Header from '../components/layout/Header';
@@ -18,6 +21,7 @@ import Footer from '../components/layout/Footer';
 import Badge from '../components/ui/Badge';
 import SlideOver from '../components/ui/SlideOver';
 import JobDetailPanel from '../components/JobDetailPanel';
+import DocumentViewerModal from '../components/ui/DocumentViewerModal';
 import { getDashboard, updateJobStatus, removeShortlist } from '../services/jobs';
 import type { DashboardJob, DashboardStatus } from '../types';
 
@@ -44,6 +48,11 @@ export default function DashboardPage() {
     queryFn: getDashboard,
   });
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
+  const [modalState, setModalState] = useState<{
+    docType: 'resume' | 'cover_letter';
+    docId: number;
+    mode: 'view' | 'edit';
+  } | null>(null);
 
   const statusMutation = useMutation({
     mutationFn: ({ jobId, status }: { jobId: number; status: DashboardStatus }) =>
@@ -143,6 +152,7 @@ export default function DashboardPage() {
                 onStatusChange={(status) => statusMutation.mutate({ jobId: job.id, status })}
                 onRemove={() => removeMutation.mutate(job.id)}
                 onViewDetail={() => setSelectedJobId(job.id)}
+                onOpenDocument={(docType, docId, mode) => setModalState({ docType, docId, mode })}
                 isUpdating={statusMutation.isPending || removeMutation.isPending}
               />
             </motion.div>
@@ -159,6 +169,16 @@ export default function DashboardPage() {
       >
         {selectedJobId && <JobDetailPanel jobId={selectedJobId} />}
       </SlideOver>
+
+      {modalState && (
+        <DocumentViewerModal
+          docType={modalState.docType}
+          docId={modalState.docId}
+          initialMode={modalState.mode}
+          onClose={() => setModalState(null)}
+          onSaved={() => queryClient.invalidateQueries({ queryKey: ['dashboard'] })}
+        />
+      )}
     </div>
   );
 }
@@ -168,12 +188,14 @@ function DashboardJobCard({
   onStatusChange,
   onRemove,
   onViewDetail,
+  onOpenDocument,
   isUpdating,
 }: {
   job: DashboardJob;
   onStatusChange: (status: DashboardStatus) => void;
   onRemove: () => void;
   onViewDetail: () => void;
+  onOpenDocument: (docType: 'resume' | 'cover_letter', docId: number, mode: 'view' | 'edit') => void;
   isUpdating: boolean;
 }) {
   const MAX_ALIGNMENTS = 3;
@@ -250,6 +272,52 @@ function DashboardJobCard({
             <span className="inline-flex items-center px-2.5 py-1 bg-slate-100 text-slate-500 rounded-lg text-xs font-medium">
               +{remaining} more
             </span>
+          )}
+        </div>
+      )}
+
+      {/* Documents row */}
+      {(job.resume_id || job.cover_letter_id) && (
+        <div className="flex flex-wrap items-center gap-3">
+          {job.resume_id && (
+            <div className="inline-flex items-center gap-1.5 bg-slate-50 rounded-lg px-3 py-1.5">
+              <FileText className="w-3.5 h-3.5 text-cyan-600" />
+              <span className="text-xs font-medium text-slate-600">Resume</span>
+              <button
+                onClick={() => onOpenDocument('resume', job.resume_id!, 'view')}
+                className="p-0.5 text-slate-400 hover:text-cyan-600 transition-colors rounded"
+                title="View resume"
+              >
+                <Eye className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => onOpenDocument('resume', job.resume_id!, 'edit')}
+                className="p-0.5 text-slate-400 hover:text-cyan-600 transition-colors rounded"
+                title="Edit resume"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+          {job.cover_letter_id && (
+            <div className="inline-flex items-center gap-1.5 bg-slate-50 rounded-lg px-3 py-1.5">
+              <FileText className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="text-xs font-medium text-slate-600">Cover Letter</span>
+              <button
+                onClick={() => onOpenDocument('cover_letter', job.cover_letter_id!, 'view')}
+                className="p-0.5 text-slate-400 hover:text-cyan-600 transition-colors rounded"
+                title="View cover letter"
+              >
+                <Eye className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => onOpenDocument('cover_letter', job.cover_letter_id!, 'edit')}
+                className="p-0.5 text-slate-400 hover:text-cyan-600 transition-colors rounded"
+                title="Edit cover letter"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+            </div>
           )}
         </div>
       )}

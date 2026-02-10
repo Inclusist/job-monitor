@@ -4257,14 +4257,26 @@ def api_dashboard():
                        ujm.match_reasoning,
                        ujm.key_alignments,
                        ujm.potential_gaps,
-                       COALESCE(ujm.claude_score, ujm.semantic_score) as match_score
+                       COALESCE(ujm.claude_score, ujm.semantic_score) as match_score,
+                       r.id as resume_id,
+                       cl.id as cover_letter_id
                 FROM jobs j
                 INNER JOIN user_job_matches ujm ON j.id = ujm.job_id
+                LEFT JOIN LATERAL (
+                    SELECT id FROM user_generated_resumes
+                    WHERE user_id = %s AND job_id = j.id
+                    ORDER BY created_at DESC LIMIT 1
+                ) r ON true
+                LEFT JOIN LATERAL (
+                    SELECT id FROM cover_letters
+                    WHERE user_id = %s AND job_id = j.id
+                    ORDER BY created_at DESC LIMIT 1
+                ) cl ON true
                 WHERE ujm.user_id = %s
                 AND ujm.status IN ('shortlisted', 'applying', 'applied', 'interviewing', 'offered', 'rejected')
                 ORDER BY match_score DESC NULLS LAST,
                          j.discovered_date DESC
-            """, (user_id,))
+            """, (user_id, user_id, user_id))
             jobs = [dict(row) for row in cursor.fetchall()]
         finally:
             cursor.close()
