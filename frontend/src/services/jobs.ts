@@ -63,6 +63,16 @@ export async function saveCoverLetter(jobId: number, text: string): Promise<{ su
   return data;
 }
 
+export async function getResumeContent(resumeId: number): Promise<{ resume_html: string; job_id: number; job_title: string; job_company: string; created_at: string }> {
+  const { data } = await api.get(`/api/resumes/${resumeId}`);
+  return data;
+}
+
+export async function getCoverLetterContent(clId: number): Promise<{ cover_letter_text: string; job_id: number; job_title: string; job_company: string; created_at: string }> {
+  const { data } = await api.get(`/api/cover-letters/${clId}`);
+  return data;
+}
+
 export async function getDocuments(): Promise<{ documents: DocumentCard[] }> {
   const { data } = await api.get('/api/documents');
   return data;

@@ -8,9 +8,12 @@ import {
   Loader2,
   AlertCircle,
   FolderOpen,
+  Eye,
+  Pencil,
 } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Footer from '../components/layout/Footer';
+import DocumentViewerModal from '../components/ui/DocumentViewerModal';
 import { getDocuments, deleteResume, deleteCoverLetter } from '../services/jobs';
 import type { DocumentCard } from '../types';
 
@@ -19,6 +22,11 @@ export default function DocumentsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [modalState, setModalState] = useState<{
+    docType: 'resume' | 'cover_letter';
+    docId: number;
+    mode: 'view' | 'edit';
+  } | null>(null);
 
   const loadDocuments = async () => {
     try {
@@ -165,6 +173,20 @@ export default function DocumentsPage() {
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setModalState({ docType: 'resume', docId: doc.resume!.id, mode: 'view' })}
+                            className="p-1.5 text-slate-400 hover:text-cyan-600 transition-colors rounded-lg hover:bg-cyan-50"
+                            title="View"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setModalState({ docType: 'resume', docId: doc.resume!.id, mode: 'edit' })}
+                            className="p-1.5 text-slate-400 hover:text-cyan-600 transition-colors rounded-lg hover:bg-cyan-50"
+                            title="Edit"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
                           <a
                             href={`/download/resume/${doc.resume.id}?format=html`}
                             className="px-3 py-1.5 text-xs font-medium text-cyan-600 border border-cyan-200 rounded-lg hover:bg-cyan-50 transition-colors flex items-center gap-1"
@@ -207,6 +229,20 @@ export default function DocumentsPage() {
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setModalState({ docType: 'cover_letter', docId: doc.cover_letter!.id, mode: 'view' })}
+                            className="p-1.5 text-slate-400 hover:text-cyan-600 transition-colors rounded-lg hover:bg-cyan-50"
+                            title="View"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setModalState({ docType: 'cover_letter', docId: doc.cover_letter!.id, mode: 'edit' })}
+                            className="p-1.5 text-slate-400 hover:text-cyan-600 transition-colors rounded-lg hover:bg-cyan-50"
+                            title="Edit"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
                           {doc.cover_letter.pdf_exists && (
                             <a
                               href={`/download/cover-letter/${doc.cover_letter.id}?format=pdf`}
@@ -246,6 +282,16 @@ export default function DocumentsPage() {
       </main>
 
       <Footer />
+
+      {modalState && (
+        <DocumentViewerModal
+          docType={modalState.docType}
+          docId={modalState.docId}
+          initialMode={modalState.mode}
+          onClose={() => setModalState(null)}
+          onSaved={() => loadDocuments()}
+        />
+      )}
     </div>
   );
 }

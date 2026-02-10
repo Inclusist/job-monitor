@@ -4110,6 +4110,49 @@ def api_documents():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/resumes/<int:resume_id>', methods=['GET'])
+@login_required
+def api_get_resume(resume_id):
+    """Get resume content as JSON for viewing/editing"""
+    user_id = get_user_id()
+
+    if not resume_ops:
+        return jsonify({'success': False, 'error': 'Resume feature not available'}), 503
+
+    try:
+        resume = resume_ops.get_resume_by_id(resume_id, user_id)
+        if not resume:
+            return jsonify({'success': False, 'error': 'Resume not found or access denied'}), 404
+
+        # Look up job title/company
+        job_title = None
+        job_company = None
+        try:
+            conn = job_db._get_connection()
+            from psycopg2.extras import RealDictCursor
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute("SELECT title, company FROM jobs WHERE id = %s", (resume['job_id'],))
+            job_row = cur.fetchone()
+            if job_row:
+                job_title = job_row['title']
+                job_company = job_row['company']
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
+
+        return jsonify({
+            'resume_html': resume['resume_html'],
+            'job_id': resume['job_id'],
+            'job_title': job_title,
+            'job_company': job_company,
+            'created_at': resume['created_at'].isoformat() if hasattr(resume['created_at'], 'isoformat') else str(resume['created_at']),
+        })
+    except Exception as e:
+        print(f"Error getting resume: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/resumes/<int:resume_id>', methods=['DELETE'])
 @login_required
 def api_delete_resume(resume_id):
@@ -4127,6 +4170,42 @@ def api_delete_resume(resume_id):
             return jsonify({'success': False, 'error': 'Resume not found or access denied'}), 404
     except Exception as e:
         print(f"Error deleting resume: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/cover-letters/<int:cover_letter_id>', methods=['GET'])
+@login_required
+def api_get_cover_letter(cover_letter_id):
+    """Get cover letter content as JSON for viewing/editing"""
+    user_id = get_user_id()
+
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            "SELECT job_id, job_title, job_company, cover_letter_html, created_at "
+            "FROM cover_letters WHERE id = %s AND user_id = %s",
+            (cover_letter_id, user_id),
+        )
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if not row:
+            return jsonify({'success': False, 'error': 'Cover letter not found or access denied'}), 404
+
+        created_at = row['created_at']
+        return jsonify({
+            'cover_letter_text': row['cover_letter_html'],
+            'job_id': row['job_id'],
+            'job_title': row['job_title'],
+            'job_company': row['job_company'],
+            'created_at': created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at),
+        })
+    except Exception as e:
+        print(f"Error getting cover letter: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
