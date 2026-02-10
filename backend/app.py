@@ -47,7 +47,8 @@ app = Flask(__name__, template_folder='web/templates', static_folder='web/static
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
 
 # Cookie config for cross-origin deployment (backend and frontend on different domains)
-if os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('FLASK_ENV') == 'production':
+_frontend = os.getenv('FRONTEND_URL', '')
+if _frontend.startswith('https://') and 'localhost' not in _frontend:
     app.config['SESSION_COOKIE_SECURE'] = True       # only send over HTTPS
     app.config['SESSION_COOKIE_SAMESITE'] = 'None'   # allow cross-origin cookie sends
     app.config['SESSION_COOKIE_HTTPONLY'] = True      # not accessible via JS
