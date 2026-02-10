@@ -1,25 +1,29 @@
 :{$PORT}
 
-(backend_proxy) {
+handle /api/* {
     reverse_proxy {$BACKEND_URL} {
         header_up X-Forwarded-Proto https
     }
 }
-
-handle /api/* {
-    import backend_proxy
-}
 handle /login/* {
-    import backend_proxy
+    reverse_proxy {$BACKEND_URL} {
+        header_up X-Forwarded-Proto https
+    }
 }
 handle /authorize/* {
-    import backend_proxy
+    reverse_proxy {$BACKEND_URL} {
+        header_up X-Forwarded-Proto https
+    }
 }
 handle /logout {
-    import backend_proxy
+    reverse_proxy {$BACKEND_URL} {
+        header_up X-Forwarded-Proto https
+    }
 }
 handle /download/* {
-    import backend_proxy
+    reverse_proxy {$BACKEND_URL} {
+        header_up X-Forwarded-Proto https
+    }
 }
 
 handle {
