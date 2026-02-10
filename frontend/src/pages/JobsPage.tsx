@@ -13,6 +13,8 @@ import {
   Search,
   X,
   Loader2,
+  GraduationCap,
+  Wifi,
 } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Footer from '../components/layout/Footer';
@@ -453,6 +455,29 @@ function JobRow({
               </span>
             )}
           </div>
+          {/* Metadata pills */}
+          {(job.ai_experience_level || job.ai_work_arrangement || job.ai_employment_type) && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {job.ai_experience_level && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-500 rounded-md text-xs">
+                  <GraduationCap className="w-3 h-3" />
+                  Exp: {job.ai_experience_level}
+                </span>
+              )}
+              {job.ai_work_arrangement && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-500 rounded-md text-xs">
+                  <Wifi className="w-3 h-3" />
+                  {job.ai_work_arrangement}
+                </span>
+              )}
+              {job.ai_employment_type && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-500 rounded-md text-xs">
+                  <Clock className="w-3 h-3" />
+                  {job.ai_employment_type}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Score */}
