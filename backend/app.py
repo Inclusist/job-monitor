@@ -2838,6 +2838,188 @@ def api_me():
     })
 
 
+@app.route('/api/profile')
+@login_required
+def api_profile():
+    """Return full profile data: user info, CV list, parsed profile from primary CV"""
+    user = get_user()
+    user_id = user['id']
+
+    # Get CVs
+    cvs_raw = cv_manager.get_user_cvs(user_id)
+    cvs = []
+    for cv in cvs_raw:
+        cvs.append({
+            'id': cv['id'],
+            'file_name': cv.get('file_name', ''),
+            'file_type': cv.get('file_type', ''),
+            'uploaded_date': cv['uploaded_date'].isoformat() if hasattr(cv.get('uploaded_date', ''), 'isoformat') else str(cv.get('uploaded_date', '')),
+            'is_primary': bool(cv.get('is_primary')),
+        })
+
+    # Get primary CV and its profile
+    primary_cv = cv_manager.get_primary_cv(user_id)
+    active_cv_id = primary_cv['id'] if primary_cv else None
+    profile = None
+    if primary_cv:
+        profile = cv_manager.get_cv_profile(primary_cv['id'])
+        if profile:
+            # Extract fields from raw_analysis into top-level
+            raw = profile.get('raw_analysis', {})
+            if isinstance(raw, dict):
+                profile['extracted_role'] = raw.get('extracted_role')
+                profile['derived_seniority'] = raw.get('derived_seniority')
+                domain_exp = raw.get('domain_expertise', [])
+                profile['domain_expertise'] = domain_exp if isinstance(domain_exp, list) else []
+                profile['semantic_summary'] = raw.get('semantic_summary')
+            # Remove raw_analysis and internal fields from response
+            for key in ('raw_analysis', 'id', 'cv_id', 'created_date', 'last_updated', 'full_text', 'work_history', 'achievements'):
+                profile.pop(key, None)
+
+    # Get user-claimed competencies/skills for resume generation
+    claimed_data = None
+    if resume_ops:
+        try:
+            claimed_data = resume_ops.get_user_claimed_data(user_id)
+        except Exception:
+            claimed_data = None
+
+    return jsonify({
+        'user': {
+            'id': user['id'],
+            'email': user.get('email'),
+            'name': user.get('name'),
+            'location': user.get('location'),
+            'user_role': user.get('user_role'),
+            'provider': user.get('provider', 'email'),
+            'avatar_url': user.get('avatar_url'),
+            'resume_name': user.get('resume_name'),
+            'resume_email': user.get('resume_email'),
+            'resume_phone': user.get('resume_phone'),
+        },
+        'cvs': cvs,
+        'profile': profile,
+        'active_cv_id': active_cv_id,
+        'claimed_data': claimed_data,
+    })
+
+
+@app.route('/api/upload-cv', methods=['POST'])
+@login_required
+def api_upload_cv():
+    """Upload and parse a CV file"""
+    if not handler:
+        return jsonify({'success': False, 'error': 'CV upload not available. ANTHROPIC_API_KEY not configured.'}), 503
+
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'No file uploaded'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'No file selected'}), 400
+
+    if not allowed_file(file.filename):
+        return jsonify({'success': False, 'error': 'Invalid file type. Only PDF, DOCX, and TXT are allowed.'}), 400
+
+    set_primary = request.form.get('set_primary', 'true').lower() == 'true'
+    email = get_user_email()
+
+    filename = secure_filename(file.filename)
+    temp_path = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(temp_path)
+
+    try:
+        result = handler.upload_cv(email, temp_path, set_as_primary=set_primary)
+
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'cv_id': result.get('cv_id'),
+                'message': result['message'],
+                'parsing_cost': result.get('parsing_cost', 0),
+            })
+        else:
+            return jsonify({'success': False, 'error': result.get('message', 'Upload failed')}), 500
+
+    except Exception as e:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/delete-cv/<int:cv_id>', methods=['POST'])
+@login_required
+def api_delete_cv(cv_id):
+    """Delete a CV (soft delete)"""
+    user_id = get_user_id()
+
+    cv = cv_manager.get_cv(cv_id)
+    if not cv:
+        return jsonify({'success': False, 'error': 'CV not found'}), 404
+    if cv.get('user_id') != user_id:
+        return jsonify({'success': False, 'error': 'Not authorized'}), 403
+
+    # Remove physical file if present
+    file_path = cv.get('file_path')
+    if file_path and os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
+
+    cv_manager.delete_cv(cv_id)
+    return jsonify({'success': True, 'message': 'CV deleted'})
+
+
+@app.route('/api/set-primary-cv/<int:cv_id>', methods=['POST'])
+@login_required
+def api_set_primary_cv(cv_id):
+    """Set a CV as primary"""
+    user_id = get_user_id()
+
+    cv = cv_manager.get_cv(cv_id)
+    if not cv:
+        return jsonify({'success': False, 'error': 'CV not found'}), 404
+    if cv.get('user_id') != user_id:
+        return jsonify({'success': False, 'error': 'Not authorized'}), 403
+
+    cv_manager.set_primary_cv(user_id, cv_id)
+    return jsonify({'success': True, 'message': 'Primary CV updated'})
+
+
+@app.route('/api/profile', methods=['PUT'])
+@login_required
+def api_update_profile():
+    """Update user info and/or parsed profile fields"""
+    user_id = get_user_id()
+    data = request.get_json() or {}
+
+    # Update user fields
+    user_data = data.get('user')
+    if user_data:
+        allowed_fields = {'name', 'location', 'user_role'}
+        update_kwargs = {k: v for k, v in user_data.items() if k in allowed_fields}
+        if update_kwargs:
+            cv_manager.update_user(user_id, **update_kwargs)
+
+    # Update profile fields
+    profile_data = data.get('profile')
+    if profile_data:
+        primary_profile = cv_manager.get_primary_profile(user_id)
+        if primary_profile:
+            cv_id = primary_profile['cv_id']
+            # Merge: start with existing profile, overlay with new data
+            existing = cv_manager.get_cv_profile(cv_id) or {}
+            for key, val in profile_data.items():
+                existing[key] = val
+            cv_manager.update_cv_profile(cv_id, existing)
+
+    return jsonify({'success': True, 'message': 'Profile updated'})
+
+
 @app.route('/api/jobs')
 @login_required
 def api_jobs():

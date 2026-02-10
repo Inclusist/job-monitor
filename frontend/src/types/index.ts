@@ -179,3 +179,68 @@ export interface DashboardResponse {
   jobs: DashboardJob[];
   count: number;
 }
+
+export interface CV {
+  id: number;
+  file_name: string;
+  file_type: string;
+  uploaded_date: string;
+  is_primary: boolean;
+}
+
+export interface CVProfile {
+  technical_skills: string[];
+  soft_skills: string[];
+  competencies: Array<{ name: string; evidence?: string } | string>;
+  languages: Array<{ language: string; level?: string } | string>;
+  education: Array<{ degree: string; institution: string; year?: string }>;
+  work_experience: Array<{
+    title: string;
+    company: string;
+    duration?: string;
+    description?: string;
+    key_achievements?: string[];
+  }>;
+  career_highlights: string[];
+  projects: string[];
+  expertise_summary?: string;
+  career_level?: string;
+  total_years_experience?: number;
+  preferred_roles: string[];
+  industries: string[];
+  extracted_role?: string;
+  derived_seniority?: string;
+  domain_expertise?: string[];
+  semantic_summary?: string;
+}
+
+export interface ClaimedItem {
+  evidence?: string;
+  work_experience_ids?: number[];
+}
+
+export interface ClaimedData {
+  competencies: Record<string, ClaimedItem>;
+  skills: Record<string, ClaimedItem>;
+}
+
+export interface ProfileUser {
+  id: number;
+  email: string;
+  name: string;
+  location?: string;
+  user_role?: string;
+  provider: string;
+  avatar_url?: string;
+  resume_name?: string;
+  resume_email?: string;
+  resume_phone?: string;
+}
+
+export interface ProfileResponse {
+  user: ProfileUser;
+  cvs: CV[];
+  profile: CVProfile | null;
+  active_cv_id: number | null;
+  claimed_data: ClaimedData | null;
+}

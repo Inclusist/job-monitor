@@ -89,7 +89,7 @@ def update_job_lightweight(conn, job_id, data):
                 ai_experience_level = %s,
                 cities_derived = %s,
                 source_type = 'lightweight_enriched',
-                updated_at = NOW()
+                last_updated = NOW()
             WHERE id = %s
         """, (
             data.get('work_arrangement'),

@@ -41,7 +41,13 @@ export default function Header() {
               >
                 My Documents
               </Link>
-              <div className="flex items-center space-x-3">
+              <Link
+                to="/profile"
+                className="text-slate-600 hover:text-cyan-600 transition-colors text-sm font-medium"
+              >
+                Profile
+              </Link>
+              <Link to="/profile" className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
                 {user?.avatar_url ? (
                   <img
                     src={user.avatar_url}
@@ -55,7 +61,7 @@ export default function Header() {
                   </div>
                 )}
                 <span className="text-sm text-slate-700 font-medium">{user?.name}</span>
-              </div>
+              </Link>
               <a
                 href={getLogoutUrl()}
                 className="flex items-center space-x-1 text-slate-500 hover:text-slate-700 transition-colors text-sm"

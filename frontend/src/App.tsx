@@ -4,6 +4,7 @@ import LoginPage from './pages/LoginPage';
 import JobsPage from './pages/JobsPage';
 import DashboardPage from './pages/DashboardPage';
 import DocumentsPage from './pages/DocumentsPage';
+import ProfilePage from './pages/ProfilePage';
 import ProtectedRoute from './components/layout/ProtectedRoute';
 
 function App() {
@@ -32,6 +33,14 @@ function App() {
         element={
           <ProtectedRoute>
             <DocumentsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/profile"
+        element={
+          <ProtectedRoute>
+            <ProfilePage />
           </ProtectedRoute>
         }
       />
