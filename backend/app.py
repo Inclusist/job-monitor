@@ -4445,6 +4445,7 @@ def api_dashboard():
                        ujm.key_alignments,
                        ujm.potential_gaps,
                        COALESCE(ujm.claude_score, ujm.semantic_score) as match_score,
+                       ujm.last_updated as dashboard_date,
                        r.id as resume_id,
                        cl.id as cover_letter_id
                 FROM jobs j
@@ -4460,7 +4461,7 @@ def api_dashboard():
                     ORDER BY created_at DESC LIMIT 1
                 ) cl ON true
                 WHERE ujm.user_id = %s
-                AND ujm.status IN ('shortlisted', 'applying', 'applied', 'interviewing', 'offered', 'rejected')
+                AND ujm.status IN ('shortlisted', 'applied', 'interviewing', 'offered', 'rejected')
                 ORDER BY match_score DESC NULLS LAST,
                          j.discovered_date DESC
             """, (user_id, user_id, user_id))
@@ -4481,11 +4482,16 @@ def api_dashboard():
                 elif not val:
                     job[field] = []
             # Serialize dates
-            for date_field in ('posted_date', 'discovered_date'):
+            for date_field in ('posted_date', 'discovered_date', 'dashboard_date'):
                 if job.get(date_field) and hasattr(job[date_field], 'isoformat'):
                     job[date_field] = job[date_field].isoformat()
 
-        return jsonify({'jobs': jobs, 'count': len(jobs)})
+        # Compute status counts from fetched rows
+        from collections import Counter
+        status_counter = Counter(job['status'] for job in jobs)
+        status_counts = dict(status_counter)
+
+        return jsonify({'jobs': jobs, 'count': len(jobs), 'status_counts': status_counts})
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -4523,7 +4529,7 @@ def api_update_job_status(job_id):
     user_id = get_user_id()
     data = request.get_json()
     status = data.get('status') if data else None
-    allowed = ('shortlisted', 'applying', 'applied', 'interviewing', 'offered', 'rejected')
+    allowed = ('shortlisted', 'applied', 'interviewing', 'offered', 'rejected')
     if status not in allowed:
         return jsonify({'success': False, 'error': f'Invalid status. Must be one of: {", ".join(allowed)}'}), 400
     try:

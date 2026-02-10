@@ -53,7 +53,6 @@ export default function FilterBar({ onApply, initialFilters }: FilterBarProps) {
             <option value="new">New</option>
             <option value="reviewed">Reviewed</option>
             <option value="shortlisted">Shortlisted</option>
-            <option value="applying">Applying</option>
           </select>
         </div>
         <div>

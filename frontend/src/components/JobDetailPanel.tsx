@@ -40,7 +40,7 @@ export default function JobDetailPanel({ jobId }: JobDetailPanelProps) {
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
 
-  const DASHBOARD_STATUSES = ['shortlisted', 'applying', 'applied', 'interviewing', 'offered'];
+  const DASHBOARD_STATUSES = ['shortlisted', 'applied', 'interviewing', 'offered'];
   const isOnDashboard = job ? DASHBOARD_STATUSES.includes(job.status ?? '') : false;
 
   const dashboardMutation = useMutation({
@@ -197,7 +197,7 @@ export default function JobDetailPanel({ jobId }: JobDetailPanelProps) {
       {(job.ai_experience_level || job.ai_work_arrangement || job.ai_employment_type || job.salary) && (
         <div className="flex flex-wrap gap-2">
           {job.ai_experience_level && (
-            <MetadataPill icon={<GraduationCap className="w-3.5 h-3.5" />} label={job.ai_experience_level} />
+            <MetadataPill icon={<GraduationCap className="w-3.5 h-3.5" />} label={`Exp: ${job.ai_experience_level}`} />
           )}
           {job.ai_work_arrangement && (
             <MetadataPill icon={<Wifi className="w-3.5 h-3.5" />} label={job.ai_work_arrangement} />

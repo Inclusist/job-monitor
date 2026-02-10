@@ -29,8 +29,11 @@ export interface Job {
   match_score?: number;
   claude_score?: number;
   semantic_score?: number;
+  ai_experience_level?: string;
+  ai_work_arrangement?: string;
+  ai_employment_type?: string;
   priority?: 'high' | 'medium' | 'low';
-  status?: 'new' | 'reviewed' | 'shortlisted' | 'applying' | 'applied' | 'interviewing' | 'offered' | 'rejected' | 'deleted';
+  status?: 'new' | 'reviewed' | 'shortlisted' | 'applied' | 'interviewing' | 'offered' | 'rejected' | 'deleted';
   match_reasoning?: string;
   key_alignments?: string[];
   potential_gaps?: string[];
@@ -160,7 +163,7 @@ export interface JobDetail {
   claimed_skill_names: string[];
 }
 
-export type DashboardStatus = 'shortlisted' | 'applying' | 'applied' | 'interviewing' | 'offered' | 'rejected';
+export type DashboardStatus = 'shortlisted' | 'applied' | 'interviewing' | 'offered' | 'rejected';
 
 export interface DashboardJob {
   id: number;
@@ -178,11 +181,13 @@ export interface DashboardJob {
   potential_gaps: string[];
   resume_id?: number | null;
   cover_letter_id?: number | null;
+  dashboard_date?: string;
 }
 
 export interface DashboardResponse {
   jobs: DashboardJob[];
   count: number;
+  status_counts?: Record<string, number>;
 }
 
 export interface CV {

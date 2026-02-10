@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import {
@@ -14,6 +14,7 @@ import {
   FileText,
   Eye,
   Pencil,
+  ArrowUpDown,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Header from '../components/layout/Header';
@@ -27,7 +28,15 @@ import type { DashboardJob, DashboardStatus } from '../types';
 
 const STATUS_OPTIONS: { value: DashboardStatus; label: string }[] = [
   { value: 'shortlisted', label: 'Planning to Apply' },
-  { value: 'applying', label: 'Applying' },
+  { value: 'applied', label: 'Applied' },
+  { value: 'interviewing', label: 'Interviewing' },
+  { value: 'offered', label: 'Offered' },
+  { value: 'rejected', label: 'Rejected' },
+];
+
+const TAB_OPTIONS: { value: DashboardStatus | 'all'; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'shortlisted', label: 'Planning' },
   { value: 'applied', label: 'Applied' },
   { value: 'interviewing', label: 'Interviewing' },
   { value: 'offered', label: 'Offered' },
@@ -53,6 +62,8 @@ export default function DashboardPage() {
     docId: number;
     mode: 'view' | 'edit';
   } | null>(null);
+  const [activeTab, setActiveTab] = useState<DashboardStatus | 'all'>('all');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
   const statusMutation = useMutation({
     mutationFn: ({ jobId, status }: { jobId: number; status: DashboardStatus }) =>
@@ -71,6 +82,21 @@ export default function DashboardPage() {
   });
 
   const jobs = data?.jobs ?? [];
+  const statusCounts = data?.status_counts ?? {};
+
+  const filteredJobs = useMemo(() => {
+    const filtered = activeTab === 'all' ? jobs : jobs.filter((j) => j.status === activeTab);
+    return [...filtered].sort((a, b) => {
+      const dateA = a.dashboard_date ? new Date(a.dashboard_date).getTime() : 0;
+      const dateB = b.dashboard_date ? new Date(b.dashboard_date).getTime() : 0;
+      return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+    });
+  }, [jobs, activeTab, sortOrder]);
+
+  const getTabCount = (tab: DashboardStatus | 'all') => {
+    if (tab === 'all') return data?.count ?? 0;
+    return statusCounts[tab] ?? 0;
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-cyan-50 via-white to-white">
@@ -82,15 +108,10 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           className="border border-cyan-200 rounded-2xl p-8 bg-white shadow-sm mb-8"
         >
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-3">
               <LayoutDashboard className="w-6 h-6 text-cyan-600" />
               <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-              {data && (
-                <span className="text-sm text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full">
-                  {data.count} {data.count === 1 ? 'job' : 'jobs'}
-                </span>
-              )}
             </div>
             <Link
               to="/jobs"
@@ -98,6 +119,40 @@ export default function DashboardPage() {
             >
               Browse Jobs
             </Link>
+          </div>
+
+          {/* Tab bar + sort */}
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {TAB_OPTIONS.map((tab) => {
+                const count = getTabCount(tab.value);
+                const isActive = activeTab === tab.value;
+                return (
+                  <button
+                    key={tab.value}
+                    onClick={() => setActiveTab(tab.value)}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                      isActive
+                        ? 'bg-cyan-600 text-white'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {tab.label}
+                    <span className={`ml-1.5 ${isActive ? 'text-cyan-100' : 'text-slate-400'}`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              onClick={() => setSortOrder((o) => (o === 'desc' ? 'asc' : 'desc'))}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 rounded-full hover:bg-slate-200 transition-colors flex-shrink-0"
+              title={sortOrder === 'desc' ? 'Showing newest first' : 'Showing oldest first'}
+            >
+              <ArrowUpDown className="w-3.5 h-3.5" />
+              {sortOrder === 'desc' ? 'Newest' : 'Oldest'}
+            </button>
           </div>
         </motion.div>
 
@@ -137,9 +192,16 @@ export default function DashboardPage() {
           </motion.div>
         )}
 
+        {/* Filtered empty state (has jobs but none match current tab) */}
+        {!isLoading && !error && jobs.length > 0 && filteredJobs.length === 0 && (
+          <div className="text-center py-16 text-slate-500">
+            <p className="text-sm">No jobs in this category.</p>
+          </div>
+        )}
+
         {/* Job cards */}
         <div className="space-y-4">
-          {jobs.map((job, i) => (
+          {filteredJobs.map((job, i) => (
             <motion.div
               key={job.id}
               initial={{ opacity: 0, y: 20 }}

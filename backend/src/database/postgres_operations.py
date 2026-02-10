@@ -232,6 +232,11 @@ class PostgresDatabase:
                 ON jobs(source)
             """)
             
+            # Data migration: rename 'applying' status to 'applied' (idempotent)
+            cursor.execute("""
+                UPDATE user_job_matches SET status = 'applied' WHERE status = 'applying'
+            """)
+
             conn.commit()
             logger.info("PostgreSQL tables created successfully")
             
@@ -1118,6 +1123,9 @@ class PostgresDatabase:
                     j.url,
                     j.posted_date,
                     j.discovered_date,
+                    j.ai_experience_level,
+                    j.ai_work_arrangement,
+                    j.ai_employment_type,
                     COALESCE(ujm.claude_score, ujm.semantic_score) as match_score
                 FROM user_job_matches ujm
                 JOIN jobs j ON ujm.job_id = j.id
@@ -1309,7 +1317,7 @@ class PostgresDatabase:
         Args:
             user_id: User ID
             job_id: Job ID (database primary key)
-            status: New status ('shortlisted', 'deleted', 'viewed', 'applying', 'applied')
+            status: New status ('shortlisted', 'deleted', 'viewed', 'applied', 'interviewing', 'offered', 'rejected')
         """
         conn = self._get_connection()
         try:
