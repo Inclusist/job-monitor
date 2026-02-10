@@ -16,6 +16,11 @@ export async function hideJob(jobId: number): Promise<void> {
   await api.post(`/api/jobs/${jobId}/hide`);
 }
 
+export async function analyzeJob(jobId: number): Promise<{ success: boolean; claude_score?: number; error?: string }> {
+  const { data } = await api.post(`/api/jobs/${jobId}/analyze`);
+  return data;
+}
+
 export async function runMatching(): Promise<{ success: boolean; message?: string; error?: string }> {
   const { data } = await api.post('/api/run-matching');
   return data;

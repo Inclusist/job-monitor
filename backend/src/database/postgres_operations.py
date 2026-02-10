@@ -233,9 +233,23 @@ class PostgresDatabase:
             """)
             
             # Data migration: rename 'applying' status to 'applied' (idempotent)
-            cursor.execute("""
-                UPDATE user_job_matches SET status = 'applied' WHERE status = 'applying'
-            """)
+            # Use SKIP LOCKED to avoid deadlocks when multiple workers start simultaneously
+            try:
+                cursor.execute("""
+                    UPDATE user_job_matches 
+                    SET status = 'applied' 
+                    WHERE status = 'applying'
+                    AND id IN (
+                        SELECT id FROM user_job_matches 
+                        WHERE status = 'applying' 
+                        FOR UPDATE SKIP LOCKED
+                    )
+                """)
+            except psycopg2.errors.DeadlockDetected:
+                # If deadlock occurs, another worker is handling the migration
+                # Safe to ignore since migration is idempotent
+                conn.rollback()
+                logger.warning("Migration skipped due to concurrent execution")
 
             conn.commit()
             logger.info("PostgreSQL tables created successfully")

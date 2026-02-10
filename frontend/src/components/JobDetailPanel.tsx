@@ -17,13 +17,14 @@ import {
   FileText,
   Mail,
   LayoutDashboard,
+  Sparkles,
 } from 'lucide-react';
 import Badge from './ui/Badge';
 import ScoreDisplay from './ui/ScoreDisplay';
 import ResumeModal from './ResumeModal';
 import CoverLetterModal from './CoverLetterModal';
 import { useJobDetail } from '../hooks/useJobDetail';
-import { claimItems, shortlistJob, removeShortlist } from '../services/jobs';
+import { claimItems, shortlistJob, removeShortlist, analyzeJob } from '../services/jobs';
 import { useQueryClient, useMutation } from '@tanstack/react-query';
 
 interface JobDetailPanelProps {
@@ -48,6 +49,15 @@ export default function JobDetailPanel({ jobId }: JobDetailPanelProps) {
       if (!job) return Promise.resolve({ success: true });
       return isOnDashboard ? removeShortlist(job.id) : shortlistJob(job.id);
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobDetail', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+
+  const analyzeMutation = useMutation({
+    mutationFn: () => analyzeJob(jobId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobDetail', jobId] });
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
@@ -149,12 +159,27 @@ export default function JobDetailPanel({ jobId }: JobDetailPanelProps) {
       </div>
 
       {/* Scores */}
-      {(job.match_score != null || job.claude_score != null || job.semantic_score != null) && (
+      {(job.claude_score != null || job.semantic_score != null) && (
         <div className="flex items-center gap-6 p-4 bg-slate-50 rounded-xl">
-          <ScoreDisplay score={job.match_score} label="Match" />
-          {job.claude_score != null && <ScoreDisplay score={job.claude_score} label="Claude" />}
+          {job.claude_score != null && <ScoreDisplay score={job.claude_score} label="AI Match" />}
           {job.semantic_score != null && <ScoreDisplay score={job.semantic_score} label="Semantic" />}
         </div>
+      )}
+
+      {/* Analyze button when no Claude score */}
+      {job.claude_score == null && (
+        <button
+          onClick={() => analyzeMutation.mutate()}
+          disabled={analyzeMutation.isPending}
+          className="w-full px-4 py-2.5 text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 bg-cyan-50 text-cyan-700 border border-cyan-200 hover:bg-cyan-100 disabled:opacity-50"
+        >
+          {analyzeMutation.isPending ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Sparkles className="w-4 h-4" />
+          )}
+          Run AI Analysis
+        </button>
       )}
 
       {/* Generate Resume / Cover Letter */}

@@ -26,7 +26,8 @@ import JobDetailPanel from '../components/JobDetailPanel';
 import { useJobs, useHideJob, useRunMatching } from '../hooks/useJobs';
 import { useMatchingStatus } from '../hooks/useMatchingStatus';
 import { useAuth } from '../contexts/AuthContext';
-import { searchJobs } from '../services/jobs';
+import { searchJobs, analyzeJob } from '../services/jobs';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Job, SearchResult } from '../types';
 
 export default function JobsPage() {
@@ -45,6 +46,18 @@ export default function JobsPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
+
+  // Analyze job on demand
+  const queryClient = useQueryClient();
+  const [analyzingJobId, setAnalyzingJobId] = useState<number | null>(null);
+  const analyzeMutation = useMutation({
+    mutationFn: (jobId: number) => analyzeJob(jobId),
+    onMutate: (jobId) => setAnalyzingJobId(jobId),
+    onSettled: () => setAnalyzingJobId(null),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+    },
+  });
 
   const handleRunMatching = () => {
     setMatchingError('');
@@ -270,6 +283,8 @@ export default function JobsPage() {
                           onHide={(id) => hideJob.mutate(id)}
                           hidingId={hideJob.isPending ? (hideJob.variables as number) : undefined}
                           onJobClick={setSelectedJobId}
+                          onAnalyze={(id) => analyzeMutation.mutate(id)}
+                          analyzingJobId={analyzingJobId}
                         />
                       )}
 
@@ -283,6 +298,8 @@ export default function JobsPage() {
                           onHide={(id) => hideJob.mutate(id)}
                           hidingId={hideJob.isPending ? (hideJob.variables as number) : undefined}
                           onJobClick={setSelectedJobId}
+                          onAnalyze={(id) => analyzeMutation.mutate(id)}
+                          analyzingJobId={analyzingJobId}
                         />
                       )}
                     </div>
@@ -372,6 +389,8 @@ function JobSection({
   onHide,
   hidingId,
   onJobClick,
+  onAnalyze,
+  analyzingJobId,
 }: {
   title: string;
   icon: React.ReactNode;
@@ -380,6 +399,8 @@ function JobSection({
   onHide: (id: number) => void;
   hidingId?: number;
   onJobClick: (id: number) => void;
+  onAnalyze: (id: number) => void;
+  analyzingJobId: number | null;
 }) {
   return (
     <motion.div
@@ -393,16 +414,21 @@ function JobSection({
         <span className="text-sm text-slate-400">({jobs.length})</span>
       </div>
       <div className="space-y-3">
-        {jobs.map((job) => (
-          <JobRow
-            key={job.job_id || job.id || job.job_table_id}
-            job={job}
-            borderColor={borderColor}
-            onHide={onHide}
-            isHiding={hidingId === (job.job_table_id || job.id)}
-            onClick={() => onJobClick(job.job_table_id || job.id || 0)}
-          />
-        ))}
+        {jobs.map((job) => {
+          const id = job.job_table_id || job.id || 0;
+          return (
+            <JobRow
+              key={job.job_id || job.id || job.job_table_id}
+              job={job}
+              borderColor={borderColor}
+              onHide={onHide}
+              isHiding={hidingId === (job.job_table_id || job.id)}
+              onClick={() => onJobClick(id)}
+              onAnalyze={onAnalyze}
+              isAnalyzing={analyzingJobId === id}
+            />
+          );
+        })}
       </div>
     </motion.div>
   );
@@ -414,12 +440,16 @@ function JobRow({
   onHide,
   isHiding,
   onClick,
+  onAnalyze,
+  isAnalyzing,
 }: {
   job: Job;
   borderColor: string;
   onHide: (id: number) => void;
   isHiding: boolean;
   onClick: () => void;
+  onAnalyze: (id: number) => void;
+  isAnalyzing: boolean;
 }) {
   const jobId = job.job_table_id || job.id || 0;
 
@@ -480,9 +510,20 @@ function JobRow({
           )}
         </div>
 
-        {/* Score */}
+        {/* Score / Analyze */}
         <div className="flex items-center gap-4">
-          <ScoreDisplay score={job.claude_score ?? job.match_score} label="AI Match" />
+          {job.claude_score != null ? (
+            <ScoreDisplay score={job.claude_score} label="AI Match" />
+          ) : (
+            <button
+              onClick={(e) => { e.stopPropagation(); onAnalyze(jobId); }}
+              disabled={isAnalyzing}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-lg hover:bg-cyan-100 transition-colors disabled:opacity-50"
+            >
+              {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              Analyze
+            </button>
+          )}
         </div>
 
         {/* Badges */}

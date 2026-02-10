@@ -3121,6 +3121,81 @@ def api_jobs():
         return jsonify({'new_jobs': [], 'previous_jobs': [], 'total': 0, 'filters': {}, 'has_cv': False, 'error': str(e)})
 
 
+@app.route('/api/jobs/<int:job_id>/analyze', methods=['POST'])
+@login_required
+def api_analyze_job(job_id):
+    """Run Claude analysis on a single job on demand"""
+    user_id = get_user_id()
+    try:
+        # Check for API key
+        api_key = os.environ.get('ANTHROPIC_API_KEY')
+        if not api_key:
+            return jsonify({'success': False, 'error': 'AI analysis is not configured (missing API key)'}), 500
+
+        # Get user CV profile
+        profile = cv_manager.get_primary_profile(user_id)
+        if not profile:
+            return jsonify({'success': False, 'error': 'Please upload your CV first'}), 400
+
+        # Get job data
+        job = job_db.get_job_with_user_data(job_id, user_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Job not found'}), 404
+
+        # Run Claude analysis
+        from analysis.claude_analyzer import ClaudeJobAnalyzer
+        user = cv_manager.get_user_by_id(user_id)
+        analyzer = ClaudeJobAnalyzer(api_key, db=job_db, user_email=user.get('email', 'default@localhost'))
+        analyzer.set_profile_from_cv(profile)
+        analyzed = analyzer.analyze_batch([job])
+
+        if not analyzed or 'match_score' not in analyzed[0]:
+            return jsonify({'success': False, 'error': 'Analysis did not return results'}), 500
+
+        result = analyzed[0]
+        claude_score = result['match_score']
+        priority = result.get('priority', 'medium')
+        reasoning = result.get('reasoning', '')
+        key_alignments = result.get('key_alignments', [])
+        potential_gaps = result.get('potential_gaps', [])
+        competency_mappings = result.get('competency_mappings', [])
+        skill_mappings = result.get('skill_mappings', [])
+
+        # Normalize list items to strings
+        if key_alignments and isinstance(key_alignments[0], dict):
+            key_alignments = [str(item) for item in key_alignments]
+        if potential_gaps and isinstance(potential_gaps[0], dict):
+            potential_gaps = [str(item) for item in potential_gaps]
+
+        # Save match data
+        job_db.add_user_job_match(
+            user_id=user_id,
+            job_id=job_id,
+            claude_score=claude_score,
+            priority=priority,
+            match_reasoning=reasoning,
+            key_alignments=key_alignments,
+            potential_gaps=potential_gaps,
+            competency_mappings=competency_mappings,
+            skill_mappings=skill_mappings,
+        )
+
+        # Cache extracted competencies/skills if present
+        if result.get('ai_competencies') or result.get('ai_key_skills'):
+            job_db.update_jobs_competencies_batch([{
+                'job_id': job_id,
+                'ai_competencies': result.get('ai_competencies', []),
+                'ai_key_skills': result.get('ai_key_skills', []),
+            }])
+
+        return jsonify({'success': True, 'claude_score': claude_score})
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/jobs/<int:job_id>/hide', methods=['POST'])
 @login_required
 def api_hide_job(job_id):
