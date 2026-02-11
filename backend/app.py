@@ -2785,13 +2785,23 @@ def run_job_matching():
             flash(f'Job matching is up to date. {reason}', 'info')
             return redirect(url_for('jobs'))
         
+        # Set status to running immediately so polling picks it up
+        matching_status[user_id] = {
+            'status': 'running',
+            'stage': 'initializing',
+            'progress': 0,
+            'message': 'Starting job matching...',
+            'matches_found': 0,
+            'jobs_analyzed': 0,
+        }
+
         # Start background filtering
         threading.Thread(
             target=run_background_filtering,
             args=(user_id,),
             daemon=True
         ).start()
-        
+
         flash('Job matching started! Progress will update automatically below.', 'success')
         return redirect(url_for('jobs'))
         
@@ -3276,6 +3286,17 @@ def api_run_matching():
         should_filter, reason = cv_manager.should_refilter(user_id)
         if not should_filter:
             return jsonify({'success': False, 'error': f'Matching is up to date. {reason}'}), 200
+
+        # Set status to running immediately so the frontend polling picks it up
+        # before the background thread has a chance to start
+        matching_status[user_id] = {
+            'status': 'running',
+            'stage': 'initializing',
+            'progress': 0,
+            'message': 'Starting job matching...',
+            'matches_found': 0,
+            'jobs_analyzed': 0,
+        }
 
         threading.Thread(
             target=run_background_filtering,

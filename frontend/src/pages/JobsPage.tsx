@@ -63,6 +63,11 @@ export default function JobsPage() {
     setMatchingError('');
     setProgressDismissed(false);
     runMatching.mutate(undefined, {
+      onSuccess: (data) => {
+        if (!data.success) {
+          setMatchingError(data.error || 'Matching could not be started');
+        }
+      },
       onError: (err) => {
         const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to start matching';
         setMatchingError(msg);

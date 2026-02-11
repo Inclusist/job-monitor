@@ -28,8 +28,11 @@ export function useRunMatching() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: runMatching,
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      if (data.success) {
+        queryClient.invalidateQueries({ queryKey: ['matching-status'] });
+      }
     },
   });
 }
