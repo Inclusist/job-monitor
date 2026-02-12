@@ -40,6 +40,24 @@ function getStageIndex(stage?: string): number {
 export default function MatchingProgress({ status, onDismiss, onRetry }: MatchingProgressProps) {
   const isVisible = status.status === 'running' || status.status === 'completed' || status.status === 'error';
   const [autoDismissTimer, setAutoDismissTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const [snippetIndex, setSnippetIndex] = useState(0);
+
+  // Rotate news snippets every 15 seconds
+  useEffect(() => {
+    const snippets = status.news_snippets;
+    if (status.status !== 'running' || !snippets || snippets.length <= 1) return;
+
+    const interval = setInterval(() => {
+      setSnippetIndex((prev) => (prev + 1) % snippets.length);
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [status.status, status.news_snippets]);
+
+  // Reset snippet index when snippets array arrives
+  useEffect(() => {
+    setSnippetIndex(0);
+  }, [status.news_snippets?.length]);
 
   // Auto-dismiss on completed (8s) or error (15s)
   useEffect(() => {
@@ -174,9 +192,33 @@ export default function MatchingProgress({ status, onDismiss, onRetry }: Matchin
               </div>
             )}
 
+            {/* News snippets (rotating every 15s) */}
+            {status.status === 'running' && status.news_snippets && status.news_snippets.length > 0 && (
+              <div className="px-6 pb-4">
+                <div className="flex items-start gap-2.5 bg-cyan-50 rounded-xl px-4 py-3 min-h-[3.5rem]">
+                  <Sparkles className="w-4 h-4 text-cyan-500 mt-0.5 flex-shrink-0" />
+                  <AnimatePresence mode="wait">
+                    <motion.p
+                      key={snippetIndex}
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ duration: 0.3 }}
+                      className="text-sm text-slate-600 leading-relaxed"
+                    >
+                      {status.news_snippets[snippetIndex]}
+                    </motion.p>
+                  </AnimatePresence>
+                </div>
+              </div>
+            )}
+
             {/* Counters */}
             {(status.matches_found != null || status.jobs_analyzed != null || status.total_jobs != null) && status.status === 'running' && (
               <div className="px-6 pb-4 flex items-center gap-4 text-xs text-slate-500">
+                {status.total_chunks != null && status.total_chunks > 1 && status.current_chunk != null && (
+                  <span className="text-slate-700 font-medium">Chunk {status.current_chunk}/{status.total_chunks}</span>
+                )}
                 {status.total_jobs != null && (
                   <span>{status.total_jobs} jobs to process</span>
                 )}

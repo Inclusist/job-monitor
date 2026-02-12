@@ -991,13 +991,10 @@ def jobs():
         if status:
             matches = [m for m in matches if m.get('status') == status]
         
-        # Separate matches into "new" (from the most recent filter run) vs "previous".
-        # We compare match created_date against previous_filter_run:
-        #   - previous_filter_run = when the run BEFORE the latest one ended
-        #   - Matches created after that point belong to the latest run → "new"
-        #   - If previous_filter_run is NULL, this is the first/only run → all "new"
+        # Separate matches into "new" (matched today) vs "previous" (older).
+        # A match is "new" if its created_date is today or later (>= start of today).
         from datetime import datetime, timedelta
-        previous_filter_run = user.get('previous_filter_run')
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
         new_jobs = []
         previous_jobs = []
@@ -1011,32 +1008,16 @@ def jobs():
             else:
                 match['match_score'] = None
 
-            # Use created_date from user_job_matches — the time the match was scored,
-            # NOT discovered_date from jobs (that's when the job was scraped, which can
-            # be hours earlier and is unrelated to when this user's match was created).
             match_created = match.get('created_date')
-
             is_new = False
-            if previous_filter_run is None:
-                # No previous run recorded → all current matches are "new"
-                is_new = True
-            elif match_created:
-                # Normalize both to naive datetime for comparison
+            if match_created:
                 mc_dt = match_created
                 if isinstance(mc_dt, str):
                     try:
                         mc_dt = datetime.fromisoformat(mc_dt.replace('Z', '+00:00')).replace(tzinfo=None)
                     except (ValueError, AttributeError):
                         mc_dt = None
-
-                pfr_dt = previous_filter_run
-                if isinstance(pfr_dt, str):
-                    try:
-                        pfr_dt = datetime.fromisoformat(pfr_dt.replace('Z', '+00:00')).replace(tzinfo=None)
-                    except (ValueError, AttributeError):
-                        pfr_dt = None
-
-                if mc_dt and pfr_dt and mc_dt > pfr_dt:
+                if mc_dt and mc_dt >= today_start:
                     is_new = True
 
             if is_new:
@@ -3043,7 +3024,7 @@ def api_jobs():
         if status_filter:
             matches = [m for m in matches if m.get('status') == status_filter]
 
-        previous_filter_run = user.get('previous_filter_run')
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         new_jobs = []
         previous_jobs = []
 
@@ -3057,22 +3038,14 @@ def api_jobs():
 
             match_created = match.get('created_date')
             is_new = False
-            if previous_filter_run is None:
-                is_new = True
-            elif match_created:
+            if match_created:
                 mc_dt = match_created
                 if isinstance(mc_dt, str):
                     try:
                         mc_dt = datetime.fromisoformat(mc_dt.replace('Z', '+00:00')).replace(tzinfo=None)
                     except (ValueError, AttributeError):
                         mc_dt = None
-                pfr_dt = previous_filter_run
-                if isinstance(pfr_dt, str):
-                    try:
-                        pfr_dt = datetime.fromisoformat(pfr_dt.replace('Z', '+00:00')).replace(tzinfo=None)
-                    except (ValueError, AttributeError):
-                        pfr_dt = None
-                if mc_dt and pfr_dt and mc_dt > pfr_dt:
+                if mc_dt and mc_dt >= today_start:
                     is_new = True
 
             if 'job_location' in match:

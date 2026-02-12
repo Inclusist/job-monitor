@@ -74,6 +74,10 @@ export interface MatchingStatus {
   matches_found?: number;
   jobs_analyzed?: number;
   total_jobs?: number;
+  current_chunk?: number;
+  total_chunks?: number;
+  chunks_completed?: number;
+  news_snippets?: string[];
 }
 
 export interface AuthState {
