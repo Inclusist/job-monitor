@@ -4,13 +4,104 @@ Background job matching with semantic filtering and Claude analysis
 import os
 import time
 import importlib.util
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.database.postgres_operations import PostgresDatabase
 from src.database.postgres_cv_operations import PostgresCVManager
 from src.analysis.claude_analyzer import ClaudeJobAnalyzer
+
+
+def split_into_date_chunks(jobs: list, chunk_days: int = 3) -> List[Tuple[str, list]]:
+    """Split jobs into chunks by discovered_date, newest first.
+
+    Returns list of (chunk_label, jobs_list) tuples.
+    Jobs without a discovered_date go into a final 'undated' chunk.
+    """
+    if not jobs:
+        return []
+
+    with_dates = []
+    without_dates = []
+
+    for job in jobs:
+        d = job.get('discovered_date')
+        if d:
+            if isinstance(d, str):
+                d = datetime.fromisoformat(d)
+            with_dates.append((job, d))
+        else:
+            without_dates.append(job)
+
+    if not with_dates:
+        return [('all jobs', jobs)]
+
+    # Find date range
+    newest = max(d for _, d in with_dates)
+    oldest = min(d for _, d in with_dates)
+
+    # Build chunks from newest to oldest
+    chunks = []
+    chunk_end = newest + timedelta(days=1)  # inclusive of newest day
+
+    while chunk_end > oldest:
+        chunk_start = chunk_end - timedelta(days=chunk_days)
+        chunk_jobs = [j for j, d in with_dates if chunk_start <= d < chunk_end]
+        if chunk_jobs:
+            label = f"{chunk_start.strftime('%b %d')} - {(chunk_end - timedelta(days=1)).strftime('%b %d')}"
+            chunks.append((label, chunk_jobs))
+        chunk_end = chunk_start
+
+    if without_dates:
+        chunks.append(('undated', without_dates))
+
+    return chunks
+
+
+def generate_news_snippets(profile: dict, num_snippets: int = 10) -> list:
+    """Generate job-related news/tips using Gemini, personalized to user's field."""
+    try:
+        gemini_key = os.getenv('GOOGLE_GEMINI_API_KEY') if os.getenv('ENABLE_GEMINI') == 'true' else None
+        if not gemini_key:
+            return []
+
+        import google.generativeai as genai
+        genai.configure(api_key=gemini_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+
+        expertise = profile.get('expertise_summary', 'professional')
+        industries = ', '.join(profile.get('industries', [])) or 'technology'
+
+        prompt = f"""Generate {num_snippets} short, interesting snippets (2-3 sentences each) for a job seeker in {industries} with expertise in: {expertise}.
+
+Mix of:
+- Current job market trends and insights
+- Practical career tips and advice
+- Industry news and developments
+- Interview and application tips
+
+Each snippet should be self-contained, informative, and encouraging. Return as a JSON array of strings.
+No markdown formatting in the snippets themselves."""
+
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.GenerationConfig(
+                max_output_tokens=2048,
+                temperature=0.9,
+            )
+        )
+
+        import json
+        text = response.text.strip()
+        # Strip markdown code fences if present
+        if text.startswith('```'):
+            text = text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
+        return json.loads(text)
+    except Exception as e:
+        print(f"⚠️  Could not generate news snippets: {e}")
+        return []
 
 
 def run_background_matching(user_id: int, matching_status: Dict) -> None:
@@ -104,7 +195,12 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
         cv_embedding = model.encode(cv_text, show_progress_bar=False)
         t_cv = time.time() - t_cv_start
         print(f"✅ CV embedding created ({t_cv:.2f}s)")
-        
+
+        # Generate news snippets for display during matching
+        snippets = generate_news_snippets(profile)
+        if snippets:
+            matching_status[user_id]['news_snippets'] = snippets
+
         # Check if user has any existing matches
         existing_matches = job_db_inst.get_user_job_matches(user_id, min_semantic_score=0, limit=1)
         
@@ -364,272 +460,227 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
 
         # ✅ Location/work filtering done by SQL - jobs_to_filter already filtered!
 
-        # Filter jobs with semantic similarity (title-based for speed)
-        matching_status[user_id].update({
-            'stage': 'semantic_filtering',
-            'progress': 30,
-            'message': f'Analyzing {len(jobs_to_filter)} job titles with semantic matching...',
-            'total_jobs': len(jobs_to_filter)
-        })
-
-        print(f"\n⚡ SEMANTIC FILTERING (title-only with pre-computed embeddings):")
-
-        # Load pre-computed embeddings from database
         import json
         import numpy as np
 
-        job_embeddings = {}
-        jobs_needing_encoding = []
-        t_load_start = time.time()
-    
-        for job in jobs_to_filter:
-            if job.get('embedding_jobbert_title'):
-                try:
-                    # Parse JSON embedding
-                    embedding_json = job['embedding_jobbert_title']
-                    if isinstance(embedding_json, str):
-                        embedding_data = json.loads(embedding_json)
-                    else:
-                        embedding_data = embedding_json
-                    job_embeddings[job['id']] = np.array(embedding_data)
-                except Exception as e:
-                    print(f"  ⚠️  Failed to load embedding for job {job['id']}: {e}")
-                    jobs_needing_encoding.append(job)
-            else:
-                jobs_needing_encoding.append(job)
+        # Split jobs into date-based chunks (newest first) for progressive results
+        chunks = split_into_date_chunks(jobs_to_filter, chunk_days=3)
+        total_job_count = len(jobs_to_filter)
 
-        t_load = time.time() - t_load_start
-        print(f"  ✓ Loaded {len(job_embeddings)} pre-computed embeddings in {t_load:.2f}s")
+        print(f"\n📦 Split {total_job_count} jobs into {len(chunks)} date chunks:")
+        for label, chunk_jobs in chunks:
+            print(f"   {label}: {len(chunk_jobs)} jobs")
 
-        # Encode jobs that don't have embeddings (fallback)
-        t_encode_total = 0
-        if jobs_needing_encoding:
-            print(f"  ⚡ Encoding {len(jobs_needing_encoding)} jobs on-the-fly (missing embeddings)...")
-            for job in jobs_needing_encoding:
-                job_text = filter_module.build_job_text(job)
-                t_encode = time.time()
-                job_embedding = model.encode(job_text, show_progress_bar=False)
-                t_encode_total += time.time() - t_encode
-                job_embeddings[job['id']] = job_embedding
-
-        matches = []
-        max_score = 0
-
-        # Timing breakdown
-        t_semantic_start = time.time()
-        t_similarity_total = 0
-        t_keyword_total = 0
-
-        for idx, job in enumerate(jobs_to_filter):
-            # Get embedding (pre-computed or freshly encoded)
-            job_embedding = job_embeddings.get(job['id'])
-            if job_embedding is None:
-                print(f"  ⚠️  No embedding for job {job['id']}, skipping")
-                continue
-
-            t_sim = time.time()
-            similarity = filter_module.calculate_similarity(cv_embedding, job_embedding)
-            t_similarity_total += time.time() - t_sim
-            
-            t_kw = time.time()
-            boosted_score, matched_keywords = filter_module.apply_keyword_boosts(
-                similarity, job, config_keywords
-            )
-            t_keyword_total += time.time() - t_kw
-            
-            # Track max score for debugging
-            if boosted_score > max_score:
-                max_score = boosted_score
-            
-            if boosted_score >= 0.30:  # 30% threshold (temporarily lowered for testing)
-                matches.append({
-                    'job': job,
-                    'score': int(boosted_score * 100),
-                    'matched_keywords': matched_keywords
-                })
-            
-            # Update progress during filtering
-            if (idx + 1) % 10 == 0 or idx == len(jobs_to_filter) - 1:
-                progress = 30 + int((idx + 1) / len(jobs_to_filter) * 20)  # 30-50%
-                matching_status[user_id].update({
-                    'progress': progress,
-                    'message': f'Filtered {idx + 1}/{len(jobs_to_filter)} jobs, {len(matches)} matches so far...'
-                })
-        
-        t_semantic_total = time.time() - t_semantic_start
-        print(f"\n⏱️  SEMANTIC FILTERING PERFORMANCE:")
-        print(f"  Loading pre-computed embeddings: {t_load:.2f}s ({len(job_embeddings)-len(jobs_needing_encoding)} jobs)")
-        if jobs_needing_encoding:
-            print(f"  Encoding missing embeddings: {t_encode_total:.2f}s ({len(jobs_needing_encoding)} jobs, {t_encode_total/len(jobs_needing_encoding)*1000:.0f}ms/job)")
-        print(f"  Similarity calculation: {t_similarity_total:.2f}s")
-        print(f"  Keyword boost: {t_keyword_total:.2f}s")
-        print(f"  Total: {t_semantic_total:.2f}s ({t_semantic_total/60:.2f} min)")
-        print(f"✓ Found {len(matches)} matches above 30% threshold (max: {max_score:.3f})")
-        print(f"🚀 Speedup: ~{(t_encode_total if jobs_needing_encoding else 50)/t_load:.0f}x faster with pre-computed embeddings")
-        
-        # Save semantic matches to database (batch insert for performance)
-        matching_status[user_id].update({
-            'stage': 'saving_matches',
-            'progress': 55,
-            'message': f'Saving {len(matches)} matches to database...',
-            'matches_found': len(matches)
-        })
-        
-        # Prepare batch data
-        batch_matches = []
-        for match in matches:
-            job = match['job']
-            match_reasoning = f"Matched keywords: {', '.join(match['matched_keywords'][:5])}" if match['matched_keywords'] else "Semantic similarity"
-            batch_matches.append({
-                'user_id': user_id,
-                'job_id': job['id'],
-                'semantic_score': match['score'],
-                'match_reasoning': match_reasoning
-            })
-        
-        # Batch insert all matches at once (much faster than individual inserts)
-        t_save_start = time.time()
-        saved_count = job_db_inst.add_user_job_matches_batch(batch_matches)
-        cv_manager_inst.update_filter_run_time(user_id)
-        t_save = time.time() - t_save_start
-        print(f"✓ Saved {saved_count} semantic matches in {t_save:.2f}s")
-
-        # Step 2: Claude analysis on high-scoring matches (>= 50%)
-        high_score_matches = [m for m in matches if m['score'] >= 50]
-        
-        # Initialize Claude analyzer
+        # Initialize Claude analyzer once (shared across chunks)
         try:
             api_key = os.environ.get('ANTHROPIC_API_KEY')
             if api_key:
                 analyzer = ClaudeJobAnalyzer(api_key=api_key, db=job_db_inst, user_email=user.get('email', 'unknown'))
+                analyzer.set_profile_from_cv(profile)
             else:
                 print("⚠️  No ANTHROPIC_API_KEY found, skipping Claude analysis")
                 analyzer = None
         except Exception as e:
             print(f"⚠️  Could not initialize Claude analyzer: {e}")
             analyzer = None
-        
-        jobs_analyzed = 0
-        if high_score_matches and analyzer:
-            print(f"\n🤖 Running Claude analysis on {len(high_score_matches)} high-scoring jobs...")
-            
-            # Set the profile once for all analyses
-            analyzer.set_profile_from_cv(profile)  # Use set_profile_from_cv for richer data
-            
+
+        total_matches = []
+        total_analyzed = 0
+        jobs_processed = 0
+        chunks_completed = 0
+
+        # Progress range: 20-90% split equally across chunks
+        progress_start = 20
+        progress_end = 90
+        progress_per_chunk = (progress_end - progress_start) / max(len(chunks), 1)
+
+        for chunk_idx, (chunk_label, chunk_jobs) in enumerate(chunks):
+            chunk_progress_base = progress_start + chunk_idx * progress_per_chunk
+
             matching_status[user_id].update({
-                'stage': 'claude_analysis',
-                'progress': 60,
-                'message': f'Running AI analysis on {len(high_score_matches)} high-scoring matches...'
+                'stage': 'semantic_filtering',
+                'progress': int(chunk_progress_base),
+                'message': f'Chunk {chunk_idx+1}/{len(chunks)} ({chunk_label}): filtering {len(chunk_jobs)} jobs...',
+                'total_jobs': total_job_count,
+                'current_chunk': chunk_idx + 1,
+                'total_chunks': len(chunks),
             })
 
-            # 🚀 BATCH SCORING: Analyze all jobs in one/few API calls
-            jobs_to_analyze = [match['job'] for match in high_score_matches]
-            
-            try:
-                t_batch_start = time.time()
-                print(f"   Starting batch analysis of {len(jobs_to_analyze)} jobs...")
-                print(f"   This may take 2-5 minutes for large batches")
-                
+            print(f"\n⚡ CHUNK {chunk_idx+1}/{len(chunks)} ({chunk_label}): {len(chunk_jobs)} jobs")
+
+            # --- Load/encode embeddings for this chunk ---
+            chunk_embeddings = {}
+            chunk_needing_encoding = []
+
+            for job in chunk_jobs:
+                if job.get('embedding_jobbert_title'):
+                    try:
+                        embedding_json = job['embedding_jobbert_title']
+                        if isinstance(embedding_json, str):
+                            embedding_data = json.loads(embedding_json)
+                        else:
+                            embedding_data = embedding_json
+                        chunk_embeddings[job['id']] = np.array(embedding_data)
+                    except Exception as e:
+                        print(f"  ⚠️  Failed to load embedding for job {job['id']}: {e}")
+                        chunk_needing_encoding.append(job)
+                else:
+                    chunk_needing_encoding.append(job)
+
+            if chunk_needing_encoding:
+                for job in chunk_needing_encoding:
+                    job_text = filter_module.build_job_text(job)
+                    job_embedding = model.encode(job_text, show_progress_bar=False)
+                    chunk_embeddings[job['id']] = job_embedding
+
+            # --- Semantic filtering for this chunk ---
+            chunk_matches = []
+            for idx, job in enumerate(chunk_jobs):
+                job_embedding = chunk_embeddings.get(job['id'])
+                if job_embedding is None:
+                    continue
+
+                similarity = filter_module.calculate_similarity(cv_embedding, job_embedding)
+                boosted_score, matched_keywords = filter_module.apply_keyword_boosts(
+                    similarity, job, config_keywords
+                )
+
+                if boosted_score >= 0.30:
+                    chunk_matches.append({
+                        'job': job,
+                        'score': int(boosted_score * 100),
+                        'matched_keywords': matched_keywords
+                    })
+
+                # Update progress within chunk (first half of chunk's range = semantic)
+                if (idx + 1) % 10 == 0 or idx == len(chunk_jobs) - 1:
+                    semantic_progress = chunk_progress_base + (idx + 1) / len(chunk_jobs) * (progress_per_chunk * 0.4)
+                    jobs_processed_so_far = jobs_processed + idx + 1
+                    matching_status[user_id].update({
+                        'progress': int(semantic_progress),
+                        'message': f'Chunk {chunk_idx+1}/{len(chunks)}: filtered {idx+1}/{len(chunk_jobs)} jobs, {len(chunk_matches)} matches...',
+                        'matches_found': len(total_matches) + len(chunk_matches),
+                    })
+
+            jobs_processed += len(chunk_jobs)
+            print(f"  ✓ Semantic: {len(chunk_matches)} matches from {len(chunk_jobs)} jobs")
+
+            # --- Save this chunk's semantic matches ---
+            if chunk_matches:
+                batch_matches = []
+                for match in chunk_matches:
+                    job = match['job']
+                    match_reasoning = f"Matched keywords: {', '.join(match['matched_keywords'][:5])}" if match['matched_keywords'] else "Semantic similarity"
+                    batch_matches.append({
+                        'user_id': user_id,
+                        'job_id': job['id'],
+                        'semantic_score': match['score'],
+                        'match_reasoning': match_reasoning
+                    })
+                saved_count = job_db_inst.add_user_job_matches_batch(batch_matches)
+                print(f"  ✓ Saved {saved_count} semantic matches")
+
+            # --- Claude analysis for this chunk's high-scoring matches ---
+            chunk_analyzed = 0
+            high_score = [m for m in chunk_matches if m['score'] >= 50]
+
+            if high_score and analyzer:
+                claude_progress_base = chunk_progress_base + progress_per_chunk * 0.4
+                matching_status[user_id].update({
+                    'stage': 'claude_analysis',
+                    'progress': int(claude_progress_base),
+                    'message': f'Chunk {chunk_idx+1}/{len(chunks)}: AI analyzing {len(high_score)} high-scoring matches...',
+                })
+
+                jobs_to_analyze = [match['job'] for match in high_score]
+
                 try:
-                    # Use default batch size from analyze_batch
                     analyzed_jobs = analyzer.analyze_batch(jobs_to_analyze)
                 except Exception as batch_error:
-                    print(f"❌ Batch analysis failed: {batch_error}")
-                    import traceback
-                    traceback.print_exc()
+                    print(f"  ⚠️  Batch analysis failed for chunk: {batch_error}")
                     analyzed_jobs = []
-                
-                t_batch = time.time() - t_batch_start
-                
+
                 if analyzed_jobs:
-                    print(f"✓ Batch analysis complete: {len(analyzed_jobs)} jobs in {t_batch:.2f}s ({t_batch/len(analyzed_jobs):.2f}s/job avg)")
-                else:
-                    print(f"⚠️  Batch analysis returned 0 results (took {t_batch:.2f}s)")
+                    # Process batch results
+                    claude_batch_updates = []
+                    for idx, job in enumerate(analyzed_jobs):
+                        if 'match_score' in job:
+                            key_alignments = job.get('key_alignments', [])
+                            potential_gaps = job.get('potential_gaps', [])
 
-                # Process batch results
-                claude_batch_updates = []
-                for idx, job in enumerate(analyzed_jobs):
-                    # Job now has analysis fields added by analyze_batch
-                    if 'match_score' in job:
-                        # Convert lists to strings for database storage
-                        key_alignments = job.get('key_alignments', [])
-                        potential_gaps = job.get('potential_gaps', [])
-                        
-                        # Handle both list of strings and list of dicts
-                        if key_alignments and isinstance(key_alignments[0], dict):
-                            key_alignments = [str(item) for item in key_alignments]
-                        if potential_gaps and isinstance(potential_gaps[0], dict):
-                            potential_gaps = [str(item) for item in potential_gaps]
-                        
-                        # Add to batch (including competency and skill mappings)
-                        claude_batch_updates.append({
-                            'user_id': user_id,
-                            'job_id': job['id'],
-                            'claude_score': job['match_score'],
-                            'priority': job.get('priority', 'medium'),
-                            'match_reasoning': job.get('reasoning', ''),
-                            'key_alignments': key_alignments,
-                            'potential_gaps': potential_gaps,
-                            'competency_mappings': job.get('competency_mappings', []),
-                            'skill_mappings': job.get('skill_mappings', [])
-                        })
-                        
-                        print(f"  ✓ {job.get('title', 'Unknown')[:50]} - Claude: {job['match_score']}%")
-                        jobs_analyzed += 1
-                        
-                        # Update progress
-                        progress = 60 + int((idx + 1) / len(analyzed_jobs) * 30)  # 60-90%
-                        matching_status[user_id].update({
-                            'progress': progress,
-                            'message': f'AI analyzed {idx + 1}/{len(analyzed_jobs)} jobs...',
-                            'jobs_analyzed': jobs_analyzed
-                        })
-                
-            except Exception as e:
-                print(f"  ⚠️  Batch analysis failed: {e}")
-                claude_batch_updates = []  # Empty list if batch failed
+                            if key_alignments and isinstance(key_alignments[0], dict):
+                                key_alignments = [str(item) for item in key_alignments]
+                            if potential_gaps and isinstance(potential_gaps[0], dict):
+                                potential_gaps = [str(item) for item in potential_gaps]
 
-            # Save extracted competencies/skills back to jobs table (for caching/reuse)
-            if analyzed_jobs:
-                jobs_to_update_competencies = []
-                for job in analyzed_jobs:
-                    if job.get('ai_competencies') or job.get('ai_key_skills'):
-                        jobs_to_update_competencies.append({
-                            'job_id': job['id'],
-                            'ai_competencies': job.get('ai_competencies', []),
-                            'ai_key_skills': job.get('ai_key_skills', [])
-                        })
+                            claude_batch_updates.append({
+                                'user_id': user_id,
+                                'job_id': job['id'],
+                                'claude_score': job['match_score'],
+                                'priority': job.get('priority', 'medium'),
+                                'match_reasoning': job.get('reasoning', ''),
+                                'key_alignments': key_alignments,
+                                'potential_gaps': potential_gaps,
+                                'competency_mappings': job.get('competency_mappings', []),
+                                'skill_mappings': job.get('skill_mappings', [])
+                            })
+                            chunk_analyzed += 1
 
-                if jobs_to_update_competencies:
-                    print(f"💾 Saving extracted competencies/skills for {len(jobs_to_update_competencies)} jobs...")
-                    job_db_inst.update_jobs_competencies_batch(jobs_to_update_competencies)
-                    print(f"✓ Competencies cached for future use")
+                            # Update progress within Claude analysis portion
+                            claude_progress = claude_progress_base + (idx + 1) / len(analyzed_jobs) * (progress_per_chunk * 0.6)
+                            matching_status[user_id].update({
+                                'progress': int(claude_progress),
+                                'message': f'Chunk {chunk_idx+1}/{len(chunks)}: AI analyzed {idx+1}/{len(analyzed_jobs)} jobs...',
+                                'jobs_analyzed': total_analyzed + chunk_analyzed,
+                            })
 
-            # Batch update all Claude analyses at once (much faster than individual updates)
-            if claude_batch_updates:
-                matching_status[user_id].update({
-                    'progress': 92,
-                    'message': f'Saving {len(claude_batch_updates)} AI analyses to database...'
-                })
-                updated_count = job_db_inst.add_user_job_matches_batch(claude_batch_updates)
-                print(f"✓ Saved {updated_count} Claude analyses to database")
-            
-            print(f"✓ Claude analysis complete")
-        
+                    # Save Claude results
+                    if claude_batch_updates:
+                        job_db_inst.add_user_job_matches_batch(claude_batch_updates)
+                        print(f"  ✓ Saved {len(claude_batch_updates)} Claude analyses")
+
+                    # Save competencies/skills
+                    jobs_to_update_competencies = []
+                    for job in analyzed_jobs:
+                        if job.get('ai_competencies') or job.get('ai_key_skills'):
+                            jobs_to_update_competencies.append({
+                                'job_id': job['id'],
+                                'ai_competencies': job.get('ai_competencies', []),
+                                'ai_key_skills': job.get('ai_key_skills', [])
+                            })
+                    if jobs_to_update_competencies:
+                        job_db_inst.update_jobs_competencies_batch(jobs_to_update_competencies)
+
+            # --- Signal frontend: chunk completed (use counter, not boolean) ---
+            total_matches.extend(chunk_matches)
+            total_analyzed += chunk_analyzed
+            chunks_completed += 1
+
+            matching_status[user_id].update({
+                'matches_found': len(total_matches),
+                'jobs_analyzed': total_analyzed,
+                'chunks_completed': chunks_completed,
+            })
+            print(f"  ✓ Chunk {chunk_idx+1}/{len(chunks)} complete ({len(chunk_matches)} matches, {chunk_analyzed} analyzed)")
+
+        # All chunks done — update filter run time ONCE
+        cv_manager_inst.update_filter_run_time(user_id)
+
         # Mark as completed
         matching_status[user_id] = {
             'status': 'completed',
             'stage': 'done',
             'progress': 100,
-            'message': f'✅ Matching complete! Found {len(matches)} matches, analyzed {jobs_analyzed} with AI',
-            'matches_found': len(matches),
-            'jobs_analyzed': jobs_analyzed
+            'message': f'✅ Matching complete! Found {len(total_matches)} matches, analyzed {total_analyzed} with AI',
+            'matches_found': len(total_matches),
+            'jobs_analyzed': total_analyzed
         }
-        
+
         print(f"\n{'='*60}")
         print(f"✅ Background job matching complete for user {user_id}")
-        print(f"   Semantic matches: {len(matches)}")
-        print(f"   Claude analyzed: {jobs_analyzed}")
+        print(f"   Semantic matches: {len(total_matches)}")
+        print(f"   Claude analyzed: {total_analyzed}")
+        print(f"   Chunks processed: {len(chunks)}")
         print(f"{'='*60}\n")
         
     except Exception as e:
