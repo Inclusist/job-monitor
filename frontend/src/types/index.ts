@@ -33,7 +33,7 @@ export interface Job {
   ai_work_arrangement?: string;
   ai_employment_type?: string;
   priority?: 'high' | 'medium' | 'low';
-  status?: 'new' | 'reviewed' | 'shortlisted' | 'applied' | 'interviewing' | 'offered' | 'rejected' | 'deleted';
+  status?: 'new' | 'viewed' | 'shortlisted' | 'applied' | 'interviewing' | 'offered' | 'rejected' | 'deleted';
   match_reasoning?: string;
   key_alignments?: string[];
   potential_gaps?: string[];

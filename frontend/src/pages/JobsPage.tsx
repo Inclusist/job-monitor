@@ -20,6 +20,7 @@ import Header from '../components/layout/Header';
 import Footer from '../components/layout/Footer';
 import Badge from '../components/ui/Badge';
 import ScoreDisplay from '../components/ui/ScoreDisplay';
+import FilterBar from '../components/ui/FilterBar';
 import MatchingProgress from '../components/ui/MatchingProgress';
 import SlideOver from '../components/ui/SlideOver';
 import JobDetailPanel from '../components/JobDetailPanel';
@@ -32,7 +33,8 @@ import type { Job, SearchResult } from '../types';
 
 export default function JobsPage() {
   const { user } = useAuth();
-  const { data, isLoading, error } = useJobs();
+  const [filters, setFilters] = useState({ priority: '', status: '', min_score: 0 });
+  const { data, isLoading, error } = useJobs(filters);
   const hideJob = useHideJob();
   const runMatching = useRunMatching();
   const { data: matchingStatus } = useMatchingStatus(true);
@@ -260,58 +262,73 @@ export default function JobsPage() {
 
           {/* Normal matched jobs mode (hidden during search) */}
           {!isSearchActive && (
-            <>
-              {/* Loading state */}
-              {isLoading && <LoadingSkeleton />}
-
-              {/* Error state */}
-              {error && (
-                <div className="text-center py-16">
-                  <p className="text-slate-500">Failed to load jobs. Please try again.</p>
+            <div className="flex gap-6">
+              {/* Filters sidebar */}
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: 0.1 }}
+                className="hidden lg:block w-56 flex-shrink-0"
+              >
+                <div className="sticky top-28">
+                  <FilterBar onApply={setFilters} initialFilters={filters} />
                 </div>
-              )}
+              </motion.div>
 
-              {/* Jobs content */}
-              {data && !isLoading && (
-                <>
-                  {data.total === 0 ? (
-                    <EmptyState hasCv={data.has_cv} />
-                  ) : (
-                    <div className="space-y-8">
-                      {/* New Matches */}
-                      {data.new_jobs.length > 0 && (
-                        <JobSection
-                          title="New Matches"
-                          icon={<Sparkles className="w-5 h-5 text-emerald-600" strokeWidth={1.5} />}
-                          jobs={data.new_jobs}
-                          borderColor="border-l-emerald-500"
-                          onHide={(id) => hideJob.mutate(id)}
-                          hidingId={hideJob.isPending ? (hideJob.variables as number) : undefined}
-                          onJobClick={setSelectedJobId}
-                          onAnalyze={(id) => analyzeMutation.mutate(id)}
-                          analyzingJobId={analyzingJobId}
-                        />
-                      )}
+              {/* Job listings */}
+              <div className="flex-1 min-w-0">
+                {/* Loading state */}
+                {isLoading && <LoadingSkeleton />}
 
-                      {/* Previous Jobs */}
-                      {data.previous_jobs.length > 0 && (
-                        <JobSection
-                          title="Previous Jobs"
-                          icon={<Clock className="w-5 h-5 text-slate-500" strokeWidth={1.5} />}
-                          jobs={data.previous_jobs}
-                          borderColor="border-l-slate-300"
-                          onHide={(id) => hideJob.mutate(id)}
-                          hidingId={hideJob.isPending ? (hideJob.variables as number) : undefined}
-                          onJobClick={setSelectedJobId}
-                          onAnalyze={(id) => analyzeMutation.mutate(id)}
-                          analyzingJobId={analyzingJobId}
-                        />
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </>
+                {/* Error state */}
+                {error && (
+                  <div className="text-center py-16">
+                    <p className="text-slate-500">Failed to load jobs. Please try again.</p>
+                  </div>
+                )}
+
+                {/* Jobs content */}
+                {data && !isLoading && (
+                  <>
+                    {data.total === 0 ? (
+                      <EmptyState hasCv={data.has_cv} />
+                    ) : (
+                      <div className="space-y-8">
+                        {/* New Matches */}
+                        {data.new_jobs.length > 0 && (
+                          <JobSection
+                            title="New Matches"
+                            icon={<Sparkles className="w-5 h-5 text-emerald-600" strokeWidth={1.5} />}
+                            jobs={data.new_jobs}
+                            borderColor="border-l-emerald-500"
+                            onHide={(id) => hideJob.mutate(id)}
+                            hidingId={hideJob.isPending ? (hideJob.variables as number) : undefined}
+                            onJobClick={setSelectedJobId}
+                            onAnalyze={(id) => analyzeMutation.mutate(id)}
+                            analyzingJobId={analyzingJobId}
+                          />
+                        )}
+
+                        {/* Previous Jobs */}
+                        {data.previous_jobs.length > 0 && (
+                          <JobSection
+                            title="Previous Jobs"
+                            icon={<Clock className="w-5 h-5 text-slate-500" strokeWidth={1.5} />}
+                            jobs={data.previous_jobs}
+                            borderColor="border-l-slate-300"
+                            onHide={(id) => hideJob.mutate(id)}
+                            hidingId={hideJob.isPending ? (hideJob.variables as number) : undefined}
+                            onJobClick={setSelectedJobId}
+                            onAnalyze={(id) => analyzeMutation.mutate(id)}
+                            analyzingJobId={analyzingJobId}
+                          />
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
           )}
         </div>
       </main>
@@ -320,7 +337,10 @@ export default function JobsPage() {
 
       <SlideOver
         open={selectedJobId !== null}
-        onClose={() => setSelectedJobId(null)}
+        onClose={() => {
+          setSelectedJobId(null);
+          queryClient.invalidateQueries({ queryKey: ['jobs'] });
+        }}
         title="Job Details"
       >
         {selectedJobId !== null && <JobDetailPanel jobId={selectedJobId} />}
@@ -457,6 +477,7 @@ function JobRow({
   isAnalyzing: boolean;
 }) {
   const jobId = job.job_table_id || job.id || 0;
+  const isViewed = job.status === 'viewed';
 
   return (
     <motion.div
@@ -464,7 +485,11 @@ function JobRow({
       initial={{ opacity: 0 }}
       animate={{ opacity: isHiding ? 0.5 : 1 }}
       onClick={onClick}
-      className={`border border-cyan-200 rounded-xl bg-white shadow-sm hover:shadow-md transition-shadow border-l-4 ${borderColor} p-5 cursor-pointer`}
+      className={`border rounded-xl shadow-sm hover:shadow-md transition-shadow border-l-4 ${borderColor} p-5 cursor-pointer ${
+        isViewed
+          ? 'bg-cyan-50/50 border-cyan-100'
+          : 'bg-white border-cyan-200'
+      }`}
     >
       <div className="flex flex-col lg:flex-row lg:items-center gap-4">
         {/* Job info */}

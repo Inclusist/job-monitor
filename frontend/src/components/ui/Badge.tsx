@@ -11,7 +11,7 @@ const priorityColors: Record<string, string> = {
 
 const statusColors: Record<string, string> = {
   new: 'bg-slate-100 text-slate-700',
-  reviewed: 'bg-cyan-100 text-cyan-800',
+  viewed: 'bg-cyan-100 text-cyan-800',
   shortlisted: 'bg-amber-100 text-amber-800',
   applied: 'bg-blue-100 text-blue-800',
   interviewing: 'bg-purple-100 text-purple-800',

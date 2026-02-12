@@ -225,7 +225,7 @@ export default function DashboardPage() {
 
       {/* Job detail slide-over */}
       <SlideOver
-        isOpen={selectedJobId !== null}
+        open={selectedJobId !== null}
         onClose={() => setSelectedJobId(null)}
         title="Job Details"
       >

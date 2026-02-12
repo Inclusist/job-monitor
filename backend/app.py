@@ -3032,7 +3032,10 @@ def api_jobs():
         if priority:
             matches = [m for m in matches if m.get('priority') == priority]
         if status_filter:
-            matches = [m for m in matches if m.get('status') == status_filter]
+            if status_filter == 'not_viewed':
+                matches = [m for m in matches if m.get('status', 'new') == 'new']
+            else:
+                matches = [m for m in matches if m.get('status') == status_filter]
 
         today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         new_jobs = []
@@ -3202,6 +3205,11 @@ def api_job_detail(job_id):
             return jsonify({'error': 'Job not found'}), 404
 
         job, _user_cv_profile, claimed_competency_names, claimed_skill_names = result
+
+        # Auto-track: mark as 'viewed' if still 'new'
+        if job.get('status', 'new') == 'new':
+            job_db.update_user_job_status(user_id, job_id, 'viewed')
+            job['status'] = 'viewed'
 
         # Serialize datetime fields to ISO strings
         for key in ('created_date', 'discovered_date', 'posted_date'):

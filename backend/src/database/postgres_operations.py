@@ -949,7 +949,7 @@ class PostgresDatabase:
                     claude_date = CASE WHEN EXCLUDED.claude_score IS NOT NULL 
                                      THEN EXCLUDED.claude_date 
                                      ELSE user_job_matches.claude_date END,
-                    priority = EXCLUDED.priority,
+                    priority = COALESCE(EXCLUDED.priority, user_job_matches.priority),
                     match_reasoning = COALESCE(EXCLUDED.match_reasoning, user_job_matches.match_reasoning),
                     key_alignments = COALESCE(EXCLUDED.key_alignments, user_job_matches.key_alignments),
                     potential_gaps = COALESCE(EXCLUDED.potential_gaps, user_job_matches.potential_gaps),
@@ -1018,7 +1018,7 @@ class PostgresDatabase:
                     now if match.get('semantic_score') else None,
                     match.get('claude_score'),
                     now if match.get('claude_score') else None,
-                    match.get('priority', 'medium'),
+                    match.get('priority'),
                     match.get('match_reasoning'),
                     key_alignments_str,
                     potential_gaps_str,
@@ -1046,7 +1046,7 @@ class PostgresDatabase:
                     semantic_date = COALESCE(EXCLUDED.semantic_date, user_job_matches.semantic_date),
                     claude_score = COALESCE(EXCLUDED.claude_score, user_job_matches.claude_score),
                     claude_date = COALESCE(EXCLUDED.claude_date, user_job_matches.claude_date),
-                    priority = EXCLUDED.priority,
+                    priority = COALESCE(EXCLUDED.priority, user_job_matches.priority),
                     match_reasoning = COALESCE(EXCLUDED.match_reasoning, user_job_matches.match_reasoning),
                     key_alignments = COALESCE(EXCLUDED.key_alignments, user_job_matches.key_alignments),
                     potential_gaps = COALESCE(EXCLUDED.potential_gaps, user_job_matches.potential_gaps),
