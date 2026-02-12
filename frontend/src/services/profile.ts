@@ -8,11 +8,13 @@ export async function getProfile(): Promise<ProfileResponse> {
 
 export async function uploadCV(
   file: File,
-  setPrimary: boolean = true
+  setPrimary: boolean = true,
+  skipBackfill: boolean = false
 ): Promise<{ success: boolean; cv_id?: number; message?: string; parsing_cost?: number; error?: string }> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('set_primary', setPrimary.toString());
+  formData.append('skip_backfill', skipBackfill.toString());
   const { data } = await api.post('/api/upload-cv', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000,

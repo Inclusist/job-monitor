@@ -11,7 +11,7 @@ from typing import Dict, List
 class SearchSuggester:
     """Suggests job search parameters based on CV profile"""
     
-    def __init__(self, api_key: str, model: str = "claude-3-haiku-20240307"):
+    def __init__(self, api_key: str, model: str = "claude-3-5-haiku-20241022"):
         """
         Initialize search suggester
         

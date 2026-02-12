@@ -42,7 +42,7 @@ def main():
     api_key = os.getenv('ANTHROPIC_API_KEY')
     
     print("\n🤖 Running PRODUCTION CVAnalyzer (should use V2 logic)...")
-    analyzer = CVAnalyzer(api_key, model="claude-3-haiku-20240307")
+    analyzer = CVAnalyzer(api_key, model="claude-3-5-haiku-20241022")
     result = analyzer.analyze_cv(text, "test@example.com")
     
     print("\n" + "="*60)

@@ -131,8 +131,8 @@ class CVHandler:
             text_path = os.path.join(user_dir, text_filename)
             self.parser.save_extracted_text(text, text_path)
 
-            # Step 7: Parse with Claude
-            print(f"Analyzing CV with Claude AI...")
+            # Step 7: Parse with Gemini
+            print(f"Analyzing CV with Gemini AI...")
             profile_data = self.analyzer.analyze_cv(text, user_email)
 
             # Step 8: Store in database
@@ -335,8 +335,8 @@ class CVHandler:
             if status == 'failed':
                 return {'success': False, 'message': 'Text extraction failed'}
 
-            # Re-analyze with Claude
-            print(f"Re-analyzing CV {cv_id} with Claude...")
+            # Re-analyze with Gemini
+            print(f"Re-analyzing CV {cv_id} with Gemini...")
             profile_data = self.analyzer.analyze_cv(text, user['email'])
 
             # Update profile
@@ -527,27 +527,108 @@ class CVHandler:
             else:
                 seniority = None
 
+            # If desired_titles is empty, infer from CV data
+            if not desired_titles:
+                inferred_titles = []
+                
+                # Priority 1: Use extracted_role from Claude's analysis
+                extracted_role = profile_data.get('extracted_role')
+                if extracted_role:
+                    inferred_titles.append(extracted_role)
+                
+                # Priority 2: Use recent work experience titles
+                work_experience = profile_data.get('work_experience', [])
+                if work_experience:
+                    # Get titles from 2 most recent jobs
+                    for job in work_experience[:2]:
+                        title = job.get('title', '').strip()
+                        if title and title not in inferred_titles:
+                            inferred_titles.append(title)
+                
+                # Priority 3: Generate variations based on seniority
+                if inferred_titles and seniority:
+                    # Add seniority variations of the first title
+                    base_title = inferred_titles[0]
+                    # Remove existing seniority prefixes
+                    for prefix in ['Senior', 'Lead', 'Principal', 'Staff', 'Junior', 'Mid-level']:
+                        base_title = base_title.replace(prefix, '').strip()
+                    
+                    # Add appropriate seniority levels
+                    if 'Senior' in seniority or 'Lead' in seniority:
+                        if not any('Senior' in t or 'Lead' in t for t in inferred_titles):
+                            inferred_titles.append(f"Senior {base_title}")
+                            inferred_titles.append(f"Lead {base_title}")
+                
+                if inferred_titles:
+                    desired_titles = inferred_titles[:5]  # Limit to 5
+                    print(f"📋 Inferred job titles from CV: {desired_titles}")
+
             # Build title_keywords using pipe operator
             title_keywords = None
             if desired_titles:
                 title_keywords = '|'.join(desired_titles[:5])  # Top 5 titles
                 print(f"Generated title keywords: {title_keywords}")
 
-            # Build locations using pipe operator
+            # Build locations from CV data - prioritize city from latest work experience
             locations_str = None
             location_list = []
+            
+            # Priority 1: Latest work location (MUST include)
+            latest_loc = profile_data.get('latest_work_location', {})
+            latest_city = latest_loc.get('city')
+            latest_country = latest_loc.get('country')
+            
+            if latest_city and latest_city not in ['Remote', 'Flexible', 'Hybrid', 'N/A']:
+                location_list.append(latest_city)
+                print(f"📍 Included latest work city: {latest_city}")
+            
+            # Priority 2: Current location from CV
+            current_city = profile_data.get('current_city')
+            current_country = profile_data.get('current_country')
+            
+            if current_city and current_city not in location_list and current_city not in ['Remote', 'Flexible', 'Hybrid', 'N/A']:
+                location_list.append(current_city)
+            
+            if current_country and current_country not in location_list and current_country not in ['Remote', 'Flexible', 'Hybrid', 'N/A']:
+                # For countries, we usually only add if no cities found or as a fallback
+                if not location_list:
+                    location_list.append(current_country)
 
-            # Add preferred locations
+            # Priority 3: Preferred work locations from CV if available
             if preferred_locations:
-                location_list.extend(preferred_locations[:3])
+                for loc in preferred_locations:
+                    if loc not in location_list and loc not in ['Remote', 'Flexible', 'Hybrid']:
+                        location_list.append(loc)
+            
+            # Limit to 3 locations for queries to keep it focused
+            location_list = location_list[:3]
 
-            # Add current location if not in preferred
-            if current_location and current_location not in location_list:
-                location_list.append(current_location)
+            # Priority 2: Extract from recent work experience if no location found
+            if not location_list:
+                work_experience = profile_data.get('work_experience', [])
+                if work_experience:
+                    # Check first 2 recent jobs for company location
+                    for job in work_experience[:2]:
+                        company = job.get('company', '')
+                        # Some companies have location in name (e.g., "Xing - Hamburg")
+                        if ' - ' in company:
+                            potential_location = company.split(' - ')[-1].strip()
+                            if len(potential_location) < 30:  # Reasonable city/country name length
+                                location_list.append(potential_location)
+                                break
 
+            # Priority 3: Use preferred_work_locations from CV if available
+            if not location_list and preferred_locations:
+                location_list.extend(preferred_locations[:2])
+
+            # Log what we found
             if location_list:
                 locations_str = '|'.join(location_list)
                 print(f"Generated locations: {locations_str}")
+                if city:
+                    print(f"  City: {city}")
+                if country:
+                    print(f"  Country: {country}")
 
             # Build work arrangement filter
             work_filter = None
@@ -568,22 +649,13 @@ class CVHandler:
 
             # Create primary search query if we have enough data
             if desired_titles or location_list:
-                # TODO: Make remote search a user preference in the future
-                # For now, automatically add remote searches if user wants remote work
-                final_locations = location_list.copy() if location_list else []
-
-                # Add "Remote" as a location if user wants remote work
-                if work_arrangement and work_arrangement.lower() in ['remote', 'flexible']:
-                    if 'Remote' not in final_locations:
-                        final_locations.append('Remote')
-                        print(f"Added 'Remote' location for remote job searches")
-
                 # Use normalized add_user_search_queries (creates multiple rows)
+                # Note: We don't add "Remote" as a location - it's handled by work_arrangement
                 row_count = self.cv_manager.add_user_search_queries(
                     user_id=user_id,
                     query_name='Primary Search',
                     title_keywords=desired_titles[:5] if desired_titles else None,  # List, not pipe string
-                    locations=final_locations if final_locations else None,          # List, not pipe string
+                    locations=location_list if location_list else None,          # List of actual cities/countries
                     ai_work_arrangement=work_filter,
                     ai_seniority=seniority,
                     ai_industry=industry_filter,
@@ -598,25 +670,9 @@ class CVHandler:
                     print(f"  Work arrangement: {work_filter or 'Any'}")
                     print(f"  Seniority: {seniority or 'Any'}")
 
-                    # Trigger backfill for new user (1 month of jobs)
-                    try:
-                        from src.jobs.user_backfill import backfill_user_on_signup
-                        print(f"\n🔄 Triggering 1-month backfill for {user_email}...", flush=True)
-                        backfill_stats = backfill_user_on_signup(
-                            user_id=user_id,
-                            user_email=user_email,
-                            db=self.cv_manager
-                        )
-
-                        if backfill_stats.get('already_backfilled'):
-                            print(f"✓ Backfill skipped - queries already backfilled by other users", flush=True)
-                        else:
-                            print(f"✓ Backfill completed: {backfill_stats.get('new_jobs_added', 0)} jobs added", flush=True)
-                    except Exception as backfill_error:
-                        print(f"⚠️  Warning: Backfill failed: {backfill_error}", flush=True)
-                        import traceback
-                        traceback.print_exc()
-                        print(f"   User can still use the app, jobs will load on next daily update", flush=True)
+                    # Backfill removed - database already has comprehensive job data
+                    # Jobs will be available immediately from existing database
+                    print(f"✓ Search queries created - jobs available from existing database", flush=True)
                 else:
                     print(f"⚠️  Failed to create search queries for {user_email}")
             else:

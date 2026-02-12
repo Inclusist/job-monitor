@@ -1,11 +1,24 @@
+import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Target, LogOut } from 'lucide-react';
+import { Target, LogOut, User, Settings, ChevronDown } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { getLogoutUrl } from '../../services/auth';
 
 export default function Header() {
   const { user, isAuthenticated } = useAuth();
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   return (
     <motion.header
@@ -41,34 +54,58 @@ export default function Header() {
               >
                 My Documents
               </Link>
-              <Link
-                to="/profile"
-                className="text-slate-600 hover:text-cyan-600 transition-colors text-sm font-medium"
-              >
-                Profile
-              </Link>
-              <Link to="/profile" className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
-                {user?.avatar_url ? (
-                  <img
-                    src={user.avatar_url}
-                    alt={user.name}
-                    className="w-8 h-8 rounded-full"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-700 text-sm font-semibold">
-                    {user?.name?.charAt(0) || '?'}
+
+              {/* Avatar dropdown */}
+              <div className="relative" ref={dropdownRef}>
+                <button
+                  onClick={() => setDropdownOpen((prev) => !prev)}
+                  className="flex items-center space-x-2 hover:opacity-80 transition-opacity"
+                >
+                  {user?.avatar_url ? (
+                    <img
+                      src={user.avatar_url}
+                      alt={user.name}
+                      className="w-8 h-8 rounded-full"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-700 text-sm font-semibold">
+                      {user?.name?.charAt(0) || '?'}
+                    </div>
+                  )}
+                  <span className="text-sm text-slate-700 font-medium">{user?.name}</span>
+                  <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {dropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-cyan-100 py-1 z-50">
+                    <Link
+                      to="/profile"
+                      onClick={() => setDropdownOpen(false)}
+                      className="flex items-center space-x-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-cyan-50 transition-colors"
+                    >
+                      <User className="w-4 h-4 text-slate-400" />
+                      <span>Profile</span>
+                    </Link>
+                    <Link
+                      to="/preferences"
+                      onClick={() => setDropdownOpen(false)}
+                      className="flex items-center space-x-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-cyan-50 transition-colors"
+                    >
+                      <Settings className="w-4 h-4 text-slate-400" />
+                      <span>Preferences</span>
+                    </Link>
+                    <div className="border-t border-cyan-100 my-1" />
+                    <a
+                      href={getLogoutUrl()}
+                      className="flex items-center space-x-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-cyan-50 transition-colors"
+                    >
+                      <LogOut className="w-4 h-4 text-slate-400" />
+                      <span>Logout</span>
+                    </a>
                   </div>
                 )}
-                <span className="text-sm text-slate-700 font-medium">{user?.name}</span>
-              </Link>
-              <a
-                href={getLogoutUrl()}
-                className="flex items-center space-x-1 text-slate-500 hover:text-slate-700 transition-colors text-sm"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>Logout</span>
-              </a>
+              </div>
             </>
           ) : (
             <>

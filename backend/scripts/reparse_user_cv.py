@@ -77,7 +77,7 @@ def reparse_user_cv(user_id=93):
 
     # 4. Initialize Analyzer with POWERFUL Model
     api_key = os.getenv('ANTHROPIC_API_KEY')
-    analyzer = CVAnalyzer(api_key, model="claude-3-haiku-20240307")
+    analyzer = CVAnalyzer(api_key, model="claude-3-5-haiku-20241022")
     
     # 5. Analyze
     print("🤖 Analyzing with Sonnet (may take 10-20s)...")

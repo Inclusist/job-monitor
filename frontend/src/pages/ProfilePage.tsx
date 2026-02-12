@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   User as UserIcon,
@@ -71,7 +72,9 @@ export default function ProfilePage() {
     );
   }
 
-  const { user, cvs, profile, active_cv_id, claimed_data } = data;
+  const { user, cvs, profile, claimed_data } = data;
+
+  const active_cv_id = data.active_cv_id;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-cyan-50">
@@ -83,6 +86,32 @@ export default function ProfilePage() {
         className="pt-28 pb-16 max-w-4xl mx-auto px-6 space-y-8"
       >
         <h1 className="text-3xl font-bold text-slate-900">Profile</h1>
+
+        {/* Onboarding Banner */}
+        {!user.onboarding_completed && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-gradient-to-r from-cyan-600 to-cyan-700 rounded-2xl p-6 text-white shadow-lg border border-cyan-500/30 flex flex-col md:flex-row items-center justify-between gap-4"
+          >
+            <div className="flex items-center space-x-4">
+              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                <Sparkles className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold">Complete your setup!</h2>
+                <p className="text-cyan-50 text-sm">You haven't finished the onboarding. Complete it to get the best job matches.</p>
+              </div>
+            </div>
+            <Link
+              to="/onboarding"
+              className="bg-white text-cyan-700 px-6 py-2.5 rounded-xl font-bold hover:bg-cyan-50 transition-all shadow-md flex items-center space-x-2"
+            >
+              <span>Resume Onboarding</span>
+              <Sparkles className="w-4 h-4" />
+            </Link>
+          </motion.div>
+        )}
 
         <UserInfoCard
           user={user}

@@ -42,12 +42,49 @@ class PostgresDatabase:
         self._create_tables()
     
     def _get_connection(self):
-        """Get a connection from the pool"""
-        return self.connection_pool.getconn()
-    
+        """Get a connection from the pool, validating it's still alive"""
+        conn = None
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                conn = self.connection_pool.getconn()
+                # Determine if the connection is actually alive
+                if conn.closed == 0:
+                    with conn.cursor() as cursor:
+                        cursor.execute("SELECT 1")
+                    return conn
+                else:
+                    logger.warning(f"Connection from pool is closed (attempt {attempt+1}/{max_retries})")
+                    self.connection_pool.putconn(conn, close=True)
+                    conn = None
+            except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+                logger.warning(f"PostgreSQL connection error: {e} (attempt {attempt+1}/{max_retries})")
+                if conn:
+                    try:
+                        self.connection_pool.putconn(conn, close=True)
+                    except:
+                        pass
+                    conn = None
+                
+                # If it's the last attempt, re-raise
+                if attempt == max_retries - 1:
+                    logger.error("Failed to get a valid PostgreSQL connection after multiple attempts")
+                    raise
+            except Exception as e:
+                logger.error(f"Unexpected error getting connection: {e}")
+                if conn:
+                    self.connection_pool.putconn(conn)
+                raise
+        
+        raise Exception("Could not acquire a valid database connection")
+
     def _return_connection(self, conn):
         """Return connection to pool"""
-        self.connection_pool.putconn(conn)
+        if conn:
+            try:
+                self.connection_pool.putconn(conn)
+            except Exception as e:
+                logger.error(f"Error returning connection to pool: {e}")
     
     def _create_tables(self):
         """Create database tables if they don't exist"""
@@ -143,7 +180,10 @@ class PostgresDatabase:
                     is_active INTEGER DEFAULT 1,
                     preferences TEXT,
                     last_filter_run TIMESTAMP,
-                    preferences_updated TIMESTAMP
+                    preferences_updated TIMESTAMP,
+                    onboarding_completed BOOLEAN DEFAULT false,
+                    onboarding_step INTEGER DEFAULT 0,
+                    onboarding_skipped BOOLEAN DEFAULT false
                 )
             """)
             
@@ -1434,7 +1474,7 @@ class PostgresDatabase:
             cursor.close()
             self._return_connection(conn)
     
-    def get_unfiltered_jobs_for_user(self, user_id: int, user_cities: List[str] = None) -> List[Dict]:
+    def get_unfiltered_jobs_for_user(self, user_id: int, user_cities: List[str] = None, limit: int = None, latest_day_only: bool = False) -> List[Dict]:
         """
         Get jobs that haven't been matched/filtered for this user yet
 
@@ -1442,6 +1482,8 @@ class PostgresDatabase:
             user_id: User ID
             user_cities: Optional list of user's preferred cities (e.g., ['Berlin', 'Hamburg'])
                         Will match remote jobs OR jobs in these cities (case-insensitive)
+            limit: Optional limit on number of jobs to fetch (for speed)
+            latest_day_only: If True, only fetch jobs from the most recent discovery date
 
         Returns:
             List of unfiltered jobs matching location/work criteria
@@ -1469,6 +1511,10 @@ class PostgresDatabase:
                 query += " AND j.discovered_date > %s"
                 params.append(last_filter_run)
 
+            # Fast search: Only jobs from the latest day
+            if latest_day_only:
+                query += " AND j.discovered_date >= (SELECT DATE_TRUNC('day', MAX(discovered_date)) FROM jobs)"
+
             # Add location/work arrangement filter if user has preferences
             if user_cities:
                 # Prepare ILIKE patterns for each city (e.g., '%berlin%', '%hamburg%')
@@ -1494,6 +1540,9 @@ class PostgresDatabase:
                 params.extend([city_patterns, city_patterns])
 
             query += " ORDER BY j.discovered_date DESC"
+            
+            if limit:
+                query += f" LIMIT {int(limit)}"
 
             cursor.execute(query, params)
             results = [dict(row) for row in cursor.fetchall()]

@@ -203,7 +203,7 @@ def main():
         
         analyzer = ClaudeJobAnalyzer(
             anthropic_key, 
-            model="claude-3-haiku-20240307",
+            model="claude-3-5-haiku-20241022",
             db=db,
             user_email=user_email
         )

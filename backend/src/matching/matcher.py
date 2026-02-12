@@ -7,7 +7,6 @@ import importlib.util
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.database.postgres_operations import PostgresDatabase
 from src.database.postgres_cv_operations import PostgresCVManager
@@ -104,7 +103,7 @@ No markdown formatting in the snippets themselves."""
         return []
 
 
-def run_background_matching(user_id: int, matching_status: Dict) -> None:
+def run_background_matching(user_id: int, matching_status: Dict, latest_day_only: bool = False) -> None:
     """
     Run complete job matching pipeline for a user in background
     
@@ -204,222 +203,9 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
         # Check if user has any existing matches
         existing_matches = job_db_inst.get_user_job_matches(user_id, min_semantic_score=0, limit=1)
         
-        # If no matches yet, fetch initial jobs from JSearch
-        if not existing_matches:
-            matching_status[user_id].update({
-                'stage': 'initial_fetch',
-                'progress': 15,
-                'message': 'First time setup: Fetching initial jobs from JSearch...'
-            })
-            print("\n🔍 First time user - fetching initial jobs from JSearch...")
-            
-            try:
-                from src.collectors.jsearch import JSearchCollector
-                from src.collectors.arbeitsagentur import ArbeitsagenturCollector
-                
-                # Get user preferences for search
-                user = cv_manager_inst.get_user_by_id(user_id)
-                preferences = user.get('preferences', {})
-                keywords = preferences.get('search_keywords', [])
-                # Check both possible location keys for backward compatibility
-                locations = preferences.get('search_locations', preferences.get('preferred_locations', []))
-                
-                # Build search query from CV if no preferences set
-                if not keywords:
-                    keywords = [profile.get('expertise_summary', '').split()[0]] if profile.get('expertise_summary') else ['software engineer']
-                if not locations:
-                    locations = ['Germany']
-                
-                # Initialize collectors
-                jsearch_key = os.environ.get('JSEARCH_API_KEY')
-                jsearch = JSearchCollector(jsearch_key) if jsearch_key else None
-                arbeitsagentur = ArbeitsagenturCollector()  # Always available (free, no key needed)
-                
-                if jsearch or arbeitsagentur:
-                    # PROGRESSIVE FETCHING: Use ALL keywords, process in small batches
-                    # This allows results to appear progressively instead of waiting 30+ minutes
-                    batch_size = 2  # Process 2-3 keywords at a time
-                    keyword_batches = [keywords[i:i+batch_size] for i in range(0, len(keywords), batch_size)]
-                    
-                    # Calculate total searches (JSearch + Arbeitsagentur for German locations)
-                    jsearch_searches = len(keyword_batches) * len(locations) if jsearch else 0
-                    # Arbeitsagentur only for German locations
-                    german_locations = [loc for loc in locations if any(term in loc.lower() for term in ['germany', 'deutschland', 'berlin', 'munich', 'hamburg', 'remote'])]
-                    ba_searches = len(keyword_batches) * len(german_locations) if arbeitsagentur and german_locations else 0
-                    total_searches = jsearch_searches + ba_searches
-                    
-                    print(f"  📊 Progressive search: {len(keywords)} keywords in {len(keyword_batches)} batches × {len(locations)} locations")
-                    if jsearch and arbeitsagentur and german_locations:
-                        print(f"  🌍 JSearch: {jsearch_searches} searches (international)")
-                        print(f"  🇩🇪 Arbeitsagentur: {ba_searches} searches (German locations)")
-                    print(f"  ⏱️  Estimated time: ~{total_searches * 3 / 60:.1f} minutes ({total_searches} API calls)")
-                    print(f"  💡 Results will stream in as each search completes\n")
-                    
-                    def fetch_batch_jsearch(batch_keywords, location, batch_idx):
-                        """Fetch jobs from JSearch for a batch of keywords (progressive results)"""
-                        if not batch_keywords or not jsearch:
-                            return 0
-                        
-                        combined_query = " OR ".join(batch_keywords) if len(batch_keywords) > 1 else batch_keywords[0]
-                        batch_name = f"Batch {batch_idx+1}/{len(keyword_batches)}"
-                        
-                        # Determine country code from location
-                        country_code = None
-                        if location:
-                            loc_lower = location.lower()
-                            # German-speaking countries
-                            if 'germany' in loc_lower or 'deutschland' in loc_lower or any(city in loc_lower for city in ['berlin', 'munich', 'hamburg', 'cologne', 'frankfurt']):
-                                country_code = 'de'
-                            elif 'austria' in loc_lower or 'österreich' in loc_lower or any(city in loc_lower for city in ['vienna', 'wien', 'salzburg']):
-                                country_code = 'at'
-                            elif 'switzerland' in loc_lower or 'schweiz' in loc_lower or any(city in loc_lower for city in ['zurich', 'geneva', 'basel']):
-                                country_code = 'ch'
-                            # Other European countries
-                            elif 'france' in loc_lower or any(city in loc_lower for city in ['paris', 'lyon', 'marseille']):
-                                country_code = 'fr'
-                            elif 'uk' in loc_lower or 'united kingdom' in loc_lower or 'england' in loc_lower or any(city in loc_lower for city in ['london', 'manchester', 'birmingham']):
-                                country_code = 'gb'
-                            elif 'spain' in loc_lower or 'españa' in loc_lower or any(city in loc_lower for city in ['madrid', 'barcelona', 'valencia']):
-                                country_code = 'es'
-                            elif 'netherlands' in loc_lower or 'holland' in loc_lower or any(city in loc_lower for city in ['amsterdam', 'rotterdam', 'utrecht']):
-                                country_code = 'nl'
-                            elif 'italy' in loc_lower or 'italia' in loc_lower or any(city in loc_lower for city in ['rome', 'milan', 'florence']):
-                                country_code = 'it'
-                            elif 'belgium' in loc_lower or 'belgique' in loc_lower or any(city in loc_lower for city in ['brussels', 'antwerp', 'bruges']):
-                                country_code = 'be'
-                            elif 'portugal' in loc_lower or any(city in loc_lower for city in ['lisbon', 'porto']):
-                                country_code = 'pt'
-                            # North America (default to US if nothing else matches)
-                            elif 'canada' in loc_lower or any(city in loc_lower for city in ['toronto', 'vancouver', 'montreal']):
-                                country_code = 'ca'
-                            elif 'usa' in loc_lower or 'united states' in loc_lower or 'america' in loc_lower:
-                                country_code = 'us'
-                        
-                        print(f"  🔍 [JSearch] {batch_name} - {location} ({country_code}): {combined_query[:45]}...")
-                        t_start = time.time()
-                        
-                        try:
-                            # Fetch from JSearch API (5 pages = ~50 results per batch)
-                            jobs = jsearch.search_jobs(
-                                query=combined_query,
-                                location=location,
-                                num_pages=5,
-                                date_posted="week",
-                                country=country_code
-                            )
-                            
-                            # Add to database immediately
-                            new_jobs = 0
-                            for job in jobs:
-                                if job_db_inst.add_job(job):
-                                    new_jobs += 1
-                            
-                            elapsed = time.time() - t_start
-                            print(f"  ✓ [JSearch] {batch_name} done: {len(jobs)} jobs ({new_jobs} new) in {elapsed:.1f}s")
-                            return new_jobs
-                            
-                        except Exception as e:
-                            print(f"  ⚠️  [JSearch] {batch_name} error: {e}")
-                            return 0
-                    
-                    def fetch_batch_arbeitsagentur(batch_keywords, location, batch_idx):
-                        """Fetch jobs from Arbeitsagentur for a batch of keywords (German jobs only)"""
-                        if not batch_keywords or not arbeitsagentur:
-                            return 0
-                        
-                        # Only fetch from Arbeitsagentur for German locations
-                        is_german = any(term in location.lower() for term in ['germany', 'deutschland', 'berlin', 'munich', 'hamburg', 'remote'])
-                        if not is_german:
-                            return 0
-                        
-                        batch_name = f"Batch {batch_idx+1}/{len(keyword_batches)}"
-                        
-                        # Arbeitsagentur API handles both German and English keywords well
-                        # It searches in job descriptions which often contain English terms
-                        combined_query = " OR ".join(batch_keywords) if len(batch_keywords) > 1 else batch_keywords[0]
-                        
-                        # Extract city from location string
-                        city = location.split(',')[0].strip() if ',' in location else location.strip()
-                        if city.lower() == 'remote work':
-                            city = None  # Remote jobs - search nationwide
-                        
-                        print(f"  🔍 [BA] {batch_name} - {location}: {combined_query[:45]}...")
-                        t_start = time.time()
-                        
-                        try:
-                            # Fetch from Arbeitsagentur API
-                            result = arbeitsagentur.search_jobs(
-                                keywords=combined_query,
-                                location=city,
-                                radius_km=50,
-                                days_since_posted=7,  # Last week
-                                page_size=50  # Fetch up to 50 jobs per search
-                            )
-                            
-                            jobs = result.get('jobs', [])
-                            
-                            # Add to database immediately
-                            new_jobs = 0
-                            for job in jobs:
-                                if job_db_inst.add_job(job):
-                                    new_jobs += 1
-                            
-                            elapsed = time.time() - t_start
-                            print(f"  ✓ [BA] {batch_name} done: {len(jobs)} jobs ({new_jobs} new) in {elapsed:.1f}s")
-                            return new_jobs
-                            
-                        except Exception as e:
-                            print(f"  ⚠️  [BA] {batch_name} error: {e}")
-                            return 0
-                    
-                    # Progressive fetching with concurrent workers
-                    total_new = 0
-                    completed = 0
-                    t_fetch_start = time.time()
-                    
-                    with ThreadPoolExecutor(max_workers=4) as executor:
-                        # Submit all fetch tasks (both JSearch and Arbeitsagentur)
-                        futures = {}
-                        
-                        # Submit JSearch tasks
-                        if jsearch:
-                            for batch_idx, batch_keywords in enumerate(keyword_batches):
-                                for location in locations:
-                                    future = executor.submit(fetch_batch_jsearch, batch_keywords, location, batch_idx)
-                                    futures[future] = ('jsearch', batch_idx, location)
-                        
-                        # Submit Arbeitsagentur tasks for German locations
-                        if arbeitsagentur and german_locations:
-                            for batch_idx, batch_keywords in enumerate(keyword_batches):
-                                for location in german_locations:
-                                    future = executor.submit(fetch_batch_arbeitsagentur, batch_keywords, location, batch_idx)
-                                    futures[future] = ('arbeitsagentur', batch_idx, location)
-                        
-                        # Process results as they complete (progressive!)
-                        for future in as_completed(futures):
-                            new_jobs = future.result()
-                            total_new += new_jobs
-                            completed += 1
-                            
-                            # Update progress for UI
-                            progress = 15 + int((completed / total_searches) * 10)  # 15-25%
-                            matching_status[user_id].update({
-                                'progress': progress,
-                                'message': f'Fetching jobs: {completed}/{total_searches} searches done ({total_new} new jobs)...'
-                            })
-                    
-                    t_fetch = time.time() - t_fetch_start
-                    print(f"\n✓ All searches complete: {total_new} new jobs in {t_fetch:.1f}s ({t_fetch/60:.1f} min)")
-                    print(f"  📊 Processed {len(keywords)} keywords across {total_searches} searches")
-                    
-                    if t_fetch > 120:
-                        print(f"  💡 {t_fetch/60:.1f} minutes for {len(keywords)} keywords - results appeared progressively!")
-                else:
-                    print("⚠️  No job collectors available, will use existing jobs only")
-                    
-            except Exception as e:
-                print(f"⚠️  Error fetching initial jobs: {e}")
-                # Continue with existing jobs if fetch fails
+        # No longer fetching initial jobs from API here.
+        # Database is now expected to have sufficient historical data.
+        print("🔍 Checking existing jobs in database...")
         
         # Get user preferences for location filtering
         user = cv_manager_inst.get_user_by_id(user_id)
@@ -437,7 +223,8 @@ def run_background_matching(user_id: int, matching_status: Dict) -> None:
         t_query_start = time.time()
         jobs_to_filter = job_db_inst.get_unfiltered_jobs_for_user(
             user_id=user_id,
-            user_cities=preferred_locs if preferred_locs else None
+            user_cities=preferred_locs if preferred_locs else None,
+            latest_day_only=latest_day_only
         )
         t_query = time.time() - t_query_start
 

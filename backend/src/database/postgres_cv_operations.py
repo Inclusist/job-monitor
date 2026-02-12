@@ -27,12 +27,49 @@ class PostgresCVManager:
         self._ensure_tables()
     
     def _get_connection(self):
-        """Get a connection from the pool"""
-        return self.connection_pool.getconn()
-    
+        """Get a connection from the pool, validating it's still alive"""
+        conn = None
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                conn = self.connection_pool.getconn()
+                # Determine if the connection is actually alive
+                if conn.closed == 0:
+                    with conn.cursor() as cursor:
+                        cursor.execute("SELECT 1")
+                    return conn
+                else:
+                    logger.warning(f"Connection from pool is closed (attempt {attempt+1}/{max_retries})")
+                    self.connection_pool.putconn(conn, close=True)
+                    conn = None
+            except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+                logger.warning(f"PostgreSQL connection error: {e} (attempt {attempt+1}/{max_retries})")
+                if conn:
+                    try:
+                        self.connection_pool.putconn(conn, close=True)
+                    except:
+                        pass
+                    conn = None
+                
+                # If it's the last attempt, re-raise
+                if attempt == max_retries - 1:
+                    logger.error("Failed to get a valid PostgreSQL connection after multiple attempts")
+                    raise
+            except Exception as e:
+                logger.error(f"Unexpected error getting connection: {e}")
+                if conn:
+                    self.connection_pool.putconn(conn)
+                raise
+        
+        raise Exception("Could not acquire a valid database connection")
+
     def _return_connection(self, conn):
         """Return connection to pool"""
-        self.connection_pool.putconn(conn)
+        if conn:
+            try:
+                self.connection_pool.putconn(conn)
+            except Exception as e:
+                logger.error(f"Error returning connection to pool: {e}")
     
     def _ensure_tables(self):
         """Ensure user/CV tables exist (already created by PostgresDatabase)"""
@@ -2058,6 +2095,154 @@ class PostgresCVManager:
         except Exception as e:
             conn.rollback()
             logger.error(f"Error deleting user {user_id}: {e}")
+            return False
+            
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+
+    def get_onboarding_status(self, user_id: int) -> dict:
+        """
+        Get user's onboarding progress
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            Dict with onboarding_completed, onboarding_step, onboarding_skipped
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            cursor.execute("""
+                SELECT onboarding_completed, onboarding_step, onboarding_skipped
+                FROM users
+                WHERE id = %s
+            """, (user_id,))
+            
+            result = cursor.fetchone()
+            
+            if result:
+                return dict(result)
+            else:
+                return {
+                    'onboarding_completed': False,
+                    'onboarding_step': 0,
+                    'onboarding_skipped': False
+                }
+                
+        except Exception as e:
+            logger.error(f"Error getting onboarding status for user {user_id}: {e}")
+            return {
+                'onboarding_completed': False,
+                'onboarding_step': 0,
+                'onboarding_skipped': False
+            }
+            
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
+    def update_onboarding_step(self, user_id: int, step: int) -> bool:
+        """
+        Update user's current onboarding step
+        
+        Args:
+            user_id: User ID
+            step: Current step number (0-5)
+            
+        Returns:
+            True if successful
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE users
+                SET onboarding_step = %s,
+                    last_updated = %s
+                WHERE id = %s
+            """, (step, datetime.now(), user_id))
+            
+            conn.commit()
+            logger.info(f"Updated onboarding step for user {user_id} to {step}")
+            return True
+            
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error updating onboarding step for user {user_id}: {e}")
+            return False
+            
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
+    def complete_onboarding(self, user_id: int) -> bool:
+        """
+        Mark user's onboarding as completed
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            True if successful
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE users
+                SET onboarding_completed = true,
+                    onboarding_step = 5,
+                    last_updated = %s
+                WHERE id = %s
+            """, (datetime.now(), user_id))
+            
+            conn.commit()
+            logger.info(f"Marked onboarding as completed for user {user_id}")
+            return True
+            
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error completing onboarding for user {user_id}: {e}")
+            return False
+            
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
+    def skip_onboarding(self, user_id: int) -> bool:
+        """
+        Mark user's onboarding as skipped
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            True if successful
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE users
+                SET onboarding_skipped = true,
+                    onboarding_completed = true,
+                    last_updated = %s
+                WHERE id = %s
+            """, (datetime.now(), user_id))
+            
+            conn.commit()
+            logger.info(f"Marked onboarding as skipped for user {user_id}")
+            return True
+            
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error skipping onboarding for user {user_id}: {e}")
             return False
             
         finally:

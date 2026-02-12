@@ -4,6 +4,9 @@ export interface User {
   name: string;
   provider: 'google' | 'linkedin' | 'email';
   avatar_url?: string;
+  onboarding_completed?: boolean;
+  onboarding_step?: number;
+  onboarding_skipped?: boolean;
 }
 
 export interface UserStats {
@@ -226,6 +229,11 @@ export interface CVProfile {
   derived_seniority?: string;
   domain_expertise?: string[];
   semantic_summary?: string;
+  // Job preferences from CV
+  desired_job_titles?: string[];
+  preferred_work_locations?: string[];
+  current_location?: string;
+  work_arrangement_preference?: string;
 }
 
 export interface ClaimedItem {
@@ -249,6 +257,9 @@ export interface ProfileUser {
   resume_name?: string;
   resume_email?: string;
   resume_phone?: string;
+  onboarding_completed?: boolean;
+  onboarding_step?: number;
+  onboarding_skipped?: boolean;
 }
 
 export interface ProfileResponse {

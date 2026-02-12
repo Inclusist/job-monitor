@@ -32,7 +32,7 @@ def main():
     cv_manager = PostgresCVManager(db_pool)
     parser = CVParser()
     # Use Haiku with our new prompted logic
-    analyzer = CVAnalyzer(os.getenv('ANTHROPIC_API_KEY'), model="claude-3-haiku-20240307")
+    analyzer = CVAnalyzer(os.getenv('ANTHROPIC_API_KEY'), model="claude-3-5-haiku-20241022")
     handler = CVHandler(cv_manager, parser, analyzer)
     
     # Get Primary CV

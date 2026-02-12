@@ -23,6 +23,57 @@ class PostgresResumeOperations:
         """
         self.pool = connection_pool
 
+    def _get_connection(self):
+        """Get a connection from the pool, validating it's still alive"""
+        import psycopg2
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        conn = None
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                conn = self.pool.getconn()
+                # Determine if the connection is actually alive
+                if conn.closed == 0:
+                    with conn.cursor() as cursor:
+                        cursor.execute("SELECT 1")
+                    return conn
+                else:
+                    logger.warning(f"Connection from pool is closed (attempt {attempt+1}/{max_retries})")
+                    self.pool.putconn(conn, close=True)
+                    conn = None
+            except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+                logger.warning(f"PostgreSQL connection error: {e} (attempt {attempt+1}/{max_retries})")
+                if conn:
+                    try:
+                        self.pool.putconn(conn, close=True)
+                    except:
+                        pass
+                    conn = None
+                
+                # If it's the last attempt, re-raise
+                if attempt == max_retries - 1:
+                    logger.error("Failed to get a valid PostgreSQL connection after multiple attempts")
+                    raise
+            except Exception as e:
+                logger.error(f"Unexpected error getting connection: {e}")
+                if conn:
+                    self._return_connection(conn)
+                raise
+        
+        raise Exception("Could not acquire a valid database connection")
+
+    def _return_connection(self, conn):
+        """Return connection to pool"""
+        if conn:
+            import logging
+            logger = logging.getLogger(__name__)
+            try:
+                self.pool.putconn(conn)
+            except Exception as e:
+                logger.error(f"Error returning connection to pool: {e}")
+
     def save_user_claimed_competency(self, user_id: int, competency_name: str,
                                      work_exp_ids: List[int], evidence: str) -> bool:
         """
@@ -37,7 +88,7 @@ class PostgresResumeOperations:
         Returns:
             bool: True if successful
         """
-        conn = self.pool.getconn()
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
 
@@ -78,7 +129,7 @@ class PostgresResumeOperations:
             raise
         finally:
             cursor.close()
-            self.pool.putconn(conn)
+            self._return_connection(conn)
 
     def save_user_claimed_skill(self, user_id: int, skill_name: str,
                                 work_exp_ids: List[int], evidence: str) -> bool:
@@ -94,7 +145,7 @@ class PostgresResumeOperations:
         Returns:
             bool: True if successful
         """
-        conn = self.pool.getconn()
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
 
@@ -135,7 +186,7 @@ class PostgresResumeOperations:
             raise
         finally:
             cursor.close()
-            self.pool.putconn(conn)
+            self._return_connection(conn)
 
     def save_multiple_claims(self, user_id: int, selections: List[Dict[str, Any]]) -> bool:
         """
@@ -148,7 +199,7 @@ class PostgresResumeOperations:
         Returns:
             bool: True if successful
         """
-        conn = self.pool.getconn()
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
 
@@ -197,7 +248,7 @@ class PostgresResumeOperations:
             raise
         finally:
             cursor.close()
-            self.pool.putconn(conn)
+            self._return_connection(conn)
 
     def get_user_claimed_data(self, user_id: int) -> Dict[str, Dict]:
         """
@@ -209,7 +260,7 @@ class PostgresResumeOperations:
         Returns:
             Dict with 'competencies' and 'skills' keys containing claimed data
         """
-        conn = self.pool.getconn()
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
 
@@ -230,7 +281,7 @@ class PostgresResumeOperations:
 
         finally:
             cursor.close()
-            self.pool.putconn(conn)
+            self._return_connection(conn)
 
     def remove_claimed_competency(self, user_id: int, competency_name: str) -> bool:
         """
@@ -243,7 +294,7 @@ class PostgresResumeOperations:
         Returns:
             bool: True if successful
         """
-        conn = self.pool.getconn()
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
 
@@ -279,7 +330,7 @@ class PostgresResumeOperations:
             raise
         finally:
             cursor.close()
-            self.pool.putconn(conn)
+            self._return_connection(conn)
 
     def remove_claimed_skill(self, user_id: int, skill_name: str) -> bool:
         """
@@ -292,7 +343,7 @@ class PostgresResumeOperations:
         Returns:
             bool: True if successful
         """
-        conn = self.pool.getconn()
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
 
@@ -328,7 +379,7 @@ class PostgresResumeOperations:
             raise
         finally:
             cursor.close()
-            self.pool.putconn(conn)
+            self._return_connection(conn)
 
     def save_generated_resume(self, user_id: int, job_id: int, resume_html: str,
                              resume_pdf_path: Optional[str],
@@ -349,7 +400,7 @@ class PostgresResumeOperations:
             int: Resume ID
         """
         import psycopg2
-        conn = self.pool.getconn()
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
 
@@ -394,7 +445,7 @@ class PostgresResumeOperations:
             raise
         finally:
             cursor.close()
-            self.pool.putconn(conn)
+            self._return_connection(conn)
 
     def get_user_resumes(self, user_id: int, job_id: Optional[int] = None) -> List[Dict]:
         """
@@ -407,7 +458,7 @@ class PostgresResumeOperations:
         Returns:
             List of resume dicts
         """
-        conn = self.pool.getconn()
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
 
@@ -448,7 +499,7 @@ class PostgresResumeOperations:
 
         finally:
             cursor.close()
-            self.pool.putconn(conn)
+            self._return_connection(conn)
 
     def get_resume_by_id(self, resume_id: int, user_id: int) -> Optional[Dict]:
         """
@@ -461,7 +512,7 @@ class PostgresResumeOperations:
         Returns:
             Resume dict or None if not found/not owned by user
         """
-        conn = self.pool.getconn()
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
 
@@ -490,7 +541,7 @@ class PostgresResumeOperations:
 
         finally:
             cursor.close()
-            self.pool.putconn(conn)
+            self._return_connection(conn)
 
     def delete_resume(self, resume_id: int, user_id: int) -> bool:
         """
@@ -503,7 +554,7 @@ class PostgresResumeOperations:
         Returns:
             bool: True if deleted
         """
-        conn = self.pool.getconn()
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
 
@@ -524,7 +575,7 @@ class PostgresResumeOperations:
             raise
         finally:
             cursor.close()
-            self.pool.putconn(conn)
+            self._return_connection(conn)
 
     def get_resume_count_for_user(self, user_id: int) -> int:
         """
@@ -536,7 +587,7 @@ class PostgresResumeOperations:
         Returns:
             int: Number of resumes
         """
-        conn = self.pool.getconn()
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
 
@@ -549,4 +600,4 @@ class PostgresResumeOperations:
 
         finally:
             cursor.close()
-            self.pool.putconn(conn)
+            self._return_connection(conn)

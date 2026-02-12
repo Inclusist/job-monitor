@@ -7,6 +7,7 @@ interface AuthContextValue {
   stats: UserStats | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  refreshAuth: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -14,6 +15,7 @@ const AuthContext = createContext<AuthContextValue>({
   stats: null,
   isAuthenticated: false,
   isLoading: true,
+  refreshAuth: async () => { },
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -21,22 +23,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [stats, setStats] = useState<UserStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const fetchAuth = async () => {
+    try {
+      const data = await getMe();
+      setUser(data.user);
+      setStats(data.stats);
+    } catch {
+      setUser(null);
+      setStats(null);
+    }
+  };
+
+  const refreshAuth = async () => {
+    await fetchAuth();
+  };
+
   useEffect(() => {
-    getMe()
-      .then((data) => {
-        setUser(data.user);
-        setStats(data.stats);
-      })
-      .catch(() => {
-        setUser(null);
-        setStats(null);
-      })
-      .finally(() => setIsLoading(false));
+    fetchAuth().finally(() => setIsLoading(false));
   }, []);
 
   return (
     <AuthContext.Provider
-      value={{ user, stats, isAuthenticated: !!user, isLoading }}
+      value={{ user, stats, isAuthenticated: !!user, isLoading, refreshAuth }}
     >
       {children}
     </AuthContext.Provider>

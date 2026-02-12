@@ -103,13 +103,16 @@ else:
 
 parser = CVParser()
 
-# Initialize CV analyzer
+# API Keys
 anthropic_key = os.getenv('ANTHROPIC_API_KEY')
-if not anthropic_key:
-    print("Warning: ANTHROPIC_API_KEY not set. CV upload will not work.")
-    analyzer = None
+gemini_key = os.getenv('GOOGLE_GEMINI_API_KEY')
+
+# Initialize CV analyzer
+if gemini_key:
+    analyzer = CVAnalyzer(gemini_key)
 else:
-    analyzer = CVAnalyzer(anthropic_key)
+    print("Warning: GOOGLE_GEMINI_API_KEY not set. CV upload will fail.")
+    analyzer = None
 
 handler = CVHandler(cv_manager, parser, analyzer, storage_root='data/cvs') if analyzer else None
 
@@ -400,16 +403,16 @@ def authorize_google():
         user_info = token.get('userinfo')
         
         if not user_info:
-            flash('Failed to get user information from Google', 'error')
-            return redirect(url_for('login'))
+            error_msg = 'Failed to get user information from Google'
+            return redirect(f"{frontend_url}/login?error={error_msg}")
         
         email = user_info.get('email')
         name = user_info.get('name')
         avatar_url = user_info.get('picture')
         
         if not email:
-            flash('Email not provided by Google', 'error')
-            return redirect(url_for('login'))
+            error_msg = 'Email not provided by Google'
+            return redirect(f"{frontend_url}/login?error={error_msg}")
         
         # Get or create user with OAuth provider info
         user_dict = cv_manager.get_or_create_oauth_user(
@@ -447,9 +450,12 @@ def authorize_google():
             else:
                 flash(f'Welcome back, {name}!', 'success')
             
-            # Redirect to React frontend jobs page
+            # Redirect to onboarding for new users, jobs for existing
             frontend = os.getenv('FRONTEND_URL', 'http://localhost:5173')
-            return redirect(f'{frontend}/jobs')
+            if is_new_user:
+                return redirect(f'{frontend}/onboarding')
+            else:
+                return redirect(f'{frontend}/jobs')
         else:
             flash('Failed to create user account', 'error')
             return redirect(url_for('login'))
@@ -458,8 +464,8 @@ def authorize_google():
         import traceback
         print(f"Google OAuth error: {e}")
         print(traceback.format_exc())
-        flash(f'Failed to authenticate with Google: {str(e)}', 'error')
-        return redirect(url_for('login'))
+        error_msg = f'Authentication failed: {str(e)}'
+        return redirect(f"{frontend_url}/login?error={error_msg}")
 
 
 @app.route('/login/linkedin')
@@ -481,8 +487,9 @@ def authorize_linkedin():
 
         code = request.args.get('code')
         if not code:
-            flash('Authorization failed: No code received', 'error')
-            return redirect(url_for('login'))
+            error_msg = 'Authorization failed: No code received'
+            frontend = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+            return redirect(f"{frontend}/login?error={error_msg}")
 
         # Exchange code for access token
         token_url = 'https://www.linkedin.com/oauth/v2/accessToken'
@@ -525,8 +532,9 @@ def authorize_linkedin():
         
         if not email:
             print("Available fields in LinkedIn response:", list(user_info.keys()))
-            flash('Email not provided by LinkedIn', 'error')
-            return redirect(url_for('login'))
+            error_msg = 'Email not provided by LinkedIn'
+            frontend = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+            return redirect(f"{frontend}/login?error={error_msg}")
         
         # Get or create user with OAuth provider info
         user_dict = cv_manager.get_or_create_oauth_user(
@@ -543,7 +551,7 @@ def authorize_linkedin():
             # Check if this is a new user
             is_new_user = user_dict.get('is_new_user', False)
             if is_new_user:
-                flash(f'Welcome {name}! Your account has been created.', 'success')
+                # For React onboarding, we can still use flash but the redirect is more important
                 
                 # Trigger automatic job loading for new user
                 try:
@@ -556,25 +564,27 @@ def authorize_linkedin():
                             job_db=job_db,
                             cv_manager=cv_manager
                         )
-                        flash('Loading initial jobs in the background...', 'info')
                 except Exception as e:
                     print(f"Error triggering job load for new user: {e}")
-            else:
-                flash(f'Welcome back, {name}!', 'success')
             
-            # Redirect to React frontend jobs page
+            # Redirect to React frontend
             frontend = os.getenv('FRONTEND_URL', 'http://localhost:5173')
-            return redirect(f'{frontend}/jobs')
+            if is_new_user:
+                return redirect(f'{frontend}/onboarding')
+            else:
+                return redirect(f'{frontend}/jobs')
         else:
-            flash('Failed to create user account', 'error')
-            return redirect(url_for('login'))
+            error_msg = 'Failed to create user account'
+            frontend = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+            return redirect(f"{frontend}/login?error={error_msg}")
 
     except Exception as e:
         import traceback
         print(f"LinkedIn OAuth error: {e}")
         print(traceback.format_exc())
-        flash(f'Failed to authenticate with LinkedIn: {str(e)}', 'error')
-        return redirect(url_for('login'))
+        error_msg = f'Authentication failed: {str(e)}'
+        frontend = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+        return redirect(f"{frontend}/login?error={error_msg}")
 
 
 # ============ Main Routes ============
@@ -1435,7 +1445,7 @@ def run_custom_search():
         
         # Analyze with Claude
         api_key = os.getenv('ANTHROPIC_API_KEY')
-        analyzer = ClaudeJobAnalyzer(api_key, model="claude-3-haiku-20240307")
+        analyzer = ClaudeJobAnalyzer(api_key, model="claude-3-5-haiku-20241022")
         
         # Use CV profile
         cv_profile = cv_manager.get_profile_by_user(user['id'])
@@ -2736,10 +2746,10 @@ def update_search_preferences():
 # Global dictionary to track matching status
 matching_status = {}
 
-def run_background_filtering(user_id: int):
+def run_background_filtering(user_id: int, latest_day_only: bool = False):
     """Run semantic filtering and Claude analysis in background"""
     from src.matching.matcher import run_background_matching
-    run_background_matching(user_id, matching_status)
+    run_background_matching(user_id, matching_status, latest_day_only=latest_day_only)
 
 
 @app.route('/run-job-matching', methods=['POST'])
@@ -2824,6 +2834,9 @@ def api_me():
             'name': user.get('name'),
             'provider': user.get('provider', 'email'),
             'avatar_url': user.get('avatar_url'),
+            'onboarding_completed': user.get('onboarding_completed', False),
+            'onboarding_step': user.get('onboarding_step', 0),
+            'onboarding_skipped': user.get('onboarding_skipped', False),
         },
         'stats': stats
     })
@@ -2887,6 +2900,9 @@ def api_profile():
             'resume_name': user.get('resume_name'),
             'resume_email': user.get('resume_email'),
             'resume_phone': user.get('resume_phone'),
+            'onboarding_completed': user.get('onboarding_completed', False),
+            'onboarding_step': user.get('onboarding_step', 0),
+            'onboarding_skipped': user.get('onboarding_skipped', False),
         },
         'cvs': cvs,
         'profile': profile,
@@ -3054,6 +3070,149 @@ def api_delete_profile():
             'success': False,
             'error': 'An error occurred'
         }), 500
+
+
+@app.route('/api/onboarding/status')
+@login_required
+def api_onboarding_status():
+    """Get user's onboarding progress"""
+    try:
+        user_id = get_user_id()
+        status = cv_manager.get_onboarding_status(user_id)
+        return jsonify(status)
+    except Exception as e:
+        print(f"Error getting onboarding status: {e}", flush=True)
+        return jsonify({
+            'onboarding_completed': False,
+            'onboarding_step': 0,
+            'onboarding_skipped': False
+        })
+
+
+@app.route('/api/onboarding/update', methods=['POST'])
+@login_required
+def api_onboarding_update():
+    """Update user's onboarding step"""
+    try:
+        user_id = get_user_id()
+        data = request.get_json() or {}
+        step = data.get('step', 0)
+        
+        success = cv_manager.update_onboarding_step(user_id, step)
+        
+        return jsonify({'success': success})
+    except Exception as e:
+        print(f"Error updating onboarding step: {e}", flush=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/onboarding/complete', methods=['POST'])
+@login_required
+def api_onboarding_complete():
+    """Mark onboarding as completed"""
+    try:
+        user_id = get_user_id()
+        success = cv_manager.complete_onboarding(user_id)
+        
+        return jsonify({'success': success})
+    except Exception as e:
+        print(f"Error completing onboarding: {e}", flush=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/onboarding/skip', methods=['POST'])
+@login_required
+def api_onboarding_skip():
+    """Skip onboarding"""
+    try:
+        user_id = get_user_id()
+        success = cv_manager.skip_onboarding(user_id)
+        
+        return jsonify({'success': success})
+    except Exception as e:
+        print(f"Error skipping onboarding: {e}", flush=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/search-preferences')
+@login_required
+def api_get_search_preferences():
+    """Get user's current search preferences (keywords, locations, work_arrangement)"""
+    user_id = get_user_id()
+    try:
+        prefs = cv_manager.get_user_search_preferences(user_id)
+
+        # Get work_arrangement from active search queries (column is ai_work_arrangement)
+        work_arrangements = []
+        queries = cv_manager.get_user_search_queries(user_id, active_only=True)
+        for query in queries:
+            wa = query.get('ai_work_arrangement')
+            if wa:
+                # May be pipe-separated, e.g. "remote|hybrid"
+                for part in wa.split('|'):
+                    part = part.strip().lower()
+                    if part and part not in work_arrangements:
+                        work_arrangements.append(part)
+                break  # All queries share the same work_arrangement
+
+        return jsonify({
+            'keywords': prefs.get('keywords', []),
+            'locations': prefs.get('locations', []),
+            'work_arrangements': work_arrangements
+        })
+    except Exception as e:
+        print(f"Error getting search preferences: {e}", flush=True)
+        return jsonify({'keywords': [], 'locations': [], 'work_arrangements': []})
+
+
+@app.route('/api/update-search-preferences', methods=['POST'])
+@login_required
+def api_update_search_preferences():
+    """Update user's search preferences (JSON API for onboarding/SPA)"""
+    user_id = get_user_id()
+    try:
+        data = request.get_json() or {}
+        keywords = data.get('keywords', [])
+        locations = data.get('locations', [])
+        # Accept both array (new) and string (legacy) for work_arrangements
+        work_arrangements = data.get('work_arrangements', [])
+        if not work_arrangements:
+            # Legacy: single string value
+            legacy = data.get('work_arrangement')
+            if legacy:
+                work_arrangements = [legacy]
+
+        if not isinstance(keywords, list) or not isinstance(locations, list):
+            return jsonify({'success': False, 'error': 'keywords and locations must be arrays'}), 400
+
+        # Store as pipe-separated string for the DB column
+        work_arrangement_str = '|'.join(work_arrangements) if work_arrangements else None
+
+        # Update user's preference JSON on users table
+        cv_manager.update_user_search_preferences(
+            user_id,
+            keywords=keywords,
+            locations=locations
+        )
+
+        # Also update user_search_queries table for the matcher
+        cv_manager.deactivate_user_search_queries(user_id)
+        cv_manager.add_user_search_queries(
+            user_id=user_id,
+            query_name='Onboarding Preferences',
+            title_keywords=keywords,
+            locations=locations,
+            ai_work_arrangement=work_arrangement_str,
+            ai_seniority=None,
+            ai_employment_type=None,
+            ai_industry=None,
+            priority=10
+        )
+
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"Error updating search preferences via API: {e}", flush=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/jobs')
@@ -3324,9 +3483,11 @@ def api_run_matching():
             'jobs_analyzed': 0,
         }
 
+        latest_day_only = request.json.get('latest_day_only', False) if (request.is_json and request.json) else False
+
         threading.Thread(
             target=run_background_filtering,
-            args=(user_id,),
+            args=(user_id, latest_day_only),
             daemon=True
         ).start()
 
@@ -4661,6 +4822,150 @@ def api_update_job_status(job_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+
+@app.route('/api/search-queries')
+@login_required
+def api_search_queries():
+    """Get user's search queries for prefilling preferences"""
+    user = get_user()
+    user_id = user['id']
+    
+    queries = cv_manager.get_user_search_queries(user_id, active_only=True)
+    
+    # Extract unique titles and locations from queries
+    titles = set()
+    locations = set()
+    work_arrangement = None
+    
+    for query in queries:
+        # title_keywords uses pipe separator (e.g., "AI Lead|Data Scientist")
+        if query.get('title_keywords'):
+            # Split by pipe and add each title
+            for title in query['title_keywords'].split('|'):
+                title = title.strip()
+                if title:
+                    titles.add(title)
+        
+        if query.get('location'):
+            locations.add(query['location'])
+        
+        if not work_arrangement and query.get('work_arrangement'):
+            work_arrangement = query['work_arrangement']
+    
+    return jsonify({
+        'titles': list(titles),
+        'locations': list(locations),
+        'work_arrangement': work_arrangement,
+        'query_count': len(queries)
+    })
+
+
+@app.route('/api/generate-preferences', methods=['POST'])
+@login_required
+def api_generate_preferences():
+    """Use Gemini to generate job preferences from CV"""
+    user = get_user()
+    user_id = user['id']
+    
+    # Get user's CV profile
+    profile = cv_manager.get_user_cv_profile(user_id)
+    if not profile:
+        return jsonify({'success': False, 'error': 'No CV profile found'}), 404
+    
+    # Use Gemini to generate preferences
+    try:
+        import google.generativeai as genai
+        gemini_key = os.getenv('GOOGLE_GEMINI_API_KEY')
+        if not gemini_key:
+            return jsonify({'success': False, 'error': 'AI service not configured'}), 503
+        
+        genai.configure(api_key=gemini_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        
+        # Build context for the most recent work experience
+        work_experience = profile.get('work_experience', [])
+        most_recent_job = work_experience[0] if work_experience else {}
+        most_recent_detail = ""
+        if most_recent_job:
+            most_recent_detail = f"- Most Recent Position: {most_recent_job.get('title', 'N/A')} at {most_recent_job.get('company', 'N/A')}"
+
+        current_location = profile.get('current_location', 'N/A')
+        latest_work_city = profile.get('latest_work_location', {}).get('city', 'N/A')
+
+        # Create prompt for Gemini
+        cv_summary = f"""
+CV Summary:
+- Current Role: {profile.get('extracted_role', 'N/A')}
+{most_recent_detail}
+- Years Experience: {profile.get('total_years_experience', 0)}
+- Current Location (from CV): {current_location}
+- City of Most Recent Role: {latest_work_city}
+- Recent Job Titles: {', '.join([j.get('title', '') for j in work_experience[:3]])}
+- Skills: {', '.join(profile.get('technical_skills', [])[:10])}
+- Industries: {', '.join(profile.get('industries', []))}
+"""
+
+        prompt = f"""{cv_summary}
+
+Based on this CV, suggest job titles in 3 categories and location preferences.
+
+JOB TITLES — Provide titles in these 3 categories:
+1. "current_level": 3-4 job titles at the person's CURRENT seniority level (similar roles they could move to laterally).
+   - One MUST be the current role "{profile.get('extracted_role', 'N/A')}" or a closely standardized version.
+   - Use popular, market-standard titles that appear frequently on job boards.
+   - Be SPECIFIC and include seniority level (e.g., "Senior Data Scientist" not just "Data Scientist").
+2. "advancement": 3-4 job titles at the NEXT career level (promotion-level roles).
+   - These should represent realistic next-step roles based on the person's experience.
+   - Use popular, market-standard titles.
+3. "career_pivot": 2-3 alternative career direction titles.
+   - Related fields where the person's skills transfer well.
+   - Use popular, market-standard titles.
+
+LOCATION — Strictly based on the CV data:
+- The person's current location from their CV is: "{current_location}"
+- Their most recent work city is: "{latest_work_city}"
+- CRITICAL: Use ONLY the country from the CV data above. Do NOT invent or guess locations.
+- Suggest 2-3 cities WITHIN that same country. ALWAYS include the most recent work city if known.
+
+WORK ARRANGEMENT — Based on role and seniority, suggest remote/hybrid/onsite.
+
+Respond in JSON format:
+{{
+  "job_titles": {{
+    "current_level": ["Title 1", "Title 2", "Title 3"],
+    "advancement": ["Title 1", "Title 2", "Title 3"],
+    "career_pivot": ["Title 1", "Title 2"]
+  }},
+  "country": "Country Name",
+  "cities": ["City 1", "City 2"],
+  "work_arrangement": "remote|hybrid|onsite"
+}}
+
+Respond ONLY with valid JSON."""
+
+        response = model.generate_content(prompt)
+        response_text = response.text
+        
+        # Parse response
+        start = response_text.find('{')
+        end = response_text.rfind('}') + 1
+        
+        if start == -1 or end == 0:
+            raise ValueError("No JSON in response")
+        
+        json_str = response_text[start:end]
+        suggestions = json.loads(json_str)
+        
+        return jsonify({
+            'success': True,
+            'suggestions': suggestions
+        })
+        
+    except Exception as e:
+        print(f"Error generating preferences: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     print("="*60)
     print("🤖 Job Monitor Web UI")
@@ -4683,3 +4988,5 @@ if __name__ == '__main__':
     debug = os.environ.get('FLASK_ENV') != 'production'
     
     app.run(debug=debug, host='0.0.0.0', port=port)
+
+

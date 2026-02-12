@@ -65,7 +65,7 @@ def enrich_job_lightweight(client, job):
         prompt = create_lightweight_prompt(job)
         
         response = client.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-3-5-haiku-20241022",
             max_tokens=200,  # Much smaller! Only need ~100 tokens
             temperature=0,
             messages=[{"role": "user", "content": prompt}]

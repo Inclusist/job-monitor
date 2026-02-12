@@ -92,7 +92,7 @@ def enrich_job_row(client: Anthropic, job: Dict[str, Any]) -> Optional[Dict[str,
         prompt = create_enrichment_prompt(job)
         
         response = client.messages.create(
-            model="claude-3-haiku-20240307", # Using Haiku for speed and availability
+            model="claude-3-5-haiku-20241022", # Using Haiku for speed and availability
             max_tokens=2000,
             temperature=0,
             messages=[
