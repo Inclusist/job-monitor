@@ -12,6 +12,7 @@ const IDLE_STATUS: MatchingStatus = {
 export function useMatchingStatus(enabled: boolean) {
   const queryClient = useQueryClient();
   const prevStatusRef = useRef<string>('idle');
+  const prevChunksCompletedRef = useRef<number>(0);
 
   const query = useQuery({
     queryKey: ['matching-status'],
@@ -25,16 +26,23 @@ export function useMatchingStatus(enabled: boolean) {
     initialData: IDLE_STATUS,
   });
 
-  // When status transitions to completed, invalidate jobs so they auto-refresh
   useEffect(() => {
     const currentStatus = query.data?.status;
+    const chunksCompleted = query.data?.chunks_completed ?? 0;
     if (!currentStatus) return;
 
+    // Progressive refresh: when chunks_completed counter increases, refresh jobs
+    if (currentStatus === 'running' && chunksCompleted > prevChunksCompletedRef.current) {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+    }
+    prevChunksCompletedRef.current = chunksCompleted;
+
+    // Final refresh: when matching finishes
     if (prevStatusRef.current === 'running' && currentStatus === 'completed') {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
     }
     prevStatusRef.current = currentStatus;
-  }, [query.data?.status, queryClient]);
+  }, [query.data?.status, query.data?.chunks_completed, queryClient]);
 
   return query;
 }

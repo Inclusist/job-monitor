@@ -250,6 +250,28 @@ class PostgresDatabase:
                 # Safe to ignore since migration is idempotent
                 conn.rollback()
                 logger.warning("Migration skipped due to concurrent execution")
+            
+            # Schema changes for duplicate detection (idempotent)
+            cursor.execute("""
+                ALTER TABLE jobs 
+                ADD COLUMN IF NOT EXISTS merged_location_ids JSONB DEFAULT '[]'
+            """)
+            
+            cursor.execute("""
+                ALTER TABLE jobs 
+                ADD COLUMN IF NOT EXISTS is_duplicate BOOLEAN DEFAULT false
+            """)
+            
+            cursor.execute("""
+                ALTER TABLE jobs 
+                ADD COLUMN IF NOT EXISTS canonical_job_id INTEGER REFERENCES jobs(id)
+            """)
+            
+            # Index for duplicate queries
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_jobs_is_duplicate 
+                ON jobs(is_duplicate) WHERE is_duplicate = false
+            """)
 
             conn.commit()
             logger.info("PostgreSQL tables created successfully")
@@ -1575,8 +1597,123 @@ class PostgresDatabase:
                 cursor.close()
                 self._return_connection(conn)
             logger.error(f"Error getting all active queries: {e}")
-            return []
-
+            self._return_connection(conn)
+    
+    def get_jobs_for_duplicate_detection(
+        self,
+        limit: Optional[int] = None,
+        only_new: bool = False
+    ) -> List[Dict]:
+        """
+        Get jobs with embeddings for duplicate detection.
+        
+        Args:
+            limit: Optional limit on number of jobs to fetch
+            only_new: If True, only fetch jobs not yet checked for duplicates
+            
+        Returns:
+            List of job dicts with id, company, title, embedding_jobbert_title,
+            location, locations_derived, cities_derived
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            query = """
+                SELECT 
+                    id,
+                    company,
+                    title,
+                    location,
+                    locations_derived,
+                    cities_derived,
+                    embedding_jobbert_title
+                FROM jobs
+                WHERE embedding_jobbert_title IS NOT NULL
+                AND (is_duplicate IS NULL OR is_duplicate = false)
+            """
+            
+            if only_new:
+                query += " AND merged_location_ids = '[]'"
+            
+            query += " ORDER BY company, title"
+            
+            if limit:
+                query += f" LIMIT {limit}"
+            
+            cursor.execute(query)
+            jobs = cursor.fetchall()
+            return [dict(job) for job in jobs]
+            
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
+    def merge_job_locations(
+        self,
+        canonical_id: int,
+        duplicate_ids: List[int],
+        merged_locations: List[str],
+        merged_cities: List[str]
+    ) -> bool:
+        """
+        Merge duplicate jobs by updating canonical job with merged locations
+        and marking duplicates as hidden.
+        
+        Args:
+            canonical_id: ID of the canonical job to keep
+            duplicate_ids: List of duplicate job IDs to merge
+            merged_locations: Combined list of all locations
+            merged_cities: Combined list of all cities
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            
+            # Update canonical job with merged locations
+            cursor.execute("""
+                UPDATE jobs
+                SET 
+                    locations_derived = %s,
+                    cities_derived = %s,
+                    merged_location_ids = %s,
+                    last_updated = NOW()
+                WHERE id = %s
+            """, (
+                merged_locations,
+                merged_cities,
+                json.dumps(duplicate_ids),
+                canonical_id
+            ))
+            
+            # Mark duplicates as hidden
+            cursor.execute("""
+                UPDATE jobs
+                SET 
+                    is_duplicate = true,
+                    canonical_job_id = %s,
+                    last_updated = NOW()
+                WHERE id = ANY(%s)
+            """, (canonical_id, duplicate_ids))
+            
+            conn.commit()
+            logger.info(
+                f"Merged {len(duplicate_ids)} duplicates into job {canonical_id}"
+            )
+            return True
+            
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error merging job locations: {e}")
+            return False
+            
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+    
     def close(self):
         """Close all connections in the pool"""
         if hasattr(self, 'connection_pool'):

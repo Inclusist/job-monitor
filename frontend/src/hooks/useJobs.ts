@@ -30,6 +30,12 @@ export function useRunMatching() {
     mutationFn: runMatching,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      // Refetch matching-status after a short delay so the background thread
+      // has time to set status='running', which activates polling
+      queryClient.invalidateQueries({ queryKey: ['matching-status'] });
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['matching-status'] });
+      }, 500);
     },
   });
 }
