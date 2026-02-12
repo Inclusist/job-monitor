@@ -3011,6 +3011,51 @@ def api_update_profile():
     return jsonify({'success': True, 'message': 'Profile updated'})
 
 
+@app.route('/api/profile/delete', methods=['DELETE'])
+@login_required
+def api_delete_profile():
+    """
+    Delete user profile and all associated data.
+    Requires confirmation token to prevent accidental deletion.
+    """
+    try:
+        data = request.get_json() or {}
+        confirmation = data.get('confirmation', '')
+        
+        # Require explicit confirmation
+        if confirmation != 'DELETE MY ACCOUNT':
+            return jsonify({
+                'success': False,
+                'error': 'Invalid confirmation. Please type "DELETE MY ACCOUNT" to confirm.'
+            }), 400
+        
+        user_id = get_user_id()
+        
+        # Delete account
+        success = cv_manager.delete_user_account(user_id)
+        
+        if success:
+            # Clear session
+            session.clear()
+            
+            return jsonify({
+                'success': True,
+                'message': 'Account deleted successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to delete account. Please contact support.'
+            }), 500
+            
+    except Exception as e:
+        print(f"Error in delete_profile: {e}", flush=True)
+        return jsonify({
+            'success': False,
+            'error': 'An error occurred'
+        }), 500
+
+
 @app.route('/api/jobs')
 @login_required
 def api_jobs():

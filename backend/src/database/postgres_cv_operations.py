@@ -1999,6 +1999,71 @@ class PostgresCVManager:
             cursor.close()
             self._return_connection(conn)
 
+    def delete_user_account(self, user_id: int) -> bool:
+        """
+        Permanently delete user account and all associated data.
+        
+        This will delete:
+        - User record
+        - All CVs (CASCADE)
+        - All CV profiles (CASCADE)
+        - All user-job matches (CASCADE)
+        - All search history (CASCADE)
+        - All applications (CASCADE)
+        - All job feedback (CASCADE)
+        - Physical CV files from disk
+        
+        Args:
+            user_id: ID of the user to delete
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            
+            # Get CV file paths before deletion
+            cursor.execute("""
+                SELECT file_path FROM cvs WHERE user_id = %s
+            """, (user_id,))
+            cv_files = [row[0] for row in cursor.fetchall()]
+            
+            # Delete physical files
+            import os
+            for file_path in cv_files:
+                try:
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                        logger.info(f"Deleted CV file: {file_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete file {file_path}: {e}")
+            
+            # Delete user (CASCADE will handle all related tables)
+            cursor.execute("""
+                DELETE FROM users WHERE id = %s
+            """, (user_id,))
+            
+            deleted_count = cursor.rowcount
+            
+            conn.commit()
+            
+            if deleted_count > 0:
+                logger.info(f"User {user_id} and all associated data deleted successfully")
+                return True
+            else:
+                logger.warning(f"User {user_id} not found")
+                return False
+            
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error deleting user {user_id}: {e}")
+            return False
+            
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+
     def close(self):
         """Close method for compatibility - connection pool managed by PostgresDatabase"""
         pass

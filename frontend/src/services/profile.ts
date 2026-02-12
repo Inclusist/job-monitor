@@ -50,3 +50,12 @@ export async function saveProjects(
   const { data } = await api.post('/api/save-projects', { projects });
   return data;
 }
+
+export async function deleteProfile(
+  confirmation: string
+): Promise<{ success: boolean; error?: string; message?: string }> {
+  const { data } = await api.delete('/api/profile/delete', {
+    data: { confirmation },
+  });
+  return data;
+}

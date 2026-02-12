@@ -20,6 +20,7 @@ import {
   Award,
   ClipboardCheck,
   Bot,
+  AlertTriangle,
 } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Footer from '../components/layout/Footer';
@@ -31,6 +32,7 @@ import {
   updateProfile,
   updateContactInfo,
   saveProjects,
+  deleteProfile,
 } from '../services/profile';
 import type { CVProfile, ClaimedData } from '../types';
 
@@ -159,6 +161,9 @@ export default function ProfilePage() {
             </p>
           </div>
         )}
+
+        {/* Danger Zone */}
+        <DangerZoneCard />
       </motion.main>
       <Footer />
     </div>
@@ -1050,5 +1055,136 @@ function SectionEditButtons({ editing, saving, onEdit, onCancel, onSave }: {
         {saving ? <Loader2 className="w-4 h-4 inline mr-1 animate-spin" /> : <Check className="w-4 h-4 inline mr-1" />}Save
       </button>
     </div>
+  );
+}
+
+/* ─── Danger Zone Card ─── */
+
+function DangerZoneCard() {
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleDelete = async () => {
+    if (confirmText !== 'DELETE MY ACCOUNT') {
+      setError('Please type "DELETE MY ACCOUNT" exactly to confirm');
+      return;
+    }
+
+    setDeleting(true);
+    setError('');
+
+    try {
+      const result = await deleteProfile(confirmText);
+
+      if (result.success) {
+        // Redirect to homepage after successful deletion
+        window.location.href = '/';
+      } else {
+        setError(result.error || 'Failed to delete account');
+        setDeleting(false);
+      }
+    } catch (err) {
+      setError('An error occurred. Please try again.');
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="border-2 border-red-200 rounded-2xl p-8 bg-red-50/30">
+        <div className="flex items-center space-x-2 mb-4">
+          <AlertTriangle className="w-5 h-5 text-red-600" />
+          <h2 className="text-xl font-semibold text-red-900">Danger Zone</h2>
+        </div>
+
+        <p className="text-sm text-slate-600 mb-4">
+          Permanently delete your account and all associated data. This action cannot be undone.
+        </p>
+
+        <button
+          onClick={() => setShowConfirmDialog(true)}
+          className="px-4 py-2 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors text-sm"
+        >
+          Delete My Account
+        </button>
+      </div>
+
+      {/* Confirmation Dialog */}
+      {showConfirmDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl">
+            <div className="flex items-center space-x-2 mb-4">
+              <AlertTriangle className="w-6 h-6 text-red-600" />
+              <h3 className="text-xl font-bold text-slate-900">Delete Account?</h3>
+            </div>
+
+            <div className="mb-6 space-y-3">
+              <p className="text-sm text-slate-700">
+                This will permanently delete:
+              </p>
+              <ul className="text-sm text-slate-600 list-disc list-inside space-y-1">
+                <li>Your account and profile</li>
+                <li>All uploaded CVs</li>
+                <li>Job matches and applications</li>
+                <li>Search history and preferences</li>
+              </ul>
+              <p className="text-sm font-semibold text-red-600">
+                This action cannot be undone!
+              </p>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Type <span className="font-mono bg-slate-100 px-1 rounded">DELETE MY ACCOUNT</span> to confirm:
+              </label>
+              <input
+                type="text"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder="DELETE MY ACCOUNT"
+                className="w-full border-2 border-red-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                disabled={deleting}
+              />
+            </div>
+
+            {error && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                {error}
+              </div>
+            )}
+
+            <div className="flex space-x-3">
+              <button
+                onClick={() => {
+                  setShowConfirmDialog(false);
+                  setConfirmText('');
+                  setError('');
+                }}
+                disabled={deleting}
+                className="flex-1 px-4 py-2 border-2 border-slate-300 text-slate-700 rounded-xl font-semibold hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting || confirmText !== 'DELETE MY ACCOUNT'}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deleting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 inline mr-2 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete Forever'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
