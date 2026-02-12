@@ -406,6 +406,30 @@ def run_daily_job():
                 traceback.print_exc()
         # -------------------------------------------------
 
+        # --- Detect and merge duplicates (only for new jobs) ---
+        if stats['new_jobs'] > 0:
+            print(f"\n🔍 Detecting and merging duplicate jobs...")
+            try:
+                from src.utils.duplicate_detector import run_duplicate_detection
+                
+                dup_stats = run_duplicate_detection(
+                    db=db,
+                    limit=stats['new_jobs'] * 2,  # Check recent jobs
+                    similarity_threshold=0.98,
+                    dry_run=False
+                )
+                
+                if dup_stats['duplicates_merged'] > 0:
+                    print(f"   ✓ Merged {dup_stats['duplicates_merged']} duplicates into {dup_stats['duplicate_groups']} canonical jobs")
+                    print(f"   ✓ Total locations preserved: {dup_stats['locations_merged']}")
+                else:
+                    print(f"   ℹ️  No duplicates found")
+            except Exception as e:
+                print(f"   ⚠️  Duplicate detection failed: {e}")
+                import traceback
+                traceback.print_exc()
+        # --------------------------------------------------------
+
         # --- Refresh canonical skill map (runs unconditionally) ---
         print(f"\n📚 Refreshing canonical skill map...")
         try:

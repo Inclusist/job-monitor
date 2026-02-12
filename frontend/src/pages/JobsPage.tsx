@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
   Sparkles,
@@ -15,6 +15,7 @@ import {
   Loader2,
   GraduationCap,
   Wifi,
+  Upload,
 } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Footer from '../components/layout/Footer';
@@ -28,6 +29,7 @@ import { useJobs, useHideJob, useRunMatching } from '../hooks/useJobs';
 import { useMatchingStatus } from '../hooks/useMatchingStatus';
 import { useAuth } from '../contexts/AuthContext';
 import { searchJobs, analyzeJob } from '../services/jobs';
+import { uploadCV } from '../services/profile';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Job, SearchResult } from '../types';
 
@@ -40,6 +42,32 @@ export default function JobsPage() {
   const { data: matchingStatus } = useMatchingStatus(true);
   const [matchingError, setMatchingError] = useState('');
   const [progressDismissed, setProgressDismissed] = useState(false);
+
+  // CV upload state
+  const cvFileInputRef = useRef<HTMLInputElement>(null);
+  const [cvUploading, setCvUploading] = useState(false);
+  const [cvUploadError, setCvUploadError] = useState('');
+
+  const handleCvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCvUploading(true);
+    setCvUploadError('');
+    try {
+      const result = await uploadCV(file, true);
+      if (!result.success) {
+        setCvUploadError(result.error || 'Upload failed');
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['jobs'] });
+        queryClient.invalidateQueries({ queryKey: ['auth'] });
+      }
+    } catch {
+      setCvUploadError('Upload failed. Please try again.');
+    } finally {
+      setCvUploading(false);
+      if (cvFileInputRef.current) cvFileInputRef.current.value = '';
+    }
+  };
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -167,9 +195,39 @@ export default function JobsPage() {
             )}
 
             {data && !data.has_cv && (
-              <div className="mt-4 flex items-center gap-2 text-sm text-amber-700 bg-amber-50 rounded-lg px-4 py-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                Upload your CV first to enable job matching.
+              <div className="mt-4 bg-amber-50 rounded-lg px-4 py-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2 text-sm text-amber-700">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    Upload your CV first to enable job matching.
+                  </div>
+                  <div>
+                    <input
+                      ref={cvFileInputRef}
+                      type="file"
+                      accept=".pdf,.docx,.txt"
+                      onChange={handleCvUpload}
+                      className="hidden"
+                    />
+                    <button
+                      onClick={() => cvFileInputRef.current?.click()}
+                      disabled={cvUploading}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 bg-cyan-600 text-white text-sm font-semibold rounded-xl hover:bg-cyan-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {cvUploading ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" />Analyzing...</>
+                      ) : (
+                        <><Upload className="w-4 h-4" />Upload CV</>
+                      )}
+                    </button>
+                  </div>
+                </div>
+                {cvUploading && (
+                  <p className="mt-2 text-xs text-cyan-700">Analyzing your CV with AI... This may take up to a minute.</p>
+                )}
+                {cvUploadError && (
+                  <p className="mt-2 text-xs text-red-600">{cvUploadError}</p>
+                )}
               </div>
             )}
           </motion.div>
@@ -291,7 +349,12 @@ export default function JobsPage() {
                 {data && !isLoading && (
                   <>
                     {data.total === 0 ? (
-                      <EmptyState hasCv={data.has_cv} />
+                      <EmptyState
+                        hasCv={data.has_cv}
+                        onUploadClick={() => cvFileInputRef.current?.click()}
+                        uploading={cvUploading}
+                        uploadError={cvUploadError}
+                      />
                     ) : (
                       <div className="space-y-8">
                         {/* New Matches */}
@@ -590,7 +653,7 @@ function JobRow({
   );
 }
 
-function EmptyState({ hasCv }: { hasCv: boolean }) {
+function EmptyState({ hasCv, onUploadClick, uploading, uploadError }: { hasCv: boolean; onUploadClick: () => void; uploading: boolean; uploadError: string }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -601,9 +664,30 @@ function EmptyState({ hasCv }: { hasCv: boolean }) {
       <h3 className="text-lg font-semibold text-slate-700 mb-2">No matched jobs yet</h3>
       <p className="text-slate-500 text-sm max-w-md mx-auto">
         {hasCv
-          ? 'Click "Run Matching" to analyze jobs against your CV and find the best matches.'
-          : 'Upload your CV first, then run matching to find jobs that fit your skills.'}
+          ? 'Click "Find New Matches" to analyze jobs against your CV and find the best matches.'
+          : 'Upload your CV to get started, then run matching to find jobs that fit your skills.'}
       </p>
+      {!hasCv && (
+        <div className="mt-6">
+          <button
+            onClick={onUploadClick}
+            disabled={uploading}
+            className="inline-flex items-center gap-2 px-6 py-3 bg-cyan-600 text-white text-sm font-semibold rounded-xl hover:bg-cyan-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {uploading ? (
+              <><Loader2 className="w-4 h-4 animate-spin" />Analyzing your CV...</>
+            ) : (
+              <><Upload className="w-4 h-4" />Upload CV</>
+            )}
+          </button>
+          {uploading && (
+            <p className="mt-3 text-xs text-cyan-600">This may take up to a minute.</p>
+          )}
+          {uploadError && (
+            <p className="mt-3 text-xs text-red-600">{uploadError}</p>
+          )}
+        </div>
+      )}
     </motion.div>
   );
 }
