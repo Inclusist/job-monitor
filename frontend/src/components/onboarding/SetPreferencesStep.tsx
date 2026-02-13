@@ -187,7 +187,7 @@ export default function SetPreferencesStep({ onNext, onBack }: SetPreferencesSte
             await api.post('/api/update-search-preferences', {
                 keywords,
                 locations,
-                work_arrangement: workArrangement[0] || null,
+                work_arrangements: workArrangement,
             });
 
             onNext();

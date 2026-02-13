@@ -697,7 +697,9 @@ function WorkExperienceCard({ profile, editing, onEdit, onCancel, onSaved }: Sec
                     </div>
                     {entry.duration && <span className="text-xs text-slate-500">{entry.duration}</span>}
                   </div>
-                  {entry.description && <p className="text-sm text-slate-600 mt-2">{entry.description}</p>}
+                  {entry.description && !(entry.key_achievements && entry.key_achievements.length > 0 && entry.description.length > 200) && (
+                    <p className="text-sm text-slate-600 mt-2">{entry.description}</p>
+                  )}
                   {entry.key_achievements && entry.key_achievements.length > 0 && (
                     <ul className="mt-2 list-disc list-inside text-sm text-slate-600">
                       {entry.key_achievements.map((a, i) => <li key={i}>{a}</li>)}

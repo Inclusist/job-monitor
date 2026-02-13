@@ -151,8 +151,8 @@ Output JSON structure:
       "company": "Company Name",
       "duration": "2020-2023",
       "location": "City, Country",
-      "description": "Full description of role and responsibilities",
-      "key_achievements": ["achievement1", "achievement2", ...]
+      "description": "1-2 sentence summary of the role scope and core responsibility area. Do NOT repeat details that appear in key_achievements.",
+      "key_achievements": ["Concise, distinct bullet-worthy accomplishments with measurable impact where possible. Each should capture a DIFFERENT achievement — never paraphrase the description."]
     }}
   ],
   "latest_work_location": {{
