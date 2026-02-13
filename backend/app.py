@@ -3398,6 +3398,36 @@ def api_hide_job(job_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/jobs/<int:job_id>/feedback', methods=['POST'])
+@login_required
+def api_job_feedback(job_id):
+    """Save user feedback on job match score"""
+    user_email = get_user_email()
+    try:
+        data = request.json or {}
+        feedback_type = data.get('feedback_type')
+        feedback_reason = data.get('feedback_reason')
+        match_score_original = data.get('match_score_original')
+        match_score_user = data.get('match_score_user')
+
+        if not feedback_type:
+            return jsonify({'success': False, 'error': 'Feedback type is required'}), 400
+
+        success = job_db.add_feedback(
+            job_id=job_id,
+            user_email=user_email,
+            feedback_type=feedback_type,
+            match_score_original=match_score_original,
+            match_score_user=match_score_user,
+            feedback_reason=feedback_reason
+        )
+        return jsonify({'success': success})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/jobs/<int:job_id>')
 @login_required
 def api_job_detail(job_id):
@@ -4159,6 +4189,49 @@ def save_resume_route(job_id):
             'success': False,
             'error': str(e)
         }), 500
+
+
+@app.route('/api/learning-insights', methods=['GET'])
+@login_required
+def api_learning_insights():
+    """Get user preference analysis and feedback history"""
+    user_email = get_user_email()
+    try:
+        from analysis.feedback_learner import FeedbackLearner
+        learner = FeedbackLearner(job_db)
+        
+        # Get AI-synthesized structured data
+        ai_data = learner.analyze_user_preferences_ai(user_email)
+        
+        # Get statistical preferences
+        prefs = learner.analyze_user_preferences(user_email)
+        
+        # Merge AI data into preferences for UI consistency
+        if ai_data:
+            prefs['key_preferences']['valued_aspects'] = ai_data.get('valued_aspects', [])
+            prefs['key_preferences']['dealbreakers'] = ai_data.get('dealbreakers', [])
+        
+        # Get recent feedback history
+        feedback_history = job_db.get_user_feedback(user_email, limit=50)
+        
+        # Determine ai_instructions string
+        instructions_str = ""
+        if ai_data:
+            if isinstance(ai_data, dict):
+                instructions_str = ai_data.get('instructions', "")
+            else:
+                instructions_str = str(ai_data)
+
+        return jsonify({
+            'success': True,
+            'ai_instructions': instructions_str,
+            'preferences': prefs,
+            'feedback_history': feedback_history
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/update-contact-info', methods=['POST'])

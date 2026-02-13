@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Target, LogOut, User, Settings, ChevronDown } from 'lucide-react';
+import { Target, LogOut, User, Settings, ChevronDown, Brain } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { getLogoutUrl } from '../../services/auth';
@@ -78,7 +78,7 @@ export default function Header() {
                 </button>
 
                 {dropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-cyan-100 py-1 z-50">
+                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-cyan-100 py-1 z-50">
                     <Link
                       to="/profile"
                       onClick={() => setDropdownOpen(false)}
@@ -94,6 +94,14 @@ export default function Header() {
                     >
                       <Settings className="w-4 h-4 text-slate-400" />
                       <span>Preferences</span>
+                    </Link>
+                    <Link
+                      to="/learning-insights"
+                      onClick={() => setDropdownOpen(false)}
+                      className="flex items-center space-x-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-cyan-50 transition-colors"
+                    >
+                      <Brain className="w-4 h-4 text-cyan-500" />
+                      <span>Learning Insights</span>
                     </Link>
                     <div className="border-t border-cyan-100 my-1" />
                     <a

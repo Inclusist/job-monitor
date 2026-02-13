@@ -7,6 +7,7 @@ import DashboardPage from './pages/DashboardPage';
 import DocumentsPage from './pages/DocumentsPage';
 import ProfilePage from './pages/ProfilePage';
 import PreferencesPage from './pages/PreferencesPage';
+import LearningInsightsPage from './pages/LearningInsightsPage';
 import ProtectedRoute from './components/layout/ProtectedRoute';
 
 function App() {
@@ -59,6 +60,14 @@ function App() {
         element={
           <ProtectedRoute>
             <PreferencesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/learning-insights"
+        element={
+          <ProtectedRoute>
+            <LearningInsightsPage />
           </ProtectedRoute>
         }
       />

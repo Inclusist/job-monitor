@@ -137,8 +137,6 @@ export default function ProfilePage() {
               onSaved={() => { setEditingSection(null); queryClient.invalidateQueries({ queryKey: ['profile'] }); }}
             />
 
-            {profile.semantic_summary && <AISummaryCard profile={profile} />}
-
             <SkillsCard
               profile={profile}
               editing={editingSection === 'skills'}

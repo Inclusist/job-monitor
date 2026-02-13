@@ -627,12 +627,14 @@ class JobDatabase:
                     values.append(match_reasoning)
                 
                 if key_alignments is not None:
+                    import json
                     updates.append("key_alignments = ?")
-                    values.append(', '.join(key_alignments) if key_alignments else '')
+                    values.append(json.dumps(key_alignments) if key_alignments else '[]')
                 
                 if potential_gaps is not None:
+                    import json
                     updates.append("potential_gaps = ?")
-                    values.append(', '.join(potential_gaps) if potential_gaps else '')
+                    values.append(json.dumps(potential_gaps) if potential_gaps else '[]')
                 
                 updates.append("last_updated = ?")
                 values.append(now)
@@ -645,6 +647,7 @@ class JobDatabase:
                 """, values)
             else:
                 # Insert new match
+                import json
                 cursor.execute("""
                     INSERT INTO user_job_matches (
                         user_id, job_id, semantic_score, semantic_date,
@@ -656,8 +659,8 @@ class JobDatabase:
                     semantic_score, now if semantic_score is not None else None,
                     claude_score, now if claude_score is not None else None,
                     priority, match_reasoning,
-                    ', '.join(key_alignments) if key_alignments else '',
-                    ', '.join(potential_gaps) if potential_gaps else '',
+                    json.dumps(key_alignments) if key_alignments else '[]',
+                    json.dumps(potential_gaps) if potential_gaps else '[]',
                     now, now
                 ))
             

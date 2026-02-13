@@ -36,44 +36,25 @@ class FeedbackLearner:
             return {
                 'has_feedback': False,
                 'total_feedback': 0,
-                'preferences_summary': 'No feedback yet'
+                'preferences_summary': 'No feedback yet',
+                'key_preferences': {'valued_aspects': [], 'dealbreakers': []}
             }
         
         # Categorize feedback
-        agreed = []
-        disagreed = []
-        too_high_scores = []
-        too_low_scores = []
-        
-        for fb in feedback_history:
-            if fb['feedback_type'] == 'agree':
-                agreed.append(fb)
-            elif fb['feedback_type'] == 'disagree':
-                disagreed.append(fb)
-            elif fb['feedback_type'] == 'too_high':
-                too_high_scores.append(fb)
-            elif fb['feedback_type'] == 'too_low':
-                too_low_scores.append(fb)
-        
-        # Extract patterns from jobs user liked (agreed with high scores)
-        liked_jobs = [fb for fb in agreed if fb['match_score_original'] >= 70]
-        
-        # Extract patterns from jobs user disliked (disagreed or too_high on low scores)
-        disliked_jobs = disagreed + too_high_scores
+        agreed = [fb for fb in feedback_history if fb['feedback_type'] == 'agree']
         
         # Analyze patterns
         preferences = {
             'has_feedback': True,
             'total_feedback': len(feedback_history),
             'agreement_rate': len(agreed) / len(feedback_history) * 100 if feedback_history else 0,
-            'liked_job_examples': self._extract_job_examples(liked_jobs, limit=3),
-            'disliked_job_examples': self._extract_job_examples(disliked_jobs, limit=3),
-            'key_preferences': self._extract_key_preferences(liked_jobs, disliked_jobs),
-            'scoring_calibration': self._analyze_score_calibration(feedback_history)
+            'liked_job_examples': self._extract_job_examples([fb for fb in agreed if fb['match_score_original'] >= 70], limit=3),
+            'scoring_calibration': self._analyze_score_calibration(feedback_history),
+            'key_preferences': {'valued_aspects': [], 'dealbreakers': []} # Will be populated by AI or fallback
         }
         
         return preferences
-    
+
     def _extract_job_examples(self, feedback_list: List[Dict], limit: int = 3) -> List[Dict]:
         """Extract job examples from feedback"""
         examples = []
@@ -90,60 +71,7 @@ class FeedbackLearner:
             })
         
         return examples
-    
-    def _extract_key_preferences(self, liked: List[Dict], disliked: List[Dict]) -> Dict:
-        """Extract key preferences from liked/disliked jobs"""
-        preferences = {
-            'valued_aspects': [],
-            'dealbreakers': [],
-            'location_preferences': {},
-            'company_types': {}
-        }
-        
-        # Analyze liked jobs for valued aspects
-        if liked:
-            # Extract common keywords from alignments
-            all_alignments = []
-            for fb in liked:
-                if fb.get('key_alignments'):
-                    all_alignments.append(fb['key_alignments'])
-            
-            if all_alignments:
-                preferences['valued_aspects'] = self._find_common_themes(all_alignments)
-        
-        # Analyze disliked jobs for dealbreakers
-        if disliked:
-            all_gaps = []
-            for fb in disliked:
-                if fb.get('potential_gaps'):
-                    all_gaps.append(fb['potential_gaps'])
-                if fb.get('feedback_reason'):
-                    all_gaps.append(fb['feedback_reason'])
-            
-            if all_gaps:
-                preferences['dealbreakers'] = self._find_common_themes(all_gaps)
-        
-        return preferences
-    
-    def _find_common_themes(self, text_list: List[str]) -> List[str]:
-        """Find common themes in a list of text descriptions"""
-        # Simple keyword extraction (could be enhanced with NLP)
-        common_keywords = [
-            'leadership', 'management', 'technical', 'strategy', 'team',
-            'machine learning', 'AI', 'data science', 'python', 'remote',
-            'senior', 'head', 'director', 'automotive', 'startup',
-            'enterprise', 'research', 'production', 'deployment'
-        ]
-        
-        found_themes = []
-        combined_text = ' '.join(text_list).lower()
-        
-        for keyword in common_keywords:
-            if keyword.lower() in combined_text:
-                found_themes.append(keyword)
-        
-        return found_themes[:5]  # Top 5 themes
-    
+
     def _analyze_score_calibration(self, feedback_history: List[Dict]) -> Dict:
         """Analyze if Claude's scores are calibrated with user's expectations"""
         calibration = {
@@ -172,18 +100,90 @@ class FeedbackLearner:
         calibration['needs_calibration'] = abs(calibration['score_bias']) > 10
         
         return calibration
-    
+
+    def analyze_user_preferences_ai(self, user_email: str) -> Dict:
+        """
+        Use Gemini to analyze feedback history and extract structured preferences.
+        Returns a dict with instructions, valued_aspects, and dealbreakers.
+        """
+        feedback_history = self.db.get_user_feedback(user_email, limit=30)
+        
+        if not feedback_history:
+            return {"instructions": "", "valued_aspects": [], "dealbreakers": []}
+        
+        # Format feedback for the AI
+        feedback_summary = []
+        for fb in feedback_history:
+            item = f"Job: {fb.get('title')} at {fb.get('company')}\n"
+            item += f"Claude Score: {fb['match_score_original']}\n"
+            item += f"User Feedback: {fb['feedback_type']}"
+            if fb.get('match_score_user'):
+                item += f" (User Score: {fb['match_score_user']})"
+            if fb.get('feedback_reason'):
+                item += f"\nReason: {fb['feedback_reason']}"
+            
+            # Include what Claude liked/disliked for context
+            if fb.get('key_alignments'):
+                item += f"\nClaude Alignments: {fb['key_alignments']}"
+            if fb.get('potential_gaps'):
+                item += f"\nClaude Gaps: {fb['potential_gaps']}"
+            
+            feedback_summary.append(item)
+        
+        history_text = "\n---\n".join(feedback_summary)
+        
+        prompt = f"""You are an expert career coach analyzing a user's job feedback history.
+
+Your task is to synthesize this feedback into a structured JSON profile. 
+Focus on identifying what the user TRULY values vs. what they consider dealbreakers. 
+
+CRITICAL: Do NOT flag a technology (like AI, Python, or Leadership) as a 'dealbreaker' just because it appeared in a negative feedback item. 
+Only flag it as a dealbreaker if the user EXPLICITLY complained about it. If the AI said 'Missing AI experience' and the user rated it low, the dealbreaker is 'Inaccurate skill assessment' or 'Low seniority', NOT 'AI'.
+
+FEEDBACK HISTORY:
+{history_text}
+
+Output format:
+{{
+  "instructions": "A concise list of 5-8 bullet points for an AI matching engine.",
+  "valued_aspects": ["keyword1", "keyword2", ...],
+  "dealbreakers": ["keyword1", "keyword2", ...]
+}}
+
+Example valued_aspects: ["High Seniority", "Leadership", "Automotive Domain", "Remote Work"]
+Example dealbreakers: ["Heavy Travel", "Junior Roles", "Pure Individual Contributor", "Onsite Only"]
+
+Output ONLY the JSON."""
+
+        try:
+            import os
+            import google.generativeai as genai
+            gemini_key = os.getenv('GOOGLE_GEMINI_API_KEY')
+            if not gemini_key:
+                return {"instructions": "", "valued_aspects": [], "dealbreakers": []}
+            
+            genai.configure(api_key=gemini_key)
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(response_mime_type="application/json")
+            )
+            
+            import json
+            return json.loads(response.text.strip())
+        except Exception as e:
+            print(f"Error in AI preference analysis: {e}")
+            return {"instructions": "", "valued_aspects": [], "dealbreakers": []}
+
     def generate_learning_context(self, user_email: str) -> str:
         """
         Generate a context string to include in Claude prompts
-        This helps Claude learn from user feedback
-        
-        Args:
-            user_email: User email
-            
-        Returns:
-            Formatted string to include in analysis prompts
         """
+        # Get AI-synthesized structured data
+        ai_data = self.analyze_user_preferences_ai(user_email)
+        ai_instructions = ai_data.get('instructions', '')
+        
         prefs = self.analyze_user_preferences(user_email)
         
         if not prefs['has_feedback']:
@@ -191,57 +191,29 @@ class FeedbackLearner:
         
         context_parts = [
             "\n## USER PREFERENCE LEARNING",
-            f"Based on {prefs['total_feedback']} previous feedback items:",
+            f"Based on {prefs['total_feedback']} previous feedback items, here are specific instructions for scoring jobs for this user:",
         ]
         
-        # Add liked job examples
-        if prefs['liked_job_examples']:
-            context_parts.append("\n### Jobs User Found Highly Relevant:")
-            for job in prefs['liked_job_examples']:
-                context_parts.append(
-                    f"- {job['title']} at {job['company']} (score: {job['score']})"
-                )
-                if job.get('feedback_reason'):
-                    context_parts.append(f"  Reason: {job['feedback_reason']}")
-        
-        # Add disliked job examples
-        if prefs['disliked_job_examples']:
-            context_parts.append("\n### Jobs User Found Less Relevant:")
-            for job in prefs['disliked_job_examples']:
-                context_parts.append(
-                    f"- {job['title']} at {job['company']} (score: {job['score']})"
-                )
-                if job.get('feedback_reason'):
-                    context_parts.append(f"  Reason: {job['feedback_reason']}")
-        
-        # Add key preferences
-        key_prefs = prefs['key_preferences']
-        if key_prefs['valued_aspects']:
-            context_parts.append("\n### User Values:")
-            context_parts.append(f"- {', '.join(key_prefs['valued_aspects'])}")
-        
-        if key_prefs['dealbreakers']:
-            context_parts.append("\n### User Concerns:")
-            context_parts.append(f"- {', '.join(key_prefs['dealbreakers'])}")
+        if ai_instructions:
+            context_parts.append("\n### Personalized Scoring Instructions:")
+            context_parts.append(ai_instructions)
         
         # Add calibration guidance
         calibration = prefs['scoring_calibration']
         if calibration['needs_calibration']:
             if calibration['score_bias'] > 0:
                 context_parts.append(
-                    f"\n### Scoring Guidance: User finds your scores ~{int(calibration['score_bias'])} points too high. "
-                    "Be more conservative in scoring."
+                    f"\n### Scoring Calibration: User finds your scores ~{int(calibration['score_bias'])} points too high. "
+                    "Be more conservative/strict in your scoring."
                 )
             else:
                 context_parts.append(
-                    f"\n### Scoring Guidance: User finds your scores ~{abs(int(calibration['score_bias']))} points too low. "
-                    "Be more generous in scoring."
+                    f"\n### Scoring Calibration: User finds your scores ~{abs(int(calibration['score_bias']))} points too low. "
+                    "Be more generous/lenient in your scoring."
                 )
         
         context_parts.append(
-            "\n### Instructions: Use these preferences to improve match scoring. "
-            "Give higher scores to jobs similar to what the user liked, "
-            "and lower scores to jobs with characteristics they found problematic.\n"
+            "\n### Final Instruction: Apply the above patterns and instructions to the current job analysis.\n"
         )
         
         return '\n'.join(context_parts)

@@ -18,13 +18,16 @@ import {
   Mail,
   LayoutDashboard,
   Sparkles,
+  ThumbsUp,
+  ThumbsDown,
+  RotateCcw,
 } from 'lucide-react';
 import Badge from './ui/Badge';
 import ScoreDisplay from './ui/ScoreDisplay';
 import ResumeModal from './ResumeModal';
 import CoverLetterModal from './CoverLetterModal';
 import { useJobDetail } from '../hooks/useJobDetail';
-import { claimItems, shortlistJob, removeShortlist, analyzeJob } from '../services/jobs';
+import { claimItems, shortlistJob, removeShortlist, analyzeJob, submitFeedback } from '../services/jobs';
 import { useQueryClient, useMutation } from '@tanstack/react-query';
 
 interface JobDetailPanelProps {
@@ -40,6 +43,11 @@ export default function JobDetailPanel({ jobId }: JobDetailPanelProps) {
   const [claimingItem, setClaimingItem] = useState<string | null>(null);
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [showFeedbackForm, setShowFeedbackForm] = useState(false);
+  const [feedbackType, setFeedbackType] = useState<'agree' | 'disagree' | 'too_high' | 'too_low' | null>(null);
+  const [feedbackReason, setFeedbackReason] = useState('');
+  const [userScore, setUserScore] = useState<number | ''>('');
 
   const DASHBOARD_STATUSES = ['shortlisted', 'applied', 'interviewing', 'offered'];
   const isOnDashboard = job ? DASHBOARD_STATUSES.includes(job.status ?? '') : false;
@@ -62,6 +70,18 @@ export default function JobDetailPanel({ jobId }: JobDetailPanelProps) {
       queryClient.invalidateQueries({ queryKey: ['jobDetail', jobId] });
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+
+  const feedbackMutation = useMutation({
+    mutationFn: (feedbackData: {
+      feedback_type: 'agree' | 'disagree' | 'too_high' | 'too_low';
+      match_score_original: number;
+      feedback_reason?: string;
+    }) => submitFeedback(jobId, feedbackData),
+    onSuccess: () => {
+      setFeedbackSubmitted(true);
+      setTimeout(() => setFeedbackSubmitted(false), 3000);
     },
   });
 
@@ -158,11 +178,171 @@ export default function JobDetailPanel({ jobId }: JobDetailPanelProps) {
         )}
       </div>
 
-      {/* Scores */}
-      {(job.claude_score != null || job.semantic_score != null) && (
-        <div className="flex items-center gap-6 p-4 bg-slate-50 rounded-xl">
-          {job.claude_score != null && <ScoreDisplay score={job.claude_score} label="AI Match" />}
-          {job.semantic_score != null && <ScoreDisplay score={job.semantic_score} label="Semantic" />}
+      {/* Score */}
+      {job.claude_score != null && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
+            <div className="flex items-center gap-4">
+              <ScoreDisplay score={job.claude_score} label="AI Match" />
+              <button
+                onClick={() => analyzeMutation.mutate()}
+                disabled={analyzeMutation.isPending}
+                className="p-2 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
+                title="Re-run analysis with current learnings"
+              >
+                {analyzeMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+            
+            <div className="flex flex-col items-end gap-2">
+              <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Rate Match</span>
+              <div className="flex items-center gap-1.5">
+                {feedbackSubmitted ? (
+                  <span className="text-xs font-medium text-emerald-600 flex items-center gap-1">
+                    <Check className="w-3 h-3" /> Thanks!
+                  </span>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => {
+                        setFeedbackType('agree');
+                        setShowFeedbackForm(true);
+                      }}
+                      disabled={feedbackMutation.isPending}
+                      className={`p-2 rounded-lg transition-colors ${
+                        feedbackType === 'agree' ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'
+                      }`}
+                      title="Score is accurate"
+                    >
+                      <ThumbsUp className="w-4 h-4" />
+                    </button>
+                    <div className="w-px h-4 bg-slate-200" />
+                    <button
+                      onClick={() => {
+                        setFeedbackType('too_high');
+                        setShowFeedbackForm(true);
+                      }}
+                      disabled={feedbackMutation.isPending}
+                      className={`p-2 rounded-lg transition-colors ${
+                        feedbackType === 'too_high' ? 'text-amber-600 bg-amber-50' : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
+                      }`}
+                      title="Score is too high"
+                    >
+                      <span className="text-[10px] font-bold">HIGH</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setFeedbackType('too_low');
+                        setShowFeedbackForm(true);
+                      }}
+                      disabled={feedbackMutation.isPending}
+                      className={`p-2 rounded-lg transition-colors ${
+                        feedbackType === 'too_low' ? 'text-blue-600 bg-blue-50' : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'
+                      }`}
+                      title="Score is too low"
+                    >
+                      <span className="text-[10px] font-bold">LOW</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setFeedbackType('disagree');
+                        setShowFeedbackForm(true);
+                      }}
+                      disabled={feedbackMutation.isPending}
+                      className={`p-2 rounded-lg transition-colors ${
+                        feedbackType === 'disagree' ? 'text-rose-600 bg-rose-50' : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                      }`}
+                      title="Score is incorrect"
+                    >
+                      <ThumbsDown className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {showFeedbackForm && !feedbackSubmitted && (
+            <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm animate-in slide-in-from-top-2 duration-200">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-semibold text-slate-900">Provide Feedback</h4>
+                <button 
+                  onClick={() => setShowFeedbackForm(false)}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <AlertCircle className="w-4 h-4" rotate={45} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {feedbackType !== 'agree' && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                      What score would you give? (0-100)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={userScore}
+                      onChange={(e) => setUserScore(e.target.value ? parseInt(e.target.value) : '')}
+                      placeholder="e.g. 85"
+                      className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:bg-white transition-all"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                    {feedbackType === 'agree' ? 'Why is this a good match?' : 'What did the AI miss?'}
+                  </label>
+                  <textarea
+                    value={feedbackReason}
+                    onChange={(e) => setFeedbackReason(e.target.value)}
+                    placeholder={feedbackType === 'agree' 
+                      ? "e.g. Perfect seniority and domain match..." 
+                      : "e.g. Too much travel required, or missing leadership experience..."
+                    }
+                    rows={3}
+                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:bg-white transition-all resize-none"
+                  />
+                  <p className="mt-1.5 text-[10px] text-slate-400 italic">
+                    💡 Specific reasons help the AI learn your preferences better.
+                  </p>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      feedbackMutation.mutate({
+                        feedback_type: feedbackType!,
+                        match_score_original: job.claude_score!,
+                        match_score_user: typeof userScore === 'number' ? userScore : undefined,
+                        feedback_reason: feedbackReason
+                      });
+                      setShowFeedbackForm(false);
+                      setFeedbackReason('');
+                      setUserScore('');
+                    }}
+                    disabled={feedbackMutation.isPending}
+                    className="flex-1 px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-50"
+                  >
+                    {feedbackMutation.isPending ? 'Submitting...' : 'Submit Feedback'}
+                  </button>
+                  <button
+                    onClick={() => setShowFeedbackForm(false)}
+                    className="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -248,28 +428,36 @@ export default function JobDetailPanel({ jobId }: JobDetailPanelProps) {
       {/* Key Alignments */}
       {job.key_alignments.length > 0 && (
         <Section title="Key Alignments" icon={<CheckCircle2 className="w-4 h-4 text-emerald-600" />}>
-          <ul className="space-y-2">
+          <div className="space-y-2">
             {job.key_alignments.map((alignment, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-slate-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
-                <span>{typeof alignment === 'string' ? alignment : String(alignment)}</span>
-              </li>
+              <InteractivePoint
+                key={i}
+                text={typeof alignment === 'string' ? alignment : String(alignment)}
+                type="alignment"
+                jobId={jobId}
+                originalScore={job.claude_score || 0}
+                onFeedback={(data) => feedbackMutation.mutate(data)}
+              />
             ))}
-          </ul>
+          </div>
         </Section>
       )}
 
       {/* Potential Gaps */}
       {job.potential_gaps.length > 0 && (
         <Section title="Potential Gaps" icon={<AlertTriangle className="w-4 h-4 text-amber-600" />}>
-          <ul className="space-y-2">
+          <div className="space-y-2">
             {job.potential_gaps.map((gap, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-slate-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                <span>{typeof gap === 'string' ? gap : String(gap)}</span>
-              </li>
+              <InteractivePoint
+                key={i}
+                text={typeof gap === 'string' ? gap : String(gap)}
+                type="gap"
+                jobId={jobId}
+                originalScore={job.claude_score || 0}
+                onFeedback={(data) => feedbackMutation.mutate(data)}
+              />
             ))}
-          </ul>
+          </div>
         </Section>
       )}
 
@@ -423,5 +611,73 @@ function MetadataPill({ icon, label }: { icon: React.ReactNode; label: string })
       {icon}
       {label}
     </span>
+  );
+}
+
+function InteractivePoint({ 
+  text, 
+  type, 
+  originalScore,
+  onFeedback 
+}: { 
+  text: string; 
+  type: 'alignment' | 'gap';
+  jobId: number;
+  originalScore: number;
+  onFeedback: (data: any) => void;
+}) {
+  const [rated, setRated] = useState<'agree' | 'disagree' | null>(null);
+
+  const handleRate = (feedbackType: 'agree' | 'disagree') => {
+    setRated(feedbackType);
+    onFeedback({
+      feedback_type: feedbackType,
+      match_score_original: originalScore,
+      feedback_reason: `${type === 'alignment' ? 'Alignment' : 'Gap'} point: "${text}" - User marked as ${feedbackType}`
+    });
+  };
+
+  return (
+    <div className={`group flex items-start justify-between gap-3 p-3 rounded-xl border transition-all ${
+      type === 'alignment' 
+        ? 'bg-emerald-50/50 border-emerald-100 hover:border-emerald-200' 
+        : 'bg-amber-50/50 border-amber-100 hover:border-amber-200'
+    }`}>
+      <div className="flex items-start gap-2.5 min-w-0">
+        {type === 'alignment' ? (
+          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+        ) : (
+          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+        )}
+        <span className="text-sm text-slate-700 leading-relaxed">{text}</span>
+      </div>
+
+      <div className="flex items-center gap-1 shrink-0">
+        {rated ? (
+          <span className={`text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wider ${
+            rated === 'agree' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+          }`}>
+            {rated === 'agree' ? 'Correct' : 'Incorrect'}
+          </span>
+        ) : (
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              onClick={() => handleRate('agree')}
+              className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-100/50 rounded-lg transition-colors"
+              title="This is correct"
+            >
+              <ThumbsUp className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => handleRate('disagree')}
+              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-100/50 rounded-lg transition-colors"
+              title="This is incorrect"
+            >
+              <ThumbsDown className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

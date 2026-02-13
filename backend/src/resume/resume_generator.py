@@ -36,7 +36,17 @@ class ResumeGenerator:
         self.gemini_model = None
         if gemini_api_key:
             genai.configure(api_key=gemini_api_key)
-            self.gemini_model = genai.GenerativeModel('gemini-2.5-flash')  # Latest flash model
+            # Use system instruction to enforce strict output format
+            system_instruction = (
+                "You are an expert resume writer. "
+                "You MUST return ONLY valid HTML. "
+                "Do NOT include any introduction, conversational filler, or markdown code fences. "
+                "Start your response immediately with <!DOCTYPE html> and end with </html>."
+            )
+            self.gemini_model = genai.GenerativeModel(
+                model_name='gemini-2.5-flash',
+                system_instruction=system_instruction
+            )
 
     def generate_resume_html(self, user_profile: Dict, job: Dict,
                             claimed_data: Optional[Dict] = None,
@@ -84,11 +94,22 @@ class ResumeGenerator:
                 api_used = 'claude'
                 logger.info(f"Resume generated with Claude (fallback: {self.gemini_model is not None})")
 
-                # Clean up any markdown code fences if Claude included them
-                if html_content.startswith('```html'):
-                    html_content = html_content.split('```html\n', 1)[1].rsplit('```', 1)[0]
-                elif html_content.startswith('```'):
-                    html_content = html_content.split('```\n', 1)[1].rsplit('```', 1)[0]
+            # Robust extraction of HTML content (strips markdown fences and preambles)
+            if html_content:
+                # Find start of HTML
+                start_idx = html_content.find('<!DOCTYPE html>')
+                if start_idx == -1:
+                    start_idx = html_content.find('<html')
+                
+                # Find end of HTML
+                end_idx = html_content.rfind('</html>')
+                if end_idx != -1:
+                    end_idx += 7 # Length of </html>
+                
+                if start_idx != -1 and end_idx != -1:
+                    html_content = html_content[start_idx:end_idx]
+                elif start_idx != -1:
+                    html_content = html_content[start_idx:]
 
             # Convert markdown formatting to HTML for both APIs
             html_content = self._convert_markdown_to_html(html_content)
@@ -132,17 +153,13 @@ class ResumeGenerator:
 
         html_content = response.text.strip()
 
-        # Validate HTML structure
+        # Validate HTML structure presence (extraction happens in main function)
         if '<!DOCTYPE html>' not in html_content or '</html>' not in html_content:
-            raise ValueError("Gemini did not return valid HTML")
+            # Check for <html tag as fallback
+            if '<html' not in html_content:
+                raise ValueError("Gemini did not return valid HTML")
 
-        # Clean markdown fences (Gemini may add them)
-        if html_content.startswith('```html'):
-            html_content = html_content.split('```html\n', 1)[1].rsplit('```', 1)[0]
-        elif html_content.startswith('```'):
-            html_content = html_content.split('```\n', 1)[1].rsplit('```', 1)[0]
-
-        return html_content.strip()
+        return html_content
 
     def _convert_markdown_to_html(self, text: str) -> str:
         """

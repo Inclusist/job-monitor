@@ -269,3 +269,26 @@ export interface ProfileResponse {
   active_cv_id: number | null;
   claimed_data: ClaimedData | null;
 }
+
+export interface LearningInsights {
+  success: boolean;
+  ai_instructions: string;
+  preferences: {
+    has_feedback: boolean;
+    total_feedback: number;
+    agreement_rate: number;
+    liked_job_examples: any[];
+    disliked_job_examples: any[];
+    key_preferences: {
+      valued_aspects: string[];
+      dealbreakers: string[];
+    };
+    scoring_calibration: {
+      avg_original_score: number;
+      avg_user_score: number;
+      score_bias: number;
+      needs_calibration: boolean;
+    };
+  };
+  feedback_history: any[];
+}

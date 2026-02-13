@@ -112,3 +112,26 @@ export async function updateJobStatus(jobId: number, status: DashboardStatus): P
   const { data } = await api.post(`/api/jobs/${jobId}/update-status`, { status });
   return data;
 }
+
+export async function submitFeedback(
+  jobId: number,
+  feedbackData: {
+    feedback_type: 'agree' | 'disagree' | 'too_high' | 'too_low';
+    match_score_original: number;
+    match_score_user?: number;
+    feedback_reason?: string;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  const { data } = await api.post(`/api/jobs/${jobId}/feedback`, feedbackData);
+  return data;
+}
+
+export async function getLearningInsights(): Promise<{
+  success: boolean;
+  ai_instructions: string;
+  preferences: any;
+  feedback_history: any[];
+}> {
+  const { data } = await api.get('/api/learning-insights');
+  return data;
+}

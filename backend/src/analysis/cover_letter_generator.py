@@ -66,7 +66,18 @@ class CoverLetterGenerator:
         self.gemini_model = None
         if gemini_api_key:
             genai.configure(api_key=gemini_api_key)
-            self.gemini_model = genai.GenerativeModel('gemini-2.5-flash')  # Latest flash model
+            # Use system instruction to enforce strict output format
+            system_instruction = (
+                "You are an expert cover letter writer. "
+                "You MUST return ONLY the cover letter text itself. "
+                "Do NOT include any introduction, conversational filler (like 'Here is the cover letter'), "
+                "markdown code fences, or post-generation comments. "
+                "The response should start with the greeting and end with the applicant's name."
+            )
+            self.gemini_model = genai.GenerativeModel(
+                model_name='gemini-2.5-flash',
+                system_instruction=system_instruction
+            )
     
     def generate_cover_letter(
         self,
@@ -131,6 +142,34 @@ class CoverLetterGenerator:
                 cover_letter = response.content[0].text.strip()
                 api_used = 'claude'
                 logger.info(f"Cover letter generated with Claude (fallback: {self.gemini_model is not None})")
+
+            # Clean up any conversational filler or code fences
+            if cover_letter:
+                # Remove common markdown code fences
+                if cover_letter.startswith('```'):
+                    lines = cover_letter.split('\n')
+                    if lines[0].startswith('```'):
+                        lines = lines[1:]
+                    if lines and lines[-1].startswith('```'):
+                        lines = lines[:-1]
+                    cover_letter = '\n'.join(lines).strip()
+                
+                # Remove common preambles
+                preambles = [
+                    "Here's the cover letter:",
+                    "Here is the cover letter:",
+                    "Sure, here's a cover letter",
+                    "Sure, here is a cover letter",
+                    "I have generated a cover letter",
+                    "Based on the information provided",
+                ]
+                for preamble in preambles:
+                    if cover_letter.lower().startswith(preamble.lower()):
+                        cover_letter = cover_letter[len(preamble):].strip()
+                        # Remove leading colon if present
+                        if cover_letter.startswith(':'):
+                            cover_letter = cover_letter[1:].strip()
+                        break
 
             return {
                 'cover_letter': cover_letter,
@@ -207,20 +246,20 @@ class CoverLetterGenerator:
         
         # Language-specific instructions
         if language == 'german':
-            lang_instruction = """
+            lang_instruction = f"""
 Write the cover letter in GERMAN (Deutsch).
 Use formal German business language: "Sie" form, proper formal greetings and closings.
 Structure: "Sehr geehrte Damen und Herren," or "Sehr geehrte/r [Name]," (if hiring manager known)
-Closing: "Mit freundlichen Grüßen"
+Closing: "Mit freundlichen Grüßen," followed by the applicant's name: {name}
 """
         else:
-            lang_instruction = """
+            lang_instruction = f"""
 Write the cover letter in ENGLISH.
 Use professional business English.
 Greeting: "Dear Hiring Manager," or "Dear [Name]," (if known)
-Closing: "Sincerely," or "Best regards,"
+Closing: "Sincerely," or "Best regards," followed by the applicant's name: {name}
 """
-        
+
         # Style-specific instructions
         style_instructions = {
             'professional': """
@@ -228,7 +267,7 @@ Closing: "Sincerely," or "Best regards,"
 - Clear structure: opening, 2-3 body paragraphs, closing
 - Emphasize qualifications and fit
 - Professional tone throughout
-- Traditional sign-off
+- Traditional sign-off with the applicant's name
 """,
             'technical': """
 - Emphasize specific technologies, tools, and methodologies
@@ -236,6 +275,7 @@ Closing: "Sincerely," or "Best regards,"
 - Reference relevant technical skills from the job description
 - Show deep technical understanding
 - Use industry-specific terminology appropriately
+- Professional sign-off with the applicant's name
 """,
             'results': """
 - Lead with quantifiable achievements
@@ -243,6 +283,7 @@ Closing: "Sincerely," or "Best regards,"
 - Use action verbs: "achieved," "increased," "delivered"
 - Focus on business outcomes and ROI
 - Demonstrate track record of success
+- Professional sign-off with the applicant's name
 """,
             'conversational': """
 - Warm, approachable tone while maintaining professionalism
@@ -250,6 +291,7 @@ Closing: "Sincerely," or "Best regards,"
 - Use "I'm excited about" rather than "I am writing to express interest"
 - More natural, less formal language
 - Show enthusiasm genuinely
+- Friendly but professional sign-off with the applicant's name
 """,
             'enthusiastic': """
 - Express genuine excitement about the role and company
@@ -257,6 +299,7 @@ Closing: "Sincerely," or "Best regards,"
 - Explain WHY you want THIS job at THIS company
 - Connect personal values to company values
 - Energetic but professional tone
+- Passionate sign-off with the applicant's name
 """,
             'executive': """
 - Strategic, high-level perspective
@@ -264,12 +307,15 @@ Closing: "Sincerely," or "Best regards,"
 - Mention team building, organizational change, strategic initiatives
 - Demonstrate executive presence
 - Less detail on technical execution, more on strategic direction
+- Executive sign-off with the applicant's name
 """
         }
         
         style_guide = style_instructions.get(style, style_instructions['professional'])
         
         prompt = f"""Generate a compelling cover letter for this job application.
+
+**CRITICAL INSTRUCTION:** Do NOT include any preamble, introduction, or conversational filler like "Here is the cover letter:". Start your response IMMEDIATELY with the greeting (e.g., "Dear Hiring Manager,"). Do NOT use markdown code fences.
 
 CANDIDATE PROFILE:
 Name: {name}

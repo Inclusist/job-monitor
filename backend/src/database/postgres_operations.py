@@ -806,32 +806,45 @@ class PostgresDatabase:
             # Parse JSON fields - prefer user-specific, fallback to job table
             import json
 
-            # Helper to parse JSON field
-            def parse_json(field):
+            # Helper to parse JSON field with comma-separated fallback
+            def parse_list_field(field):
                 if not field:
                     return []
                 if isinstance(field, list):
                     return field
                 if isinstance(field, str):
-                    try:
-                        return json.loads(field)
-                    except:
+                    field = field.strip()
+                    if not field:
                         return []
+                    # Try JSON first
+                    if field.startswith('[') and field.endswith(']'):
+                        try:
+                            return json.loads(field)
+                        except:
+                            pass
+                    
+                    # Fallback: assume comma-separated if it doesn't look like JSON or JSON parsing failed
+                    # But only if it's NOT a complex JSON object
+                    if ',' in field:
+                        return [item.strip() for item in field.split(',') if item.strip()]
+                    
+                    # Single item
+                    return [field]
                 return []
 
             # Key alignments
             if job.get('user_key_alignments'):
-                job['key_alignments'] = parse_json(job['user_key_alignments'])
+                job['key_alignments'] = parse_list_field(job['user_key_alignments'])
             elif job.get('key_alignments'):
-                job['key_alignments'] = parse_json(job['key_alignments'])
+                job['key_alignments'] = parse_list_field(job['key_alignments'])
             else:
                 job['key_alignments'] = []
 
             # Potential gaps
             if job.get('user_potential_gaps'):
-                job['potential_gaps'] = parse_json(job['user_potential_gaps'])
+                job['potential_gaps'] = parse_list_field(job['user_potential_gaps'])
             elif job.get('potential_gaps'):
-                job['potential_gaps'] = parse_json(job['potential_gaps'])
+                job['potential_gaps'] = parse_list_field(job['potential_gaps'])
             else:
                 job['potential_gaps'] = []
 
@@ -968,12 +981,12 @@ class PostgresDatabase:
             cursor = conn.cursor()
             now = datetime.now()
             
-            # Convert lists to comma-separated strings
-            key_alignments_str = ', '.join(key_alignments) if key_alignments else ''
-            potential_gaps_str = ', '.join(potential_gaps) if potential_gaps else ''
+            import json
+            # Store lists as JSON strings for robustness
+            key_alignments_json = json.dumps(key_alignments) if key_alignments else '[]'
+            potential_gaps_json = json.dumps(potential_gaps) if potential_gaps else '[]'
             
             # Convert mappings to JSON strings
-            import json
             competency_mappings_json = json.dumps(competency_mappings) if competency_mappings else None
             skill_mappings_json = json.dumps(skill_mappings) if skill_mappings else None
             
@@ -1005,7 +1018,7 @@ class PostgresDatabase:
             """, (
                 user_id, job_id, semantic_score, now if semantic_score else None,
                 claude_score, now if claude_score else None, priority, match_reasoning,
-                key_alignments_str, potential_gaps_str, competency_mappings_json, skill_mappings_json,
+                key_alignments_json, potential_gaps_json, competency_mappings_json, skill_mappings_json,
                 now, now
             ))
             
@@ -1042,18 +1055,18 @@ class PostgresDatabase:
             # Prepare batch data
             values = []
             for match in matches:
-                # Convert lists to comma-separated strings
+                import json
+                # Store lists as JSON strings for robustness
                 key_alignments = match.get('key_alignments', [])
                 potential_gaps = match.get('potential_gaps', [])
-                key_alignments_str = ', '.join(key_alignments) if key_alignments else ''
-                potential_gaps_str = ', '.join(potential_gaps) if potential_gaps else ''
+                key_alignments_json = json.dumps(key_alignments) if key_alignments else '[]'
+                potential_gaps_json = json.dumps(potential_gaps) if potential_gaps else '[]'
 
                 # Get competency and skill mappings (keep as list/dict for JSONB)
                 competency_mappings = match.get('competency_mappings', [])
                 skill_mappings = match.get('skill_mappings', [])
 
                 # Convert to JSON string for psycopg2 (it will handle JSONB conversion)
-                import json
                 competency_mappings_json = json.dumps(competency_mappings) if competency_mappings else None
                 skill_mappings_json = json.dumps(skill_mappings) if skill_mappings else None
 
@@ -1066,8 +1079,8 @@ class PostgresDatabase:
                     now if match.get('claude_score') else None,
                     match.get('priority'),
                     match.get('match_reasoning'),
-                    key_alignments_str,
-                    potential_gaps_str,
+                    key_alignments_json,
+                    potential_gaps_json,
                     competency_mappings_json,
                     skill_mappings_json,
                     now,
