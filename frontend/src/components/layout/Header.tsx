@@ -1,13 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Target, LogOut, User, Settings, ChevronDown, Brain } from 'lucide-react';
+import { Target, LogOut, User, Settings, ChevronDown, Brain, MessageSquare } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { getLogoutUrl } from '../../services/auth';
+import FeedbackModal from '../ui/FeedbackModal';
 
 export default function Header() {
   const { user, isAuthenticated } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -21,124 +23,142 @@ export default function Header() {
   }, []);
 
   return (
-    <motion.header
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6 }}
-      className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-md border-b border-cyan-100"
-    >
-      <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
-        <Link to="/" className="flex items-center space-x-2">
-          <Target className="w-6 h-6 text-cyan-600" strokeWidth={1.5} />
-          <span className="text-xl font-semibold text-slate-900 tracking-tight">Inclusist</span>
-        </Link>
+    <>
+      <motion.header
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+        className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-md border-b border-cyan-100"
+      >
+        <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
+          <Link to="/" className="flex items-center space-x-2">
+            <Target className="w-6 h-6 text-cyan-600" strokeWidth={1.5} />
+            <span className="text-xl font-semibold text-slate-900 tracking-tight">Inclusist</span>
+          </Link>
 
-        <nav className="hidden md:flex items-center space-x-8">
-          {isAuthenticated ? (
-            <>
-              <Link
-                to="/jobs"
-                className="text-slate-600 hover:text-cyan-600 transition-colors text-sm font-medium"
-              >
-                Jobs
-              </Link>
-              <Link
-                to="/dashboard"
-                className="text-slate-600 hover:text-cyan-600 transition-colors text-sm font-medium"
-              >
-                Dashboard
-              </Link>
-              <Link
-                to="/documents"
-                className="text-slate-600 hover:text-cyan-600 transition-colors text-sm font-medium"
-              >
-                My Documents
-              </Link>
-
-              {/* Avatar dropdown */}
-              <div className="relative" ref={dropdownRef}>
-                <button
-                  onClick={() => setDropdownOpen((prev) => !prev)}
-                  className="flex items-center space-x-2 hover:opacity-80 transition-opacity"
+          <nav className="hidden md:flex items-center space-x-8">
+            {isAuthenticated ? (
+              <>
+                <Link
+                  to="/jobs"
+                  className="text-slate-600 hover:text-cyan-600 transition-colors text-sm font-medium"
                 >
-                  {user?.avatar_url ? (
-                    <img
-                      src={user.avatar_url}
-                      alt={user.name}
-                      className="w-8 h-8 rounded-full"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-700 text-sm font-semibold">
-                      {user?.name?.charAt(0) || '?'}
-                    </div>
-                  )}
-                  <span className="text-sm text-slate-700 font-medium">{user?.name}</span>
-                  <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+                  Jobs
+                </Link>
+                <Link
+                  to="/dashboard"
+                  className="text-slate-600 hover:text-cyan-600 transition-colors text-sm font-medium"
+                >
+                  Dashboard
+                </Link>
+                <Link
+                  to="/documents"
+                  className="text-slate-600 hover:text-cyan-600 transition-colors text-sm font-medium"
+                >
+                  My Documents
+                </Link>
+
+                <button
+                  onClick={() => {
+                    console.log('Feedback button clicked');
+                    setFeedbackOpen(true);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-50 text-slate-600 hover:bg-cyan-50 hover:text-cyan-600 transition-all rounded-xl text-sm font-semibold border border-slate-100"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  Feedback
                 </button>
 
-                {dropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-cyan-100 py-1 z-50">
-                    <Link
-                      to="/profile"
-                      onClick={() => setDropdownOpen(false)}
-                      className="flex items-center space-x-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-cyan-50 transition-colors"
-                    >
-                      <User className="w-4 h-4 text-slate-400" />
-                      <span>Profile</span>
-                    </Link>
-                    <Link
-                      to="/preferences"
-                      onClick={() => setDropdownOpen(false)}
-                      className="flex items-center space-x-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-cyan-50 transition-colors"
-                    >
-                      <Settings className="w-4 h-4 text-slate-400" />
-                      <span>Preferences</span>
-                    </Link>
-                    <Link
-                      to="/learning-insights"
-                      onClick={() => setDropdownOpen(false)}
-                      className="flex items-center space-x-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-cyan-50 transition-colors"
-                    >
-                      <Brain className="w-4 h-4 text-cyan-500" />
-                      <span>Learning Insights</span>
-                    </Link>
-                    <div className="border-t border-cyan-100 my-1" />
-                    <a
-                      href={getLogoutUrl()}
-                      className="flex items-center space-x-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-cyan-50 transition-colors"
-                    >
-                      <LogOut className="w-4 h-4 text-slate-400" />
-                      <span>Logout</span>
-                    </a>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <a
-                href="#how-it-works"
-                className="text-slate-600 hover:text-cyan-600 transition-colors text-sm font-medium"
-              >
-                How it Works
-              </a>
-              <a
-                href="#quality"
-                className="text-slate-600 hover:text-cyan-600 transition-colors text-sm font-medium"
-              >
-                Philosophy
-              </a>
-              <Link
-                to="/login"
-                className="px-5 py-2.5 bg-cyan-600 text-white text-sm font-medium rounded-lg hover:bg-cyan-700 transition-colors"
-              >
-                Login
-              </Link>
-            </>
-          )}
-        </nav>
-      </div>
-    </motion.header>
+                {/* Avatar dropdown */}
+                <div className="relative" ref={dropdownRef}>
+                  <button
+                    onClick={() => setDropdownOpen((prev) => !prev)}
+                    className="flex items-center space-x-2 hover:opacity-80 transition-opacity"
+                  >
+                    {user?.avatar_url ? (
+                      <img
+                        src={user.avatar_url}
+                        alt={user.name}
+                        className="w-8 h-8 rounded-full"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-700 text-sm font-semibold">
+                        {user?.name?.charAt(0) || '?'}
+                      </div>
+                    )}
+                    <span className="text-sm text-slate-700 font-medium">{user?.name}</span>
+                    <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {dropdownOpen && (
+                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-cyan-100 py-1 z-50">
+                      <Link
+                        to="/profile"
+                        onClick={() => setDropdownOpen(false)}
+                        className="flex items-center space-x-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-cyan-50 transition-colors"
+                      >
+                        <User className="w-4 h-4 text-slate-400" />
+                        <span>Profile</span>
+                      </Link>
+                      <Link
+                        to="/preferences"
+                        onClick={() => setDropdownOpen(false)}
+                        className="flex items-center space-x-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-cyan-50 transition-colors"
+                      >
+                        <Settings className="w-4 h-4 text-slate-400" />
+                        <span>Preferences</span>
+                      </Link>
+                      <Link
+                        to="/learning-insights"
+                        onClick={() => setDropdownOpen(false)}
+                        className="flex items-center space-x-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-cyan-50 transition-colors"
+                      >
+                        <Brain className="w-4 h-4 text-cyan-500" />
+                        <span>Learning Insights</span>
+                      </Link>
+                      <div className="border-t border-cyan-100 my-1" />
+                      <a
+                        href={getLogoutUrl()}
+                        className="flex items-center space-x-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-cyan-50 transition-colors"
+                      >
+                        <LogOut className="w-4 h-4 text-slate-400" />
+                        <span>Logout</span>
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <a
+                  href="#how-it-works"
+                  className="text-slate-600 hover:text-cyan-600 transition-colors text-sm font-medium"
+                >
+                  How it Works
+                </a>
+                <a
+                  href="#quality"
+                  className="text-slate-600 hover:text-cyan-600 transition-colors text-sm font-medium"
+                >
+                  Philosophy
+                </a>
+                <Link
+                  to="/login"
+                  className="px-5 py-2.5 bg-cyan-600 text-white text-sm font-medium rounded-lg hover:bg-cyan-700 transition-colors"
+                >
+                  Login
+                </Link>
+              </>
+            )}
+          </nav>
+        </div>
+      </motion.header>
+
+      <FeedbackModal 
+        isOpen={feedbackOpen} 
+        onClose={() => setFeedbackOpen(false)} 
+      />
+    </>
   );
 }

@@ -251,6 +251,18 @@ class PostgresDatabase:
                     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 )
             """)
+
+            # Tool feedback table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS tool_feedback (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    ratings JSONB NOT NULL,
+                    comment TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+                )
+            """)
             
             # Indexes
             cursor.execute("""
@@ -1401,6 +1413,26 @@ class PostgresDatabase:
 
             results = [dict(row) for row in cursor.fetchall()]
             return results
+        finally:
+            cursor.close()
+            self._return_connection(conn)
+
+    def add_tool_feedback(self, user_id: int, ratings: dict, comment: str) -> bool:
+        """Add general feedback about the tool with multiple ratings"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            import json
+            cursor.execute("""
+                INSERT INTO tool_feedback (user_id, ratings, comment)
+                VALUES (%s, %s, %s)
+            """, (user_id, json.dumps(ratings), comment))
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error adding tool feedback: {e}")
+            return False
         finally:
             cursor.close()
             self._return_connection(conn)

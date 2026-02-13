@@ -135,6 +135,18 @@ class JobDatabase:
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_user_job_matches_scores ON user_job_matches(user_id, semantic_score, claude_score)
         """)
+
+        # Tool feedback table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tool_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                ratings TEXT NOT NULL,
+                comment TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+            )
+        """)
         
         conn.commit()
         conn.close()
@@ -519,6 +531,23 @@ class JobDatabase:
         
         conn.close()
         return feedback
+
+    def add_tool_feedback(self, user_id: int, ratings: dict, comment: str) -> bool:
+        """Add general feedback about the tool with multiple ratings"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            import json
+            cursor.execute("""
+                INSERT INTO tool_feedback (user_id, ratings, comment)
+                VALUES (?, ?, ?)
+            """, (user_id, json.dumps(ratings), comment))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"Error adding tool feedback: {e}")
+            return False
     
     def get_shortlisted_jobs(self, user_email: str = 'default@localhost') -> List[Dict]:
         """

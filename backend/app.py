@@ -4234,6 +4234,31 @@ def api_learning_insights():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/tool-feedback', methods=['POST'])
+@login_required
+def api_tool_feedback():
+    """Save general feedback about the tool"""
+    user_id = get_user_id()
+    try:
+        data = request.json or {}
+        ratings = data.get('ratings')
+        comment = data.get('comment')
+
+        if not ratings or not isinstance(ratings, dict):
+            return jsonify({'success': False, 'error': 'Ratings are required'}), 400
+
+        success = job_db.add_tool_feedback(
+            user_id=user_id,
+            ratings=ratings,
+            comment=comment
+        )
+        return jsonify({'success': success})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/update-contact-info', methods=['POST'])
 @login_required
 def update_contact_info():

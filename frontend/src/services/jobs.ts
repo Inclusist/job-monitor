@@ -135,3 +135,11 @@ export async function getLearningInsights(): Promise<{
   const { data } = await api.get('/api/learning-insights');
   return data;
 }
+
+export async function submitToolFeedback(feedbackData: {
+  ratings: Record<string, number>;
+  comment: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const { data } = await api.post('/api/tool-feedback', feedbackData);
+  return data;
+}
