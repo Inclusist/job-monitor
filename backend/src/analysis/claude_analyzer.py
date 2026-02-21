@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class ClaudeJobAnalyzer:
-    def __init__(self, api_key: str, model: str = "claude-3-5-haiku-20241022", 
+    def __init__(self, api_key: str, model: str = "claude-haiku-4-5-20251001", 
                  db=None, user_email: str = 'default@localhost'):
         """
         Initialize Claude analyzer
@@ -279,7 +279,7 @@ class ClaudeJobAnalyzer:
         
         try:
             response = self.client.messages.create(
-                model="claude-3-5-haiku-20241022",  # Use newer Haiku with 8192 token limit
+                model="claude-haiku-4-5-20251001",  # Use newer Haiku with 8192 token limit
                 max_tokens=4096,  # Safe limit for batch extraction
                 temperature=0,
                 messages=[{"role": "user", "content": prompt}]

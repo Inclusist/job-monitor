@@ -48,7 +48,7 @@ class CoverLetterGenerator:
         }
     }
     
-    def __init__(self, api_key: str, model: str = "claude-3-5-haiku-20241022",
+    def __init__(self, api_key: str, model: str = "claude-haiku-4-5-20251001",
                  gemini_api_key: Optional[str] = None):
         """
         Initialize cover letter generator

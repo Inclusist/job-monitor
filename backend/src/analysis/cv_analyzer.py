@@ -373,7 +373,7 @@ Respond ONLY with valid JSON, no additional text."""
         return round(input_cost + output_cost, 4)
 
     @staticmethod
-    def estimate_parsing_cost(text_length: int, model: str = "claude-3-5-haiku-20241022") -> float:
+    def estimate_parsing_cost(text_length: int, model: str = "claude-haiku-4-5-20251001") -> float:
         """
         Estimate cost before parsing
 

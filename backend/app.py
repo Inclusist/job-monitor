@@ -1445,7 +1445,7 @@ def run_custom_search():
         
         # Analyze with Claude
         api_key = os.getenv('ANTHROPIC_API_KEY')
-        analyzer = ClaudeJobAnalyzer(api_key, model="claude-3-5-haiku-20241022")
+        analyzer = ClaudeJobAnalyzer(api_key, model="claude-haiku-4-5-20251001")
         
         # Use CV profile
         cv_profile = cv_manager.get_profile_by_user(user['id'])
@@ -2157,7 +2157,7 @@ def update_job_status(job_id, status):
         api_key = os.getenv('ANTHROPIC_API_KEY')
         analyzer = ClaudeJobAnalyzer(
             api_key=api_key,
-            model=config.get('analysis', {}).get('model', 'claude-3-5-haiku-20241022'),
+            model=config.get('analysis', {}).get('model', 'claude-haiku-4-5-20251001'),
             db=job_db,
             user_email=user['email']
         )

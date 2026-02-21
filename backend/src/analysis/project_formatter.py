@@ -25,7 +25,7 @@ class ProjectFormatter:
         """
         # Claude client (fallback)
         self.client = Anthropic(api_key=anthropic_api_key)
-        self.model = "claude-3-5-haiku-20241022"
+        self.model = "claude-haiku-4-5-20251001"
 
         # Gemini client (primary)
         self.gemini_model = None

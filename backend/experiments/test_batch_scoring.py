@@ -59,7 +59,7 @@ print("\n" + "="*60)
 print("🚀 Running batch scoring...")
 print("="*60)
 
-analyzer = ClaudeJobAnalyzer(os.getenv('ANTHROPIC_API_KEY'), model="claude-3-5-haiku-20241022")
+analyzer = ClaudeJobAnalyzer(os.getenv('ANTHROPIC_API_KEY'), model="claude-haiku-4-5-20251001")
 analyzer.set_profile_from_cv(profile)
 
 try:

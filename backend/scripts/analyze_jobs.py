@@ -103,7 +103,7 @@ def analyze_jobs(min_score: int = 50, max_jobs: int = None,
     print(f"\n🤖 Initializing Claude analyzer...")
     analyzer = ClaudeJobAnalyzer(
         api_key=api_key,
-        model="claude-3-5-haiku-20241022",  # Cost-effective model
+        model="claude-haiku-4-5-20251001",  # Cost-effective model
         db=job_db,
         user_email=user_email or 'default@localhost'
     )

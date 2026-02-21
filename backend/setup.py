@@ -129,7 +129,7 @@ def test_claude():
         with open('config.yaml', 'r') as f:
             config = yaml.safe_load(f)
         
-        analyzer = ClaudeJobAnalyzer(api_key, model="claude-3-5-haiku-20241022")
+        analyzer = ClaudeJobAnalyzer(api_key, model="claude-haiku-4-5-20251001")
         analyzer.set_profile(config['profile'])
         
         # Test with a simple job

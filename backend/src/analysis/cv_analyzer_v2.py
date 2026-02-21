@@ -5,7 +5,7 @@ from anthropic import Anthropic
 from src.analysis.cv_analyzer import CVAnalyzer
 
 class CVAnalyzerV2(CVAnalyzer):
-    def __init__(self, api_key: str, model: str = "claude-3-5-haiku-20241022"):
+    def __init__(self, api_key: str, model: str = "claude-haiku-4-5-20251001"):
         super().__init__(api_key, model)
 
     def _create_parsing_prompt(self, cv_text: str) -> str:

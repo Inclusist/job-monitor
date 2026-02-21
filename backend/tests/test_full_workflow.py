@@ -258,7 +258,7 @@ class TestWorkflowIntegration:
         
         analyzer = ClaudeJobAnalyzer(
             api_key=api_key,
-            model='claude-3-5-haiku-20241022',  # Use cost-effective model
+            model='claude-haiku-4-5-20251001',  # Use cost-effective model
             db=job_db,
             user_email=test_user['email']
         )
