@@ -152,7 +152,7 @@ class ClaudeJobAnalyzer:
         try:
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=1000,
+                max_tokens=4096,
                 messages=[
                     {"role": "user", "content": prompt}
                 ]
@@ -176,7 +176,7 @@ class ClaudeJobAnalyzer:
                 'reasoning': f'Error during analysis: {str(e)}'
             }
     
-    def analyze_batch(self, jobs: list, batch_size: int = 15) -> list:
+    def analyze_batch(self, jobs: list, batch_size: int = 5) -> list:
         """
         Analyze multiple jobs using true batch processing (multiple jobs per API call).
         
@@ -378,7 +378,7 @@ Output PURE JSON only, no markdown.
         try:
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=min(8192, len(jobs) * 200 + 2000),  # Haiku max is 8192
+                max_tokens=8192,  # Always use Haiku max to avoid truncation
                 temperature=0,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -499,22 +499,23 @@ CANDIDATE PROFILE:
                 clean_text = clean_text[3:]
             if clean_text.endswith("```"):
                 clean_text = clean_text[:-3]
-            
-            result = json.loads(clean_text.strip())
-            
+            clean_text = clean_text.strip()
+
+            result = json.loads(clean_text)
+
             # Convert dict to list, maintaining order
             analyses = []
             for i in range(1, expected_count + 1):
                 job_key = f"job_{i}"
                 if job_key in result:
                     analysis = result[job_key]
-                    
+
                     # Validate and fix priority if needed
                     score = analysis.get('match_score', 50)
                     correct_priority = self._calculate_priority(score)
                     if analysis.get('priority') != correct_priority:
                         analysis['priority'] = correct_priority
-                    
+
                     analyses.append(analysis)
                 else:
                     # Missing job - add default
@@ -523,13 +524,50 @@ CANDIDATE PROFILE:
                         'priority': 'medium',
                         'key_alignments': [],
                         'potential_gaps': ['Analysis incomplete'],
-                        'reasoning': 'Could not analyze this job'
+                        'reasoning': 'Could not analyze this job in batch'
                     })
-            
+
             return analyses
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse batch scoring JSON: {e}")
+            logger.error(f"Response text (first 500 chars): {response_text[:500]}")
+            logger.error(f"Response text (last 200 chars): {response_text[-200:]}")
+
+            # Try to recover individual jobs from truncated JSON using regex
+            import re
+            analyses = []
+            recovered_count = 0
+            for i in range(1, expected_count + 1):
+                job_key = f"job_{i}"
+                pattern = rf'"{job_key}"\s*:\s*\{{[^{{}}]*?"match_score"\s*:\s*(\d+)[^{{}}]*?"priority"\s*:\s*"(high|medium|low)"'
+                match = re.search(pattern, response_text, re.DOTALL)
+                if match:
+                    score = int(match.group(1))
+                    analyses.append({
+                        'match_score': score,
+                        'priority': self._calculate_priority(score),
+                        'key_alignments': [],
+                        'potential_gaps': ['Partial analysis recovered'],
+                        'reasoning': 'Score recovered from truncated batch response'
+                    })
+                    recovered_count += 1
+                else:
+                    analyses.append({
+                        'match_score': 50,
+                        'priority': 'medium',
+                        'key_alignments': [],
+                        'potential_gaps': ['Analysis incomplete'],
+                        'reasoning': 'Could not analyze this job in batch'
+                    })
+
+            if recovered_count > 0:
+                logger.info(f"Recovered {recovered_count}/{expected_count} scores from truncated batch response")
+                return analyses
+
+            # No recovery possible, raise to trigger sequential fallback
+            raise
         except Exception as e:
             logger.error(f"Failed to parse batch scoring: {e}")
-            logger.debug(f"Response text: {response_text[:500]}")
             raise
     
     def _create_analysis_prompt(self, job: Dict[str, Any]) -> str:
@@ -836,42 +874,73 @@ Respond ONLY with valid JSON, no additional text.
     def _parse_response(self, response_text: str) -> Dict[str, Any]:
         """Parse Claude's JSON response"""
         try:
+            # Strip markdown code fences if present
+            clean_text = response_text.strip()
+            if clean_text.startswith("```json"):
+                clean_text = clean_text[7:]
+            if clean_text.startswith("```"):
+                clean_text = clean_text[3:]
+            if clean_text.endswith("```"):
+                clean_text = clean_text[:-3]
+            clean_text = clean_text.strip()
+
             # Try to find JSON in the response
-            start = response_text.find('{')
-            end = response_text.rfind('}') + 1
-            
+            start = clean_text.find('{')
+            end = clean_text.rfind('}') + 1
+
             if start != -1 and end != 0:
-                json_str = response_text[start:end]
+                json_str = clean_text[start:end]
                 analysis = json.loads(json_str)
-                
+
                 # Validate required fields
-                required_fields = ['match_score', 'priority', 'key_alignments', 
+                required_fields = ['match_score', 'priority', 'key_alignments',
                                  'potential_gaps', 'reasoning']
-                
+
                 for field in required_fields:
                     if field not in analysis:
                         analysis[field] = [] if field in ['key_alignments', 'potential_gaps'] else ''
-                
+
                 # FIX: Validate priority matches the score guidelines
                 # Sometimes Claude returns incorrect priority despite clear guidelines
                 score = analysis.get('match_score', 0)
                 correct_priority = self._calculate_priority(score)
-                
+
                 if analysis.get('priority') != correct_priority:
                     logger.warning(
                         f"Priority mismatch: Claude returned '{analysis.get('priority')}' "
                         f"for score {score}, correcting to '{correct_priority}'"
                     )
                     analysis['priority'] = correct_priority
-                
+
                 return analysis
             else:
                 raise ValueError("No JSON found in response")
-                
+
         except json.JSONDecodeError as e:
-            print(f"JSON parsing error: {e}")
-            print(f"Response text: {response_text}")
-            
+            logger.error(f"JSON parsing error: {e}")
+            logger.error(f"Response text (first 500 chars): {response_text[:500]}")
+
+            # Try to recover: extract match_score from truncated JSON
+            try:
+                import re
+                score_match = re.search(r'"match_score"\s*:\s*(\d+)', response_text)
+                priority_match = re.search(r'"priority"\s*:\s*"(high|medium|low)"', response_text)
+                reasoning_match = re.search(r'"reasoning"\s*:\s*"([^"]*)"', response_text)
+
+                if score_match:
+                    score = int(score_match.group(1))
+                    reasoning = reasoning_match.group(1) if reasoning_match else 'Partial analysis recovered from truncated response'
+                    logger.info(f"Recovered score={score} from truncated JSON")
+                    return {
+                        'match_score': score,
+                        'priority': self._calculate_priority(score),
+                        'key_alignments': [],
+                        'potential_gaps': ['Analysis partially recovered'],
+                        'reasoning': reasoning
+                    }
+            except Exception:
+                pass
+
             # Return default low-score analysis
             return {
                 'match_score': 50,
